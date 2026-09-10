@@ -13,13 +13,16 @@ dependencies = []
 [project.optional-dependencies]
 gui = ["dash>=3,<5", "plotly>=6,<7"]
 serial = ["pyserial>=3.5,<4"]
-dev = ["pytest>=8,<10", "ruff>=0.11,<1", "build>=1,<2"]
+dev = ["pytest>=8,<10", "ruff>=0.11,<1", "build>=1,<2", "mypy>=1.15,<2", "types-pyserial>=3.5"]
 
 [project.scripts]
 tark-chiller = "tark_chiller.__main__:main"
 
 [tool.setuptools.packages.find]
 where = ["src"]
+
+[tool.setuptools.package-data]
+tark_chiller = ["py.typed"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
@@ -31,3 +34,15 @@ line-length = 100
 
 [tool.ruff.lint]
 select = ["E4", "E7", "E9", "F", "I"]
+
+[tool.mypy]
+python_version = "3.12"
+files = ["src/tark_chiller"]
+check_untyped_defs = true
+disallow_untyped_defs = true
+warn_redundant_casts = true
+warn_unused_ignores = true
+
+[[tool.mypy.overrides]]
+module = ["plotly.*"]
+ignore_missing_imports = true

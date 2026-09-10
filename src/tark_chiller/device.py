@@ -1,7 +1,7 @@
 """The shared, synchronous backend contract; all temperatures use Celsius."""
 
 from dataclasses import dataclass
-from typing import Protocol, runtime_checkable
+from typing import Protocol
 
 
 @dataclass(frozen=True)
@@ -13,7 +13,6 @@ class DeviceStatus:
     detail: str = ""
 
 
-@runtime_checkable
 class ChillerDevice(Protocol):
     """Common backend operations implemented by simulation and serial devices."""
 

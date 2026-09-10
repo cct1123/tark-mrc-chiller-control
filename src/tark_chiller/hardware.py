@@ -1,13 +1,12 @@
 """Physical backend shell; disabled until a documented codec is supplied."""
 
-from math import isfinite
-from numbers import Real
 from threading import RLock
+from typing import Literal, overload
 
 from .device import DeviceStatus
 from .errors import ChillerConnectionError, ChillerError, ProtocolError, SetpointValidationError
 from .protocol import MissingProtocol, Operation, ProtocolCodec
-from .safety import DISTILLED_WATER, CoolantProfile
+from .safety import DISTILLED_WATER, CoolantProfile, _finite_real
 from .transport import Transport
 
 
@@ -49,7 +48,20 @@ class SerialDevice:
         with self._lock:
             self._transport.close()
 
-    def _call(self, operation: Operation, value: float | None = None):
+    @overload
+    def _call(
+        self, operation: Literal["get_temperature", "get_setpoint"], value: None = None
+    ) -> float: ...
+
+    @overload
+    def _call(self, operation: Literal["get_status"], value: None = None) -> DeviceStatus: ...
+
+    @overload
+    def _call(self, operation: Literal["set_setpoint"], value: float) -> None: ...
+
+    def _call(
+        self, operation: Operation, value: float | None = None
+    ) -> float | DeviceStatus | None:
         with self._lock:
             if not self.is_connected:
                 raise ChillerConnectionError("Chiller is disconnected")
@@ -59,15 +71,12 @@ class SerialDevice:
                 response = self._transport.exchange(request, self._codec.is_complete)
                 result = self._codec.decode(operation, response)
                 if operation in ("get_temperature", "get_setpoint"):
-                    if (
-                        isinstance(result, bool)
-                        or not isinstance(result, Real)
-                        or not isfinite(result)
-                    ):
+                    try:
+                        result = _finite_real(result, "decoded Celsius value")
+                    except SetpointValidationError as exc:
                         raise ProtocolError(
                             "Codec returned a non-finite or nonnumeric Celsius value"
-                        )
-                    result = float(result)
+                        ) from exc
                 elif operation == "get_status":
                     if not isinstance(result, DeviceStatus):
                         raise ProtocolError("Codec did not return DeviceStatus")

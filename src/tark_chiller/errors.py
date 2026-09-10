@@ -23,3 +23,7 @@ class ProtocolUnavailableError(ProtocolError):
 
 class TransportError(ChillerError):
     """A bounded serial operation failed; uncertain writes must not be retried."""
+
+
+class ChillerTimeoutError(TransportError):
+    """A connection or transaction exceeded its configured software time budget."""

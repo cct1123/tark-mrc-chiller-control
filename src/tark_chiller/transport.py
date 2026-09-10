@@ -10,10 +10,10 @@ from dataclasses import asdict, dataclass
 from math import isfinite
 from numbers import Real
 from threading import TIMEOUT_MAX, RLock
-from time import monotonic
+from time import perf_counter
 from typing import Any, Protocol
 
-from .errors import ProtocolError, TransportError
+from .errors import ChillerTimeoutError, ProtocolError, TransportError
 
 
 def _finite_number(value: object, name: str, *, positive: bool) -> None:
@@ -105,6 +105,20 @@ def _rs485_mode_factory(**settings: Any) -> Any:
     return RS485Settings(**settings)
 
 
+def _serial_error(message: str, error: Exception) -> TransportError:
+    """Recognize OS/pySerial timeouts without making serial a core dependency."""
+    if isinstance(error, TimeoutError):
+        return ChillerTimeoutError(f"{message}: {error}")
+    try:
+        from serial import SerialTimeoutException
+    except ImportError:
+        pass
+    else:
+        if isinstance(error, SerialTimeoutException):
+            return ChillerTimeoutError(f"{message}: {error}")
+    return TransportError(f"{message}: {error}")
+
+
 class RS232Transport:
     """One outstanding transaction, one write attempt, bounded response memory.
 
@@ -119,7 +133,7 @@ class RS232Transport:
         transaction_timeout_s: float = 1.0,
         max_response_bytes: int = 4096,
         serial_factory: Callable[..., Any] | None = None,
-        clock: Callable[[], float] = monotonic,
+        clock: Callable[[], float] = perf_counter,
     ) -> None:
         if not isinstance(settings, SerialSettings):
             raise ValueError("settings must be explicit SerialSettings")
@@ -172,7 +186,7 @@ class RS232Transport:
                 self._cleanup_after_error(exc)
                 if isinstance(exc, TransportError):
                     raise
-                raise TransportError(f"Serial open failed: {exc}") from exc
+                raise _serial_error("Serial open failed", exc) from exc
 
     def close(self) -> None:
         with self._lock:
@@ -182,7 +196,7 @@ class RS232Transport:
                     self._serial.close()
                 except Exception as exc:
                     # Keep the handle for an explicit later cleanup attempt.
-                    raise TransportError(f"Serial close failed: {exc}") from exc
+                    raise _serial_error("Serial close failed", exc) from exc
                 self._serial = None
 
     def _cleanup_after_error(self, original: Exception) -> None:
@@ -194,7 +208,7 @@ class RS232Transport:
     def _remaining(self, deadline: float) -> float:
         remaining = deadline - self._clock()
         if remaining <= 0:
-            raise TransportError("Serial transaction timed out; outcome may be unknown")
+            raise ChillerTimeoutError("Serial transaction timed out; outcome may be unknown")
         return remaining
 
     def exchange(self, request: bytes, is_complete: Callable[[bytes], bool]) -> bytes:
@@ -202,7 +216,7 @@ class RS232Transport:
             raise ProtocolError("Codec must provide a nonempty byte request")
         deadline = self._clock() + self.transaction_timeout_s
         if not self._lock.acquire(timeout=self.transaction_timeout_s):
-            raise TransportError("Timed out waiting for the serial transaction lock")
+            raise ChillerTimeoutError("Timed out waiting for the serial transaction lock")
         try:
             if not self.is_open:
                 raise TransportError("Serial transport is closed")
@@ -219,15 +233,25 @@ class RS232Transport:
                     if not isinstance(chunk, bytes) or len(chunk) > 1:
                         raise TransportError("Serial read violated the requested byte count")
                     response.extend(chunk)
-                    if chunk and is_complete(bytes(response)):
-                        return bytes(response)
+                    if chunk:
+                        try:
+                            complete = is_complete(bytes(response))
+                        except ProtocolError:
+                            raise
+                        except Exception as exc:
+                            raise ProtocolError(f"Codec framing check failed: {exc}") from exc
+                        if type(complete) is not bool:
+                            raise ProtocolError("Codec framing check must return a boolean")
+                        self._remaining(deadline)
+                        if complete:
+                            return bytes(response)
                     if len(response) >= self.max_response_bytes:
                         raise ProtocolError("Response exceeded the configured byte budget")
             except Exception as exc:
                 self._cleanup_after_error(exc)
                 if isinstance(exc, (ProtocolError, TransportError)):
                     raise
-                raise TransportError(f"Serial transaction failed: {exc}") from exc
+                raise _serial_error("Serial transaction failed", exc) from exc
         finally:
             self._lock.release()
 

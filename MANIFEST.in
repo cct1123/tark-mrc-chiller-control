@@ -1,0 +1,2 @@
+include requirements-tested.txt
+include examples/hardware_free_demo.py

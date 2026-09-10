@@ -12,9 +12,10 @@ from time import sleep
 
 import pytest
 
-from tark_chiller import Chiller, ChillerDevice, CoolantProfile, DeviceStatus
+from tark_chiller import Chiller, CoolantProfile, DeviceStatus
 from tark_chiller.errors import (
     ChillerConnectionError,
+    ChillerTimeoutError,
     ProtocolError,
     ProtocolUnavailableError,
     SetpointValidationError,
@@ -132,7 +133,6 @@ class SyntheticCodec:
 def test_missing_protocol_blocks_before_factory_open_or_write():
     link, fake = transport()
     device = SerialDevice(link)
-    assert isinstance(device, ChillerDevice)
     assert not device.get_status().connected
     with pytest.raises(ProtocolUnavailableError, match="manual"):
         device.connect()
@@ -357,6 +357,63 @@ def test_framing_error_closes_transport():
     with pytest.raises(ProtocolError, match="framing"):
         link.exchange(b"test-request!", malformed)
     assert not link.is_open
+    assert fake.closes == 1
+
+
+@pytest.mark.parametrize("kind", ["exception", "nonboolean"])
+def test_bad_framing_callback_is_a_protocol_error_not_a_recoverable_transport_error(kind):
+    link, fake = transport()
+    link.open()
+
+    def malformed(data):
+        if kind == "exception":
+            raise ValueError("synthetic malformed frame")
+        return "not a boolean"
+
+    with pytest.raises(ProtocolError, match="framing check"):
+        link.exchange(b"test-request!", malformed)
+    assert not link.is_open
+    assert fake.closes == 1
+
+
+@pytest.mark.parametrize("operation", ["open", "write", "read", "close"])
+def test_os_timeout_is_a_typed_chiller_timeout(operation):
+    link, fake = transport()
+    setattr(fake, f"{operation}_error", TimeoutError("synthetic OS timeout"))
+    if operation != "open":
+        link.open()
+    with pytest.raises(ChillerTimeoutError, match="synthetic OS timeout"):
+        if operation == "open":
+            link.open()
+        elif operation == "close":
+            link.close()
+        else:
+            link.exchange(b"test-request!", lambda data: True)
+    assert not link.is_open
+
+
+def test_pyserial_write_timeout_is_a_typed_chiller_timeout():
+    serial = pytest.importorskip("serial")
+    link, fake = transport()
+    fake.write_error = serial.SerialTimeoutException("synthetic pySerial timeout")
+    link.open()
+    with pytest.raises(ChillerTimeoutError, match="synthetic pySerial timeout"):
+        link.exchange(b"test-request!", lambda data: True)
+    assert not link.is_open
+    assert len(fake.writes) == 1
+
+
+def test_framing_callback_time_counts_toward_transaction_budget():
+    clock = Clock()
+    link, fake = transport(clock=clock)
+    link.open()
+
+    def late_completion(data):
+        clock.now = 1.1
+        return True
+
+    with pytest.raises(ChillerTimeoutError, match="timed out"):
+        link.exchange(b"test-request!", late_completion)
     assert fake.closes == 1
 
 

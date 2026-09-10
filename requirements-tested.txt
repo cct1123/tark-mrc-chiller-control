@@ -14,10 +14,14 @@ iniconfig==2.3.0
 itsdangerous==2.2.0
 janus==2.0.0
 Jinja2==3.1.6
+librt==0.15.0
 MarkupSafe==3.0.3
+mypy==1.20.2
+mypy_extensions==1.1.0
 narwhals==2.26.0
 nest-asyncio==1.6.0
 packaging==26.3
+pathspec==1.1.1
 plotly==6.9.0
 pluggy==1.6.0
 pydantic==2.13.5
@@ -30,6 +34,7 @@ requests==2.34.2
 retrying==1.4.2
 ruff==0.16.7
 setuptools==84.0.0
+types-pyserial==3.5.0.20260712
 typing_extensions==4.16.0
 typing-inspection==0.4.4
 urllib3==2.7.0

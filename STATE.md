@@ -2,119 +2,118 @@
 
 ## Status
 
-**SOFTWARE_DEVELOPMENT — initialization/design milestone complete**, 2026-09-10.
-Full project incomplete; no hardware-ready candidate or physical validation.
-Source identity: [SHA-256 manifest](outputs/source-manifest.sha256).
+**BLOCKED on EXT-001; software review complete**, 2026-09-10.
+Prompt 5's fresh engineering review repaired consequential concurrency, safety,
+serial-deadline and diagnostic defects. The final clean-environment suite and
+unchanged-source 600-second run pass. Resume SOFTWARE_DEVELOPMENT when the
+matching protocol document arrives. No real port or hardware operation
+occurred. This is not HARDWARE_READY or physically VALIDATED.
 
-## Objective
-
-Safe common API for simulator and Tark MRC150/300, independent monitoring, CSV and
-Dash. Full requirement/acceptance matrix: [PROJECT.md](PROJECT.md).
+Baseline commit 593400c was reviewed/pushed under prompt 3. Prompt 6 authorizes
+commit/push of the reviewed prompt 4–6 checkpoint to origin/main; E021 records
+the publication review. Git HEAD/upstream identify its revision and push status.
+[Prompt log](prompt%20log.md) preserves all six requests.
+[PROJECT.md](PROJECT.md) holds the full acceptance criteria.
 
 ## Requirements status
 
-PASS means the stated software criterion is demonstrated at this milestone.
-Requirements including real-hardware behavior remain BLOCKED despite passing mocks.
+All software PASS rows refer to current E018, not the earlier 299-test result.
+TEST methods and E records resolve in [records](records/RECORDS.md).
 
 | ID / source | Short criterion | Validation | Status | Evidence |
 | --- | --- | --- | --- | --- |
-| REQ-001 / PROJECT | Persistent workspace/prompt record | TEST-001 | PASS | [E001](records/RECORDS.md#e001), [E008](records/RECORDS.md#e008) |
-| REQ-002 / PROJECT | Common API for both devices | TEST-002/012 | BLOCKED: real unit; software PASS | [E005](records/RECORDS.md#e005), EXT-001/003 |
-| REQ-003 / PROJECT | Safe default setpoint guard | TEST-003 | PASS | [E002](records/RECORDS.md#e002), [E005](records/RECORDS.md#e005) |
-| REQ-004 / PROJECT | Explicit coolant profiles | TEST-003 | PASS | [E005](records/RECORDS.md#e005) |
-| REQ-005 / PROJECT | No guessed protocol; fail before open | TEST-004 | PASS | [D001](records/RECORDS.md#d001), [E005](records/RECORDS.md#e005) |
-| REQ-006 / PROJECT | RS232/RS485 abstraction | TEST-005/012 | BLOCKED: real interface; software PASS | [E005](records/RECORDS.md#e005), EXT-001/003 |
-| REQ-007 / PROJECT | Typed faults/serialized lifecycle | TEST-002/005/006 | PASS (software) | [E004](records/RECORDS.md#e004), [E005](records/RECORDS.md#e005) |
-| REQ-008 / PROJECT | Acquisition independent from Dash | TEST-006 | PASS | [E005](records/RECORDS.md#e005) |
-| REQ-009 / PROJECT | CSV units/time/errors/I/O failure | TEST-007 | PASS | [E005](records/RECORDS.md#e005) |
-| REQ-010 / PROJECT | Bounded history/honest freshness | TEST-006/008 | PASS | [E004](records/RECORDS.md#e004), [E005](records/RECORDS.md#e005) |
-| REQ-011 / PROJECT | Dash status/plot/control | TEST-008/011 | PASS (simulator) | [E005](records/RECORDS.md#e005), [E006](records/RECORDS.md#e006) |
-| REQ-012 / PROJECT | Deterministic simulator/integration | TEST-002/009 | PASS | [E005](records/RECORDS.md#e005) |
-| REQ-013 / PROJECT | No invented safety telemetry | TEST-008/011 | PASS | [E002](records/RECORDS.md#e002), [E006](records/RECORDS.md#e006) |
-| REQ-014 / PROJECT | Reproducible package/tests | TEST-010 | PASS | [E007](records/RECORDS.md#e007) |
+| REQ-001 / PROJECT | Workspace, prompts, requirement traceability | TEST-001 | PASS | E020, E021, D003 |
+| REQ-002 / PROJECT | Common API for both backends | TEST-002/012 | Software PASS; physical BLOCKED | E018; EXT-001/003 |
+| REQ-003 / PROJECT | Default 2–40 °C guard before writes | TEST-003 | PASS | E002, E017, E018 |
+| REQ-004 / PROJECT | Explicit coolant bounds/provenance | TEST-003 | PASS | E018 |
+| REQ-005 / PROJECT | Missing codec refuses before port open | TEST-004 | PASS | E018 |
+| REQ-006 / PROJECT | RS232/RS485 transport abstraction | TEST-005/012 | Software PASS; physical BLOCKED | E018; EXT-001/003 |
+| REQ-007 / PROJECT | Typed faults, serialized lifecycle, no stale writes | TEST-002/005/014 | PASS | E018 |
+| REQ-008 / PROJECT | Independent single-owner acquisition and stop | TEST-006 | PASS | E018 |
+| REQ-009 / PROJECT | CSV units/time/errors and failure isolation | TEST-007 | PASS | E018 |
+| REQ-010 / PROJECT | Bounded atomic history/counters and honest freshness | TEST-006/008 | PASS | E018 |
+| REQ-011 / PROJECT | Dash plot, status and safe controls | TEST-008/011 | PASS | E018, E019 |
+| REQ-012 / PROJECT | Simulator substitution and GUI-independent core | TEST-002/009 | PASS | E018 |
+| REQ-013 / PROJECT | No invented physical safety telemetry | TEST-008/011 | PASS | E002, E018 |
+| REQ-014 / PROJECT | Reproducible typed package | TEST-010 | PASS | E018 |
 | REQ-015 / PROJECT | Identified-unit physical acceptance | TEST-012 | BLOCKED | EXT-001/003; no physical test |
+| REQ-016 / PROJECT | Deterministic thermal/fault simulation and fake protocol | TEST-013 | PASS | E018 |
+| REQ-017 / PROJECT | Finite cancellable read recovery, no write replay | TEST-014 | PASS | E018 |
+| REQ-018 / PROJECT | Validated CSV append, sessions and writer exclusion | TEST-015 | PASS | E018 |
+| REQ-019 / PROJECT | Sustained concurrent whole-stack operation | TEST-016 | PASS | E018, E019 |
 
-## Current system
+## Current implementation
 
-[D001](records/RECORDS.md#d001): Chiller → device contract → simulator OR serial
-device/codec/transport. One monitor worker writes CSV/bounded live state; Dash
-reads snapshots and submits validated setpoints. Wire semantics belong in
-[protocol.py](src/tark_chiller/protocol.py). MissingProtocol prevents port opening.
-RS232/RS485 are generic adapters requiring explicit settings, tested using fakes.
+[ARCHITECTURE.md](ARCHITECTURE.md) is the authoritative module/ownership description;
+[D003](records/RECORDS.md#d003) records review decisions. One application-owned
+Chiller serializes controls and polling for one device. Simulator substitutes
+directly at the device contract. SerialDevice orchestrates codec and generic
+transport. MissingProtocol is the default and prevents serial opening.
+Dash consumes snapshots; the monitor owns acquisition. One active Monitor per
+Chiller/LiveState and one OS-locked CsvLogger per file are enforced.
 
-Entry points: [README](README.md), [package](src/tark_chiller/__init__.py),
-[CLI](src/tark_chiller/__main__.py), [tests](tests), [report](outputs/REPORT.md).
-Engineering directories: src, tests, records, outputs. Local venv/build output ignored.
+One CoolantProfile validator is reused before API and backend writes. Default
+water bounds remain 2–40 °C as requested; alternatives require explicit provenance.
+Queued controls cannot cross superseding connect/disconnect intent; uncertain
+writes are never replayed. Connection recovery defaults off, has an explicit
+finite outage budget, and is suspended on protocol faults. Shutdown requests
+stop, disconnects/cancels recovery, joins active polling, then closes the logger.
 
-## Working / validated
+Python 3.12.14 / Windows; [exact 42-package environment](requirements-tested.txt).
+Core runtime has no external dependency. Software defaults: simulator 20 °C /
+30 s time constant / no noise; 1 s polling/refresh; 3,600 history; 3 s stale age;
+generic serial budget 1 s / 4,096 bytes. These are not physical controller facts.
 
-133 tests pass: 50 core, 52 serial fakes, 21 monitoring/CSV/CLI, 10 GUI.
-Ruff, formatting, dependency check, sdist/wheel and wheel-only smoke pass.
-Browser: safe input applied, invalid input rejected, live curves and refresh
-preserve session. Evidence: E005–E007 and [E009 review/regression](records/RECORDS.md#e009).
+## Current evidence and limitations
 
-## Current gaps and known failures
+- Fresh .venv-review: 349 tests PASS in 9.82 s, Ruff lint/format PASS (24 files),
+  mypy PASS (14 modules), pip check PASS. [JUnit](outputs/review-tests.xml).
+- Source archive → wheel, exact module bytes, typing marker/demo packaging and
+  wheel-only simulator/both fake adapters PASS. [Build](outputs/review-build.txt).
+- Three independent specialists plus cross-review; reproduced defects and
+  corrections are in E017/E018.
+- Final 600 s: 596 sample/CSV rows, 120 history, 30 unavailable polls, 4,007 refreshes,
+  161 reloads, 401 invalid writes rejected, exactly three applied targets and seven
+  planned opens; final simulated temperature 17.998355 °C / target 18 °C. Clean stop.
+  [Run summary](outputs/review-soak.json). This supersedes E013's earlier result.
+- Browser safe/unsafe controls, last-poll status, disconnect/reconnect and reload
+  passed; 173 more rows after tab closure (E019). [Final manifest](outputs/source-manifest.sha256)
+  identifies 30 source/config files; E020 records the handoff audit.
 
-- No known failing automated test. Three lifecycle/freshness review findings fixed
-  and revalidated. No physical reliability claim follows.
-- Sustained acquisition with concurrent GUI activity and combined injected faults
-  is not characterized; current checks are short component/integration tests.
-- Codec, units negotiation, acknowledgements/response correlation, startup
-  semantics, actual electrical compatibility and safety telemetry are unknown.
-- No physical accuracy, calibration or thermal-performance validation.
-- GUI input outside HTML bounds currently yields a numeric-validation message
-  because Dash supplies None; the write is correctly refused.
+All hardware-independent requirements now PASS; none remains FAIL or UNTESTED.
 
-## Current configuration
+Tests use injected memory endpoints and synthetic syntax, never a real port.
+Windows file locking was exercised across processes/aliases; POSIX flock is not
+executed here. No hard-real-time, calibration, physical reliability or RS485
+electrical claim follows. CSV flush is not a power-loss guarantee. Reads are
+sequential, and calls ignoring timeouts cannot be forcibly interrupted.
+The application supports one process/device owner; it is a local simulator CLI.
 
-Windows; project .venv Python 3.12.14; Dash 4.4.1, Plotly 6.9.0, pySerial 3.5,
-pytest 9.1.1, Ruff 0.16.7. [Exact dependencies](requirements-tested.txt).
-Simulator: initial/target 20 °C, 30 s time constant, uncalibrated.
-Default polling/GUI refresh 1 s; history 3,600 samples; stale threshold 3 s (CLI
-raises it for slow polling); CSV new file per run, each row flushed.
-Transport budgets: 1 s per transaction and 4,096 response bytes, configurable.
-Actual serial settings remain unspecified; budgets are software choices.
-No hardware accessed. Preview stopped; no pending helper/process.
-Reviewed initial commit prepared for origin/main per prompt 3; source hashes
-identify the implementation independently of commit metadata. Use Git history
-and remote tracking for the resulting commit/push status.
+## External dependencies and precise next action
 
-Authority: prompt 2 authorizes autonomous local software work and specialists.
-No hardware integration approval recorded. Template candidate review remains
-applicable after meaningful independent work and protocol implementation.
+- **EXT-001:** matching controller-manufacturer communication manual and controller
+  model/firmware are absent after renewed input/official-source search (E017).
+  Needed: baud/parity/data/stop bits, RS485 addressing, command/register syntax,
+  framing/terminators, temperature/setpoint reads, setpoint write, acknowledgements /
+  errors, checksum/CRC, units/scaling, response identity, timing and side effects.
+- **EXT-003:** actual-unit interface, wiring, installed coolant, calibrated reference,
+  physical access and candidate authorization are required for physical acceptance.
+  Resolve the official product page's 5 °C coolant guidance versus the Rev 13
+  2 °C table for that unit before physical use (E017).
+- **EXT-002 (provenance note):** the originally mentioned attachment is not exposed.
+  Official Tark-hosted Rev 13 was used provisionally (E002/E017). This is not a
+  separate software blocker; compare the supplied revision when it becomes available.
 
-## Current priority and precise next engineering action
+Next action: after EXT-001 arrives, verify applicability and implement the localized codec in
+protocol.py with document-derived golden vectors and explicit settings. Rerun the
+software suite, then prepare exact first physical interactions for the template
+hardware review gate. No useful protocol implementation can precede that source.
 
-Add a repeatable **sustained simulator/fake-serial acceptance run**: 10 minutes at
-1 s polling with 120-sample history; interleave Dash refresh/setpoint callbacks;
-inject one disconnect/reconnect and one malformed response in fake serial, with
-CSV failure in a separate run. Record interval distribution, maximum history
-length, error visibility, no write replay and clean shutdown. Diagnose failures;
-append E010 (next free ID after E009), update requirement statuses.
-This independent action needs neither protocol information nor hardware.
+## Authority and handoff
 
-## Blockers / external dependencies
-
-- **EXT-001:** matching controller-manufacturer communication manual and exact
-  controller identity/firmware absent. Search covered exposed project inputs and
-  bounded official public sources. Need commands/registers, baud/framing,
-  terminators, addresses, checksums, responses/acknowledgements, units/scaling,
-  timing, startup/read side effects and pinout/mode. Clear with authoritative
-  matching documentation; then implement local codec and golden-vector tests.
-  Affects physical REQ-002/006 and REQ-015.
-- **EXT-002:** referenced attachment not exposed. Official online Rev 13 used
-  instead (E002); compare supplied revision when available.
-- **EXT-003:** actual MRC suffix/interface, installed coolant, wiring, physical
-  setup and calibrated reference unavailable. RS485 is unit-dependent given the
-  manual inconsistency. Blocks physical acceptance, not software development.
-
-## Human action required
-
-None for this milestone or next software action. Future codec work needs EXT-001;
-a hardware access/approval request would be premature now.
-
-## Completion status
-
-Requested initialization/design milestone is internally consistent and tested.
-Full project is **not hardware-ready, fully validated or production-ready**.
-Resume from the next action; keep physical requirements outstanding.
+The user's authority covers local corrections, specialists and hardware-free
+validation. No hardware candidate or physical authorization exists. The only
+external request needed for the next engineering phase is the matching controller
+manual and identity. No hardware approval is being requested at this point.
+No monitor, preview, test process or pending mutation remains at handoff.
+[Report](outputs/REPORT.md) summarizes findings; [README](README.md) contains commands.

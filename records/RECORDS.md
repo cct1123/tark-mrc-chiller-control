@@ -1,66 +1,10 @@
 # Engineering records
 
-No project records yet. Append evidence and consequential decisions below as work
-occurs. These are durable conclusions and their basis, not a transcript or private
-reasoning. STATE.md links directly to the records needed for the current checkpoint.
-
-Use monotonically increasing IDs: `E001`, `E002`, … for evidence; `D001`, `D002`, …
-for decisions. Never reuse IDs or overwrite an earlier result to make it pass.
-Append a new record for a rerun, correction, or superseding decision and link back.
-Keep IDs stable when splitting this file later; update inbound links. Allocate IDs
-through the coordinator when agents work concurrently.
-
-Use stable `TEST-001` identifiers for validation procedures and `REQ-001` for
-requirements; one test may address multiple requirements and may have many E
-records across runs. Link scripts, source, raw data, logs, calculations, manuals,
-and configurations rather than embedding large artifacts. Cite relevant manual
-sections and versions. Redact secrets before writing any persistent artifact.
-
-## Evidence record format
-
-Copy and fill this format when recording an actual observation. Placeholders and
-examples are not evidence. Omit fields only when they are inapplicable, explaining
-any material limitation.
-
-```markdown
-## E<number>
-
-Date: <timestamp with timezone>
-Kind / scope: <test, measurement, inspection, simulation, calibration, human report>
-Requirements / test: <REQ IDs; TEST ID and procedure/script link where applicable>
-Claim: <narrow statement this observation supports or refutes>
-Method: <reproducible command or procedure; inputs, expected result, conditions>
-Configuration: <source revision or file hashes; tool/firmware versions; hardware
-identity, connections, parameters, and calibration that affect this observation>
-Result: <actual values with units, errors, sample counts, and PASS/FAIL/INCONCLUSIVE
-against the expected criterion; do not equate command exit status with acceptance>
-Artifacts / references: <links to code, logs, raw data, calculations, or docs>
-Limitations: <simulation vs physical scope; uncertainty; untested conditions>
-Bearing: <effect on requirement status, diagnosis, or next action; previous E IDs>
-```
-
-Calibration evidence also states the calibrated quantity, method, reference,
-result, uncertainty where meaningful, and validity assumptions. Human-reported
-results identify the supplied procedure and result, and their verification limits;
-do not describe them as direct agent measurements.
-
-## Decision record format
-
-Record decisions only when their consequences or rationale matter for later work.
-Routine edits do not need decision entries.
-
-```markdown
-## D<number>
-
-Date: <timestamp with timezone>
-Decision: <chosen design, configuration, or diagnostic conclusion>
-Basis: <E IDs, source references, or explicit assumptions; affected REQ IDs>
-Consequence: <engineering tradeoff, affected interfaces/artifacts, validation needed>
-Reconsider if: <new evidence or changed conditions that would invalidate the choice>
-Supersedes: <earlier D ID if applicable>
-```
-
-## Project records
+Evidence and consequential decisions are immutable historical observations; newer
+records supersede their applicability, not their contents. Current status belongs
+in STATE.md. The coordinator allocates unique E/D IDs and links requirements to
+observable test methods. Preserve source provenance and distinguish simulation
+from physical validation.
 
 ## E001
 
@@ -200,9 +144,13 @@ and serial parameters are fixture data, never Tark configuration examples.
 | TEST-007 | CSV tests: parse before close to verify flush, UTC/units/header/quoting/blank failure values, refuse existing file, simulate disk-full with retained live data and sticky recording error. |
 | TEST-008 | GUI tests: connected/stale/error presentation, plot gaps, server-side guards, actual Dash HTTP callbacks; repeated refresh never acquires. Capability text says telemetry unavailable. |
 | TEST-009 | Headless subprocess: simulator → API → worker → state/CSV, at least 3 samples. GUI readback test connects simulator/monitor/history to plot. `python -S` proves core/monitor import without Dash/serial. |
-| TEST-010 | Editable install, pip check, Ruff check/format, wheel from sdist, wheel-only simulator smoke, dependency snapshot and source hashes. |
+| TEST-010 | Editable install, pip check, Ruff check/format, mypy across source, wheel from sdist, wheel-only simulator/fake-device smoke, dependency snapshot and source hashes. |
 | TEST-011 | Browser: live status/two traces; apply 18 °C and observe cooling/readback; reject 1 °C and retain target; page reload preserves history; inspect layout and stop application. |
 | TEST-012 | Future physical acceptance after documented codec, reviewed candidate and authorization: identify unit/controller/firmware/interface; verify documented least-consequential read, units and status; approved setpoint/readback, temperature-reference comparison, communication faults and operator shutdown. Exact bytes/tolerances/timings/rollback require protocol, actual setup and calibrated reference. No physical step executed. |
+| TEST-013 | `tests/test_simulation.py`: injected clock, measurement cadence, seeded variation, deterministic finite fault scripts, reusable synthetic correlation/framing/value checks and both transports with forbidden OS factories. |
+| TEST-014 | `tests/test_recovery.py`: finite outage budget, successful recovery/reset, explicit cancellation/exhaustion, no protocol retries or write replay, concurrent disconnect and long recovery delay. |
+| TEST-015 | `tests/test_csv_resume.py`: explicit append, session IDs, header/schema/record validation before writing, malformed/truncated input unchanged, flush/error latch and concurrent close/write. |
+| TEST-016 | `tests/test_end_to_end.py` and `examples/hardware_free_demo.py`: combined fault run; default sustained conditions 600 s, 1 s polls, capacity 120, seeded 0.01 °C noise. Require >=80% requested sample count, exact CSV/sample/row counts, bounded history/trace, failed polls visible, exactly three applied writes, final valid temperature within 0.2 °C of 18 °C, GUI callbacks/reloads and acquisition before/after browser activity, clean shutdown. These are synthetic software criteria, not hardware tolerances. |
 
 Before hardware readiness, extend short tests with a sustained run and combined
 fault injection while GUI is active. Measure cadence, bounded history, file growth,
@@ -248,7 +196,7 @@ Configuration: Python 3.12.14, Windows, dependency snapshot E003;
 Method: `.venv\Scripts\python -m pytest -q -p no:cacheprovider --junitxml=outputs\test-results.xml`.
 Expected: all hardware-free tests pass; no real serial port constructed/opened.
 Result: **PASS — 130 tests, 0 failures, 0 errors, 1.16 s**. Core 50; serial 52;
-monitoring/integration 18; GUI 10. [Raw JUnit report](../outputs/test-results.xml).
+monitoring/integration 18; GUI 10. Superseded raw JUnit pruned under E021.
 Limitations: short tests with simulation/fakes; no real MRC, sustained reliability
 or cross-platform certification. Physical criteria remain BLOCKED.
 
@@ -316,13 +264,352 @@ causing a worker OverflowError; enormous integers could overflow validation itse
 Correction: reject values above threading.TIMEOUT_MAX before numeric conversion,
 including stop delays. Three regressions added; no hardware/protocol behavior changed.
 Result: **133 tests passed, zero failures/errors, 1.17 s**; Ruff check and format
-passed. [Review regression results](../outputs/precommit-tests.xml). No remaining
+passed. Superseded raw JUnit pruned under E021. No remaining
 actionable code-review findings. Physical limitations remain as documented.
 Rebuilt source archive/wheel passed; wheel source matches the corrected monitor,
 and wheel-only simulator/API plus extreme-timing rejection checks passed.
 Reproducibility: added LF text attributes because the local Git configuration uses
 autocrlf; normalized dependency-snapshot newlines so staged and checked-out source
-hashes remain identical. Current [20-file source/config manifest](../outputs/source-manifest.sha256)
+hashes remain identical. Archived [20-file source/config manifest](../outputs/precommit-source-manifest.sha256)
 supersedes the initial manifest; E005's original manifest is retained separately.
 Authority: prompt 3 explicitly authorizes commit and push to configured origin/main.
 No real hardware interaction or hardware-ready approval is implied.
+
+## E010
+
+Date: 2026-09-10 (America/Chicago).
+Kind / scope: phase resumption and gap inspection; prompt 4.
+Observed: clean main at 593400c, tracking matching origin/main. Baseline E009 has
+133 passing tests. Read request, project/state/instructions, relevant manual facts,
+implementation and tests. No proprietary protocol or physical unit has appeared.
+Gaps: CSV append/session recovery; opt-in bounded reconnection; reusable simulated
+fault/protocol fixtures; explicit recording/monitor state; type and sustained tests.
+REQ-016–019 register added acceptance; affected baseline evidence is historical
+until revalidated. Continue software work independently of EXT-001/003.
+
+## D002
+
+Date: 2026-09-10 (America/Chicago).
+Decision: extend existing modules; preserve seven-operation user API and safety
+guards. Add an explicit RecoveryPolicy for bounded read/connect recovery with no
+write replay and no recovery after intentional disconnect. Exhausted budgets
+require explicit connect. Default API stays conservative; demo opts in.
+Provide reusable, labeled test-only protocol and in-memory serial endpoint in
+testing.py; never configure these bytes for a physical port. Simulator adds only
+measurement cadence, seeded variation and fault injection, no extra physics.
+CSV append is explicit; validate full schema/record integrity before the first
+append write, preserve malformed input unchanged, identify sessions with a session ID.
+Monitor remains sole acquisition owner; GUI renders snapshots including recording
+state, safe setpoint feedback and connection actions through the shared API.
+Type checks cover the complete package; sustained tests exercise concurrent users
+and bounded faults. Keep documentation updates to acceptance/evidence and usage.
+
+## E011
+
+Date: 2026-09-10, approximately 17:37–17:42 -05:00.
+Kind / scope: integration, diagnosis and independent review; REQ-007–019.
+Specialists delivered bounded read/connect recovery, deterministic simulator/fake
+protocol fixtures and appendable CSV. Coordinator integrated monitor counters,
+monotonic freshness, GUI connection actions and CLI configuration/lifecycle.
+Initial full regression: 288 PASS; expanded integration regression: 297 PASS.
+Short demo at 4 s/0.02 s failed a timing-rate assertion (133 vs 160 minimum): Windows
+wait granularity produced about 0.03 s spacing. This is not a real-time scheduler.
+Using the declared demo conditions of 10 s/0.1 s passed with 92 rows, 6 intentionally
+failed samples, exactly three applied writes and clean shutdown. Threshold remains
+80% of requested sample count; it was not weakened to hide the timing observation.
+Independent review found long recovery waits could obstruct application shutdown,
+a valid cancelled final poll could invalidate demo assertions, and GUI connect
+feedback promised readings from a stopped worker. Fixed by requesting stop,
+cancelling via serialized disconnect, joining before CSV close, checking the last
+fresh valid trajectory sample, and reporting the stopped monitor accurately.
+Added regression coverage, including interrupting a configured 5 s recovery delay
+within 2 s. Final evidence follows in E012–E016; no physical hardware accessed.
+
+## E012
+
+Date: 2026-09-10, approximately 17:44 -05:00.
+Kind / scope: final software regression, TEST-002–010/013–016.
+Method: `.venv\Scripts\python -m pytest -q --junitxml=outputs/software-tests.xml`.
+Expected: every software test passes without real serial construction or hardware.
+Result: **299 PASS, 0 failures/errors, 8.54 s**, including the actual five-second
+combined fault/Dash HTTP/CSV demonstration and long-delay shutdown regression.
+Superseded raw JUnit pruned under E021; final source/config identities in
+[manifest](../outputs/software-source-manifest.sha256). Ruff check and format: PASS, 23 Python
+files. Mypy: PASS, all 14 package source modules, untyped definitions disallowed.
+Sandbox temporary-directory failures were resolved with approved execution access;
+tests were not skipped or weakened. No physical claims follow.
+
+## E013
+
+Date: 2026-09-10, approximately 17:38–17:48 -05:00.
+Kind / scope: sustained synthetic system acceptance; TEST-016, REQ-008/010/012/017/019.
+Method: `python examples/hardware_free_demo.py --duration 600 --interval 1 --output outputs/soak-600s`.
+Configuration: seeded 0.01 °C measurement noise, 30 s thermal time constant,
+120-sample history, 10 ms fake transaction deadline, three reconnect attempts with
+2 ms delay; concurrent Dash HTTP callback/layout clients. No real serial factory.
+Result: **PASS**, 600.0 s observed, 595 samples and matching flushed CSV rows;
+120 history entries, 128 bounded trace entries; 31 unavailable samples from the
+fault/disconnect scenarios. 3,705 refresh callbacks, 149 page reloads, 371 rejected
+invalid writes. Exactly three applied targets (18, 22, 18 °C), including one lost
+acknowledgement applied once. Final valid temperature 18.0029425663 °C. Acquisition
+produced 60 samples before browser activity and 59 after it ended. Clean shutdown.
+Artifacts: [summary](../outputs/soak-600s.json); generated local-only files
+`outputs/soak-600s.csv` and `outputs/soak-600s-trajectory.html` are not committed.
+
+Diagnosis: 70 total connection opens exceeded the scripted faults alone. A focused
+1,000-read synthetic comparison with concurrent rendering, no injected faults,
+captured nine typed transaction timeouts/recoveries at 10 ms and none at 50 ms;
+all 2,000 high-level reads succeeded. Python 3.12 Windows monotonic clock reports
+GetTickCount64 with 15.625 ms resolution. This reproduces deadline expirations when
+the chosen budget is smaller than clock resolution; it is not a fabricated MRC
+timing fact. [Diagnostic results](../outputs/deadline-diagnostic.json). The production
+transport default remains 1 s and explicit timing awaits actual protocol evidence.
+
+Scope of source evidence: the sustained process loaded before final review changes
+to framing error normalization, shutdown cancellation, and GUI stopped-state text.
+Its sustained history/CSV/concurrency claims are unaffected. E012's final-source
+299-test regression, including the combined end-to-end demo, revalidates changed
+paths. No physical calibration, electrical compatibility, scheduler precision or
+unlimited-duration reliability claim is made.
+
+## E014
+
+Date: 2026-09-10, approximately 17:41–17:46 -05:00.
+Kind / scope: live browser acceptance; TEST-011, REQ-008/011/013/019.
+Configuration: simulator CLI, 0.5 s polls, 0.01 °C seeded noise, three reconnect
+attempts, loopback Dash port 8050, debug/reloader off, CSV enabled.
+Observed: 18 °C request accepted; temperature cooled to 18.70 °C and target read
+18.00 °C. 1 °C rejected explicitly as outside [2,40] water policy. Reload retained
+the target/history. Disconnect kept the monitor and CSV active, displayed blank
+readings/unavailable status, and did not auto-reconnect. Connect restored readings.
+At tab closure, 446 samples; subsequent CSV inspection found 566 complete rows,
+latest temperature 18.004943 °C / target 18 °C, connected. Thus at least 120 rows
+were recorded without that browser. Screenshot inspected readable status and curves.
+Result: PASS in inspected viewport. Ctrl+C reported 567 retained samples and exited
+without traceback; PTY interruption exit code 1 is distinct from normal headless
+exit/join coverage in E012. Browser and server closed; no hardware involved.
+
+## E015
+
+Date: 2026-09-10, approximately 17:46 -05:00.
+Kind / scope: final package/configuration checks; TEST-010, REQ-014/019.
+Result: pip check PASS. Ruff check/format PASS for 23 Python files. Mypy PASS for
+14 package modules with untyped definitions disallowed. Version snapshot includes
+mypy 1.20.2/types-pyserial; [exact environment](../requirements-tested.txt).
+`python -m build --no-isolation` PASS: source archive and wheel built from archive.
+Superseded raw build log pruned under E021. Wheel source bytes match all 14 local
+modules; py.typed included; source archive includes the runnable demonstration.
+Wheel-only `python -S` imported from the wheel and exercised simulator plus both
+RS232/RS485 in-memory paths: connect, safe 18 °C write, monitor readback, disconnect.
+No Dash or pySerial imported, proving core/fake independence from optional extras.
+Final source/config hashes follow in E016. Normal temp/build-file access required
+approved sandbox escalation; no tests or build checks were bypassed.
+References: [mypy configuration](https://mypy.readthedocs.io/en/stable/config_file.html),
+[Python CSV](https://docs.python.org/3/library/csv.html); initial Dash/pySerial
+primary references remain in E007.
+
+## E016
+
+Date: 2026-09-10 (America/Chicago).
+Kind / scope: final software handoff inspection; TEST-001, REQ-001/014/019.
+Result: PASS. Both PROJECT and STATE contain all 19 requirement IDs; software
+criteria have current evidence and physical portions retain explicit blockers.
+49 local Markdown file links resolved at audit; final evidence records are linked.
+Template AGENTS.md and ARCHITECTURE.md match the imported framework. Prompt 4 is
+retained verbatim in prompt log.md. Git diff whitespace check passed; test scratch
+was removed after verifying its resolved path stayed inside the workspace.
+[Final manifest](../outputs/software-source-manifest.sha256) identifies 29 source/config
+files; initial/precommit manifests remain archived for their historical revisions.
+JUnit confirms 299 tests, zero failures/errors (8.461 s test-suite time; pytest
+reported 8.54 s overall). No active monitor, preview or test process remains.
+Phase outcome: hardware-independent work complete; overall project BLOCKED on
+EXT-001, to resume SOFTWARE_DEVELOPMENT for document-derived codec/golden vectors.
+No hardware-ready candidate or physical authorization is implied. Prompt 3's
+reviewed commit/push remains 593400c; this later software phase is left uncommitted.
+
+## E017
+
+Date: 2026-09-10 (America/Chicago).
+Kind / scope: independent review and manual reinspection, prompt 5; REQ-003–019.
+Three independent reviewers challenged the existing 299-test implementation.
+Reproduced defects, not inferred from test counts:
+
+- A setpoint queued behind a read applied after explicit disconnect/reconnect.
+- Two monitors acquired one Chiller/state; stopping one falsely reported stopped
+  while the other continued. Stop also returned before a pending manual poll ended.
+- An unused second monitor changed active CSV status; counters published separately.
+- Two logger handles could append concurrently. csv.Error killed acquisition.
+- Windows' coarse clock falsely expired a 10 ms transaction: 59/10,000 immediate
+  reads failed after only 19–155 microseconds in the serial review reproduction.
+
+Missing/denied/busy ports, late stale replies and pending-read cancellation now
+have explicit real-stack fake regressions. Queued-write regression was observed
+failing before its correction. Existing evidence is historical until final retest.
+
+Manual search repeated across repository files and exposed Codex attachments;
+no relevant manual attachment exists (only the earlier project prompt matched).
+Re-read all extracted pages of cached official Rev 13, matching E002 SHA-256, and
+visually checked pages 7 and 12. Bounded official Tark searches and its manual
+landing page expose MRC user manuals, not the matching controller communication
+manual. EXT-001 remains: no controller identity, commands or serial settings proven.
+The user-requested 2–40 °C software default remains supported by the Rev 13 table.
+Current [MRC product page](https://tark-solutions.com/products/thermoelectric-cooler-assemblies/liquid-chiller-mrc-series)
+recommends water above 5 °C and glycol mixture at/below 5 °C, differing from Rev 13's
+2 °C guidance. This applicability conflict must be resolved for the actual unit
+before physical use; no automatic software profile change or inferred coolant safety.
+
+## D003
+
+Date: 2026-09-10 (America/Chicago).
+Decision: retain the small synchronous API/device/codec/transport split; enforce
+existing ownership and cancellation contracts rather than add an application
+framework. One authoritative CoolantProfile validator remains reused at write
+boundaries. Queued writes retain their originating intent; explicit lifecycle
+changes invalidate them. Use high-resolution monotonic serial deadlines.
+Monitor ownership belongs in monitoring.py, not a reverse dependency from API;
+active owner claims cover both Chiller and LiveState. Stop must quiesce worker and
+manual polls. CSV ownership uses the existing descriptor's OS lock, including
+validation/flush/close, with no extra dependency or lock-file scaffolding.
+Preserve readable CSV access while excluding cooperating writers; atomic snapshot
+publication includes sample and recording counters. GUI labels connection as the
+last poll rather than claiming instantaneous device state from old samples.
+Cleanup: ARCHITECTURE.md now documents the actual software once; AGENTS.md retains
+the template engineering loop/gate. Remove reusable-ledger boilerplate and redundant
+runtime protocol-presence assertions; behavioral contract tests remain. Historical
+evidence is preserved, and current report/state link to authoritative documents.
+Basis: E017, prompt 5. Supersedes affected D001/D002 lifecycle/ownership descriptions.
+
+## E018
+
+Date: 2026-09-10 (America/Chicago).
+Kind / scope: repaired review findings and fresh-environment quality gate;
+TEST-002–010/013–016, REQ-002–014/016–019 software portions.
+Result: PASS, **349 tests**, zero failures/errors; pytest 9.82 s.
+[JUnit](../outputs/review-tests.xml). New regressions cover:
+
+- Event-controlled queued setpoint cancellation across explicit connection intent.
+- One acquisition owner per Chiller/state, no constructor side effects, rejected
+  overlapping polls, stop timeout retaining ownership, failed thread-start cleanup.
+- Atomic publication of history/sample/CSV counts, CSV serialization failure,
+  and successful replacement recording clearing an old error only after flush.
+- CSV writer exclusion for duplicate handles, hardlink aliases and another
+  process; live readers; release after invalid append and close-flush failure.
+- Missing/denied/busy ports on both adapters, with and without read recovery;
+  exact failure reason visible through Monitor and GUI without extra wire I/O.
+- Mid-response disconnect, delayed valid reply, old response after reconnect,
+  pending-read shutdown and 5,000 immediate short-budget transactions.
+- Fifteen malformed/adversarial Dash HTTP submissions through production device
+  code, each proving zero wire operations; no hidden GUI acquisition.
+
+The coordinator cross-reviewed specialists' changes. This found two additional
+diagnostic bugs: port errors were still hidden by the GUI's preferred error field,
+and a working replacement logger still displayed an old failure. Both were
+reproduced and repaired before the final suite. Monitor stop deadline arithmetic
+also uses the high-resolution clock. The demo now snapshots failure count before
+injecting the malformed reply, removing a test-harness observation race.
+
+A fresh `.venv-review` was created with Python 3.12.14; installed the exact
+42-package requirements-tested.txt snapshot, then editable all extras with
+`--no-deps`. No existing development site packages were reused. Ruff check PASS,
+format PASS (24 Python files), mypy PASS (14 source modules), pip check PASS.
+`python -m build --no-isolation` built sdist and wheel from that sdist successfully;
+[build log](../outputs/review-build.txt). Wheel bytes match all 14 source modules,
+py.typed and runnable demo are packaged. `python -S` imported the wheel alone and
+ran simulator and both fake serial paths through safe write/monitor/disconnect,
+without Dash, Plotly or pySerial imports. No new dependency was added this review.
+
+All serial factories were in memory; OS file locks and ordinary disk/process I/O
+were exercised on Windows. No actual port was opened. Sandbox access prevented
+initial temporary/build/socket operations; approved scoped escalation permitted
+these software-only checks. This was environment access, not a skipped test.
+POSIX file locking is implemented using documented flock but not executed here.
+Lock references: [msvcrt](https://docs.python.org/3/library/msvcrt.html),
+[fcntl](https://docs.python.org/3/library/fcntl.html).
+
+## E019
+
+Date: 2026-09-10, approximately 18:14–18:24 -05:00.
+Kind / scope: final-source sustained integration and browser acceptance;
+TEST-011/016, REQ-007–013/017/019.
+Command: `.venv-review\Scripts\python examples/hardware_free_demo.py --duration 600 --interval 1 --output outputs/review-soak`.
+Result: PASS. [Summary](../outputs/review-soak.json). Generated local-only files
+`outputs/review-soak.csv` and `outputs/review-soak-trajectory.html` are not committed;
+the command above reproduces these artifact types with a fresh output name.
+
+- 600.0 s observed, 596 sample/CSV rows, 120 retained history, 30 unavailable polls.
+- 4,007 Dash HTTP refreshes, 161 page reloads, 401 rejected invalid submissions.
+- Exactly three applied setpoints; final 17.998355 °C at an 18 °C simulated target.
+- Seven opens: initial connection, two timeout recoveries, explicit reconnect
+  after malformed reply, reconnect after intentional disconnect, read recovery
+  after lost write acknowledgement, and cable-disconnect recovery. No unexplained
+  deadline/reconnect occurred despite the retained 10 ms synthetic budget.
+- 60 samples before browser activity and 59 after it ended; trace bounded at 128.
+  No service/logging error; worker, connection and file closed cleanly.
+
+The earlier attempted run was stopped and its partial CSV discarded when the
+cross-review found stale replacement-logger status. This successful run began
+after all source corrections and ran unchanged final code. E013's 70-open run
+is historical, superseded for current acceptance by this result.
+
+Separate real-browser inspection of the production simulator CLI used 0.5 s polls,
+history 120 and CSV recording. 18 °C succeeded; 1 °C was rejected with [2,40] policy
+feedback. Disconnect preserved acquisition and displayed blank readings with
+`ChillerConnectionError: intentionally disconnected`. Reconnect and reload
+retained the 18 °C target. Last-poll wording/age, readable narrow-viewport status,
+temperature/setpoint traces and unavailable telemetry were visually checked.
+At tab closure 416 samples were visible; the completed session had 589 rows,
+including 173 additional rows without that browser. Ctrl+C reported 120 retained
+samples and exited without traceback (PTY interruption exit code 1); normal
+headless shutdown is separately covered in E018. Preview process and tab stopped.
+
+No physical hardware, actual Tark protocol, calibration or electrical performance
+was tested. Fake framing/settings remain explicitly synthetic.
+
+## E020
+
+Date: 2026-09-10 (America/Chicago).
+Kind / scope: final review checkpoint and cleanup audit; TEST-001, REQ-001/014/019.
+Result: PASS. PROJECT and STATE retain all 19 IDs; every software criterion has
+current evidence, and only actual protocol/physical acceptance remains blocked.
+All five prompts remain recorded. [Final manifest](../outputs/source-manifest.sha256)
+identifies 30 source/config files, unchanged since final tests and sustained run.
+The earlier 29-file manifest is archived for E012/E016 rather than relabeled.
+Local Markdown links resolve; git diff whitespace check passes. AGENTS.md remains
+unchanged. The actual software architecture replaces duplicate generic workflow
+scaffolding; the ledger's unused template instructions and redundant runtime
+protocol assertions were removed. Unused short-demo outputs, intermediate test
+XML and manual-render scratch were deleted; substantive historical evidence stays.
+
+Final acceptance: E018 (349 tests, fresh environment, static/type/package checks)
+and E019 (unchanged-source sustained run and browser). Process inspection found
+no running review soak/preview. No known monitor, test or pending mutation remains.
+Prompt 3's commit/push was previously completed at 593400c; later prompt 4/5 work
+remains uncommitted. Phase outcome: software review complete, overall project
+BLOCKED only on authoritative protocol and subsequent physical validation.
+Resume with document-derived codec/golden vectors, not a speculative port open.
+
+## E021
+
+Date: 2026-09-10 (America/Chicago).
+Kind / scope: prompt 6 pre-publication review, pruning and regression;
+TEST-001/010, REQ-001/014/019. User explicitly requested review, prune, commit, push.
+Reviewed candidate against baseline 593400c and verified all 30 source/config
+hashes still match E020. No additional consequential code finding; existing
+recovery, ownership and safety regression coverage remains applicable.
+
+Pruned four superseded raw outputs: initial/precommit/software JUnit files and
+the earlier build log (82,615 bytes total). Their historical outcomes, methods,
+source identities and substantive findings remain in E005/E008/E012/E015.
+Keep the current review JUnit/build log, compact diagnostic/soak summaries and
+source manifests. Documentation now describes ignored CSV/HTML as local generated
+artifacts with reproduction instructions, instead of links broken in fresh clones.
+The application code, dependencies and final 600-second acceptance source did not
+change; no sustained rerun is needed for this documentation/artifact cleanup.
+
+Validation: **349 tests PASS in 9.54 s**, zero failures; Ruff lint/format PASS
+(24 Python files), mypy PASS (14 modules), pip check PASS, git diff whitespace PASS.
+No private-key/GitHub-token pattern found in publishable files. Prompt 6 is logged.
+Remote origin/main resolved to 593400cb9483d1a680819ae80dc6c147b827e235 before
+publication; it matches the local baseline. Publication is authorized to the
+existing main branch with a normal fast-forward push. Git HEAD and origin/main
+identify the final revision. Hardware authority and EXT-001/003 are unchanged.

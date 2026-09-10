@@ -1,9 +1,10 @@
 """Dash presentation only: refresh never performs acquisition or starts a worker."""
 
 from datetime import UTC, datetime
+from time import monotonic
 
 import plotly.graph_objects as go
-from dash import Dash, Input, Output, State, dcc, html
+from dash import Dash, Input, Output, State, ctx, dcc, html
 
 from .api import Chiller
 from .errors import ChillerError
@@ -16,16 +17,18 @@ def render_snapshot(
     now: datetime | None = None,
     stale_after_s: float = 3.0,
 ) -> tuple[str, go.Figure]:
-    now = now or datetime.now(UTC)
     latest = snapshot.latest
     text = "Waiting for the first sample"
     if latest:
-        age = max(0.0, (now - latest.timestamp_utc).total_seconds())
-        condition = "Connected" if latest.status.connected else "Unavailable"
+        if now is None and latest.sampled_monotonic is not None:
+            age = max(0.0, monotonic() - latest.sampled_monotonic)
+        else:
+            age = max(0.0, ((now or datetime.now(UTC)) - latest.timestamp_utc).total_seconds())
+        condition = "Last poll: Connected" if latest.status.connected else "Last poll: Unavailable"
         if not snapshot.running:
-            condition = "Monitoring stopped"
+            condition += " · Monitoring stopped"
         elif age > stale_after_s:
-            condition = "Stale"
+            condition += " · Stale"
         temperature = "—" if latest.temperature_c is None else f"{latest.temperature_c:.2f} °C"
         setpoint = "—" if latest.setpoint_c is None else f"{latest.setpoint_c:.2f} °C"
         text = (
@@ -33,6 +36,14 @@ def render_snapshot(
             f"Temperature {temperature} · Setpoint {setpoint}\n"
             f"{latest.error or latest.status.detail}"
         )
+    recording = "Enabled" if snapshot.logging_enabled else "Off"
+    if snapshot.logging_error:
+        recording = "Failed"
+    text += (
+        f"\nMonitor {'running' if snapshot.running else 'stopped'} · "
+        f"Samples {snapshot.sample_count} · Failed polls {snapshot.failed_samples}\n"
+        f"CSV {recording} · Rows written {snapshot.logged_samples}"
+    )
     for issue in (snapshot.service_error, snapshot.logging_error):
         if issue:
             text += f"\n{issue}"
@@ -99,6 +110,14 @@ def create_app(chiller: Chiller, state: LiveState, *, stale_after_s: float = 3.0
                     html.Div(
                         id="live-status", style={"whiteSpace": "pre-line", "lineHeight": "1.8"}
                     ),
+                    html.Button("Connect / retry", id="connect-device", n_clicks=0),
+                    html.Button(
+                        "Disconnect",
+                        id="disconnect-device",
+                        n_clicks=0,
+                        style={"marginLeft": "12px"},
+                    ),
+                    html.Div(id="connection-result", role="status", style={"marginTop": "10px"}),
                     html.P(
                         "Coolant presence, leaks, flow, fluid level and alarms: telemetry unavailable.",
                         style={"fontSize": "13px", "color": "#52616b"},
@@ -123,8 +142,6 @@ def create_app(chiller: Chiller, state: LiveState, *, stale_after_s: float = 3.0
                                 id="setpoint-input",
                                 type="number",
                                 placeholder="Enter °C",
-                                min=chiller.coolant.minimum_c,
-                                max=chiller.coolant.maximum_c,
                                 style={"padding": "10px", "marginRight": "12px"},
                             ),
                             html.Button(
@@ -162,7 +179,7 @@ def create_app(chiller: Chiller, state: LiveState, *, stale_after_s: float = 3.0
         Output("temperature-history", "figure"),
         Input("refresh", "n_intervals"),
     )
-    def refresh(_ticks: int):
+    def refresh(_ticks: int) -> tuple[str, go.Figure]:
         return render_snapshot(state.snapshot(), stale_after_s=stale_after_s)
 
     @app.callback(
@@ -171,7 +188,25 @@ def create_app(chiller: Chiller, state: LiveState, *, stale_after_s: float = 3.0
         State("setpoint-input", "value"),
         prevent_initial_call=True,
     )
-    def apply_setpoint(_clicks: int, value: object):
+    def apply_setpoint(_clicks: int, value: object) -> str:
         return submit_setpoint(chiller, value)
+
+    @app.callback(
+        Output("connection-result", "children"),
+        Input("connect-device", "n_clicks"),
+        Input("disconnect-device", "n_clicks"),
+        prevent_initial_call=True,
+    )
+    def connection_action(_connects: int, _disconnects: int) -> str:
+        try:
+            if ctx.triggered_id == "connect-device":
+                chiller.connect()
+                if not state.snapshot().running:
+                    return "Connected; monitoring is stopped. Restart the monitoring service."
+                return "Connected; monitoring will publish fresh readings."
+            chiller.disconnect()
+            return "Disconnected; monitoring continues and will record unavailable readings."
+        except ChillerError as exc:
+            return f"Connection action failed: {exc}"
 
     return app

@@ -1,97 +1,86 @@
-# Autonomous engineering architecture
+# Controller software architecture
 
-The engineering coordinator is the active agent's role. It selects each action
-from the gap between requirements and observed reality within the current phase.
-The project workspace carries memory across agents. Hardware projects follow these
-phase boundaries; the engineering loop below governs work inside each phase.
+The package uses ordinary synchronous Python and one acquisition thread. The
+engineering loop and future hardware review gate remain in [AGENTS.md](AGENTS.md).
+Source framework: [agentic-engineering-template](https://github.com/cct1123/agentic-engineering-template),
+commit 724a7f772069d3357ea66dbc4742d25bd874a33e. Project decisions: D001–D003 in
+[records](records/RECORDS.md); observable criteria: [PROJECT.md](PROJECT.md).
 
-```mermaid
-flowchart TD
-    R[Requirements] --> SW[Autonomous Hardware-Free Engineering<br/>SOFTWARE_DEVELOPMENT]
-    SW --> ST[Simulation / Mocks / Automated Testing]
-    ST -->|Software gaps| SW
-    ST -->|All meaningful hardware-free work complete| HR[Hardware-Ready Candidate<br/>HARDWARE_READY]
-    HR --> SR[Final software-side review and candidate report]
-    SR -->|Software gaps| SW
-    SR -->|Review prepared| HG[Human Review Gate<br/>AWAITING_HUMAN_REVIEW: save and stop]
-    HG -->|Explicit candidate approval with scope and limits| HV[Hardware Validation<br/>HARDWARE_VALIDATION: identify device and integrate]
-    HV --> PT{Physical acceptance and final integrated validation pass?}
-    PT -->|No| DR[Debug / fix / software regression]
-    DR -->|Within approved scope| HV
-    DR -->|Review scope or safety assumptions changed| SR
-    PT -->|Yes: evidence and report complete| VC[Validated Completion<br/>VALIDATED]
-```
+## Dependencies and ownership
 
-The normal hardware path is **Autonomous Hardware-Free Engineering → Hardware-Ready
-Candidate → Human Review Gate → Hardware Validation → Validated Completion**.
-Missing hardware never stops useful hardware-independent work. At HARDWARE_READY,
-prepare the software-side review package described in AGENTS.md; the agent then
-saves AWAITING_HUMAN_REVIEW and stops. The gate is a planned boundary, not BLOCKED.
-No real-device discovery, reads, initialization, writes, tests, or cleanup occur
-before explicit candidate approval. On resume, the gate remains in force; retain
-applicable recorded approval rather than repeatedly requesting it.
+    CLI application ──creates/owns──> Chiller, Monitor, LiveState, CsvLogger, Dash
+    Dash ──refresh──> LiveState (no device reads or worker lifecycle)
+    Dash ──explicit control──> Chiller
+    Monitor ──poll──> Chiller
+    Monitor ──publish──> LiveState and SampleSink (implemented by CsvLogger)
+    Chiller ──serialized operations──> ChillerDevice
+                                      ├─ SimulatedDevice
+                                      └─ SerialDevice ──> ProtocolCodec
+                                                     └─> RS232/RS485 transport
 
-After approval, confirm device identity and compatibility, prefer the least
-consequential useful read, validate initialization/state reporting, then perform
-controlled actuation and physical acceptance within limits. Software-only projects
-skip the hardware gate and use SOFTWARE_DEVELOPMENT → VALIDATED after their required
-tests and final validation pass.
+The device orchestrates encoding, transport exchange and decoding; codec and
+transport do not import each other. The transport accepts a response-completion
+predicate from the codec. GUI, API and monitor contain no serial commands.
+There is no manager, plugin framework, database, command queue or GUI-owned loop.
 
-The core loop remains **Inspect → Gap → Design → Implement → Test → Diagnose →
-Update State → Repeat**, with evidence deciding the next action:
+The application creates exactly one Chiller facade for each device and shares it
+between control and acquisition. One Monitor may actively own a Chiller and
+LiveState; another worker or competing manual poll is rejected. A stopped monitor
+releases ownership only after its polling is quiescent. A CSV file has one logger
+owner, enforced on its open descriptor. Immutable snapshots and their counters
+publish together under the state lock.
 
-```mermaid
-flowchart TD
-    H[Human] --> P[PROJECT.md: objective, criteria, constraints]
+## Boundaries
 
-    subgraph W[Project workspace]
-        P --> C[Engineering coordinator: inspect requirements and current state]
-        S[STATE.md: canonical checkpoint] --> C
-        E[Records and engineering artifacts] --> C
-        C --> G[Identify highest-priority gap]
-        G --> D[Choose action and design]
-        D --> A{Allowed in phase, resources and authority available?}
-        A -->|Yes| I[Implement or investigate]
-        I --> T[Test / measure]
-        T --> V[Diagnose / evaluate]
-        V --> U[Update state and evidence]
-        U --> S
-        U --> E
-        U --> Q{Requirements satisfied?}
-        Q -->|No: inspect next gap| C
-        Q -->|Yes| F[Final validation on final configuration]
-        F --> K{Final validation passes?}
-        K -->|No: record failure| V
-        K -->|Yes| O[outputs/REPORT.md and VALIDATED checkpoint]
-    end
+| Module | Responsibility |
+| --- | --- |
+| api.py / device.py | Seven-operation public API, structural device contract, serialized access and finite read recovery |
+| safety.py | Single authoritative Celsius/profile validator, reused by API and device before writes |
+| simulator.py | Same device contract; deterministic thermal response, optional noise/cadence/faults |
+| hardware.py | Maps device operations through codec/transport; validates normalized results |
+| protocol.py | Sole insertion point for documented wire semantics; MissingProtocol fails before opening |
+| transport.py | Explicit pySerial configuration, bounded exchange, locking, cleanup, RS232/RS485 modes |
+| monitoring.py | Worker/manual-poll lifecycle, immutable samples, bounded history, errors and recording counters |
+| csvlog.py | Validated append/session schema, file ownership, flush/close and failed-write latch |
+| gui.py | Snapshot presentation and explicit API callbacks only |
+| __main__.py | Simulator application composition and shutdown |
+| testing.py | Clearly synthetic protocol and memory endpoint through real production layers |
 
-    A -->|Not yet| B[Defer action and record dependency]
-    Q -->|Only external dependencies remain| B
-    B -->|Independent work remains| G
-    B -->|Hardware-free work exhausted before integration| RG[Hardware-ready candidate and review gate above]
-    B -->|No independent work, genuine blocker outside review gate| BO[BLOCKED report and exact resumption condition]
-    BO --> H
-    RG --> H
-    H -->|Result or explicit scoped candidate approval| U
-    C -.-> X[Optional engineering capabilities / subagents]
-    X -.-> I
-    X -.-> V
-    R[External hardware / software / resources] -.->|Documentation| C
-    I -.->|Phase-allowed and authorized operations| R
-    R -.->|Phase-allowed and authorized tests| T
-```
+Core API/acquisition need only the standard library. Dash/Plotly and pySerial are
+optional runtime extras. Serial factories exist only for lazy optional imports
+and hardware-free injection, not speculative backend selection.
 
-The authority/resource gate applies to **every** external action in implementation
-and testing, and is checked again when conditions change. Defer a physical
-dependency until meaningful independent work is exhausted, then follow the
-candidate review path before requesting hardware access. Human results re-enter
-the evidence/state loop; they do not bypass validation. A final-validation failure
-returns to diagnosis and the gap loop. BLOCKED preserves a handoff for a genuine
-external dependency; AWAITING_HUMAN_REVIEW preserves the deliberate integration
-gate. Neither is a success claim or a reason to skip available software work.
+## Safety and lifecycle
 
-Human intent lives in PROJECT.md. STATE.md points to current artifacts, test
-methods, and evidence; records preserve reproducible observations and decisions.
-The report describes the engineered system, configuration, demonstrated results,
-and operation. Optional specialists return bounded artifacts and evidence to the
-coordinator, which maintains the single canonical state.
+All temperatures are Celsius. One CoolantProfile.validate implementation enforces
+finite numeric values and explicit bounds before writes. Default distilled-water
+bounds are 2–40 °C; alternatives require provenance at API and backend. Configured
+policy does not establish installed coolant, leaks, flow, fluid level or alarms.
+
+A reconnect never sends a target. Failed/uncertain writes are never replayed.
+A queued control retains its original connection intent and is cancelled if an
+explicit connect/disconnect supersedes that intent before the write begins.
+Read recovery has a finite per-outage budget; malformed protocol suspends it.
+
+Shutdown order: request monitor stop, disconnect the serialized Chiller (cancels
+recovery), join the monitor, close CSV. An in-flight cancelled poll may publish one
+unavailable final row. A timeout reports that polling is still active; its logger
+must remain open. Uncooperative OS/backend calls cannot be forcibly interrupted.
+
+Readings are sequential with conservative poll-start timestamps, not atomic
+hardware snapshots. GUI connection wording describes the last poll and its age.
+Serial deadlines use a high-resolution monotonic clock; scheduling is not hard
+real time. Never start multiple processes to share a physical device.
+
+## Protocol readiness
+
+EXT-001 remains external. Obtain the matching controller model/firmware and manual
+before implementing baud/parity/data bits/stop bits, RS485 addressing, command or
+register syntax, framing/terminators, temperature/setpoint reads, setpoint write,
+acknowledgements/errors, checksum/CRC, units/scaling, response correlation, timing,
+pinout and startup/read side effects. Document each implemented command and add
+source-derived byte fixtures. No protocol or physical behavior is guessed.
+
+The synthetic fixture's JSON envelopes/settings are test data only. Real-unit
+validation and exact first interactions require the authoritative codec, confirmed
+hardware/coolant/setup and the review gate in AGENTS.md.

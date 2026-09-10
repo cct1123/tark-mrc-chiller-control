@@ -3,8 +3,9 @@
 import argparse
 import time
 
-from .api import Chiller
+from .api import Chiller, RecoveryPolicy
 from .csvlog import CsvLogger
+from .errors import ChillerError
 from .monitoring import LiveState, Monitor, positive_seconds
 from .simulator import SimulatedDevice
 
@@ -14,22 +15,54 @@ def main(argv: list[str] | None = None) -> None:
     parser.add_argument("--headless", action="store_true")
     parser.add_argument("--duration", type=float, default=10.0, help="Headless run seconds")
     parser.add_argument("--interval", type=float, default=1.0, help="Sampling interval in seconds")
-    parser.add_argument("--csv", help="New output CSV path; existing files are refused")
+    parser.add_argument("--csv", help="Output CSV path; existing files require --append-csv")
+    parser.add_argument("--append-csv", action="store_true", help="Validate and resume a CSV")
+    parser.add_argument("--history", type=int, default=3600, help="Maximum retained samples")
+    parser.add_argument(
+        "--reconnect-attempts",
+        type=int,
+        default=0,
+        help="Opt-in reconnect budget per outage (0–10); never retries writes",
+    )
+    parser.add_argument(
+        "--noise", type=float, default=0, help="Simulation measurement noise SD (°C)"
+    )
+    parser.add_argument("--seed", type=int, default=0, help="Simulation noise seed")
+    parser.add_argument(
+        "--simulation-interval",
+        type=float,
+        default=0,
+        help="Simulation measurement interval (seconds, 0 means continuous)",
+    )
     args = parser.parse_args(argv)
     try:
         positive_seconds(args.duration, "duration")
         positive_seconds(args.interval, "interval")
-    except ValueError as exc:
+        if args.append_csv and not args.csv:
+            raise ValueError("--append-csv requires --csv")
+        chiller = Chiller(
+            SimulatedDevice(
+                noise_std_c=args.noise,
+                seed=args.seed,
+                measurement_interval_s=args.simulation_interval,
+            ),
+            recovery=RecoveryPolicy(args.reconnect_attempts),
+        )
+        state = LiveState(capacity=args.history)
+    except (ValueError, ChillerError) as exc:
         parser.error(str(exc))
-    chiller = Chiller(SimulatedDevice())
-    state = LiveState()
-    logger = CsvLogger(args.csv) if args.csv else None
+    try:
+        logger = CsvLogger(args.csv, append=args.append_csv) if args.csv else None
+    except (OSError, ValueError) as exc:
+        parser.error(f"Cannot open CSV: {exc}")
     monitor = Monitor(chiller, state, interval_s=args.interval, logger=logger)
     try:
         chiller.connect()
         monitor.start()
         if args.headless:
-            time.sleep(args.duration)
+            deadline = time.monotonic() + args.duration
+            while time.monotonic() < deadline and state.snapshot().running:
+                time.sleep(min(0.1, max(0.0, deadline - time.monotonic())))
         else:
             from .gui import create_app
 
@@ -42,10 +75,14 @@ def main(argv: list[str] | None = None) -> None:
     except KeyboardInterrupt:
         pass
     finally:
-        monitor.stop()
+        monitor.request_stop()
+        # Disconnect publishes cancellation before waiting for the API lock,
+        # interrupting recovery delays. Its close is serialized with active I/O.
+        # Keep the logger open until the monitor has published its final sample.
         try:
             chiller.disconnect()
         finally:
+            monitor.stop()
             if logger is not None:
                 logger.close()
     snapshot = state.snapshot()

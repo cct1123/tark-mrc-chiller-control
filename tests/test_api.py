@@ -12,7 +12,6 @@ from tark_chiller import (
     DISTILLED_WATER,
     Chiller,
     ChillerConnectionError,
-    ChillerDevice,
     CoolantProfile,
     DeviceStatus,
     ProtocolError,
@@ -70,7 +69,6 @@ class SpyDevice:
 @pytest.mark.parametrize("backend_factory", [SimulatedDevice, SpyDevice])
 def test_common_api_and_explicit_connection(backend_factory):
     backend = backend_factory()
-    assert isinstance(backend, ChillerDevice)
     chiller = Chiller(backend)
     assert not chiller.is_connected
     assert not chiller.get_status().connected
