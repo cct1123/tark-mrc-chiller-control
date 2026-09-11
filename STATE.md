@@ -8,10 +8,12 @@ is not HARDWARE_READY or a physically VALIDATED release. Resume phase:
 SOFTWARE_DEVELOPMENT when the matching communication manual arrives.
 No physical discovery, port opening or device operation was performed.
 
-Package version: 0.1.0. Source baseline: fb369f6; the reviewed candidate is
+Package version: 0.1.0. Published release candidate: 9151f02; the reviewed source is
 identified by the [40-file manifest](outputs/release-source-manifest.sha256).
 Manifest text uses the repository's canonical LF line endings.
-The [prompt log](prompt%20log.md) contains all ten requests. Criteria are in
+The [prompt log](prompt%20log.md) contains all session requests. Prompt 11 records
+the follow-up commit/push request; software and validation evidence are unchanged.
+Criteria are in
 [PROJECT](PROJECT.md); methods, repairs and evidence are in
 [E027/E028 and D005](records/RECORDS.md#e027). Historical PASS results were
 re-audited; affected code was retested after four interruption defects were fixed.
