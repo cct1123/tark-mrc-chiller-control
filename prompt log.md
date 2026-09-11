@@ -662,3 +662,44 @@ Finish when the software is reproducible, understandable, minimal, and validated
 ## Prompt 11
 
 commit push
+
+## Prompt 12
+
+Review the entire `tark-mrc-chiller-control` repository and perform an aggressive cleanup and simplification pass.
+
+Design it as a **simple laboratory hardware controller that is easy to integrate into larger software and hardware stacks**. It should behave like a small reusable device driver, not a standalone framework.
+
+- Explicitly reduce the number of Python modules. The current package is too fragmented. Target roughly 5–7 core modules total.
+- Merge closely related modules instead of preserving one-file-per-concept structure.
+- Consolidate the current `api`, `device`, `hardware`, `protocol`, `transport`, `safety`, `monitoring`, `csvlog`, and `testing` fragmentation.
+- Prefer a compact structure such as:
+  - `controller.py` — public device API
+  - `serial.py` — communication + protocol
+  - `simulator.py` — hardware-free backend
+  - `monitor.py` — polling + CSV logging
+  - `gui.py` — optional Dash interface
+  - `errors.py`
+  - `__init__.py` / `__main__.py`
+- Keep the controller independent of Dash. The GUI must consume the same public API that external experiment-control software would use.
+- Make the core package usable without starting a GUI, web server, background service, or application framework.
+- Provide a small, synchronous, explicit public API such as:\
+  `connect()`, `disconnect()`, `read_temperature()`, `read_setpoint()`, `set_setpoint()`, `read_status()`, `start_monitoring()`, `stop_monitoring()`.
+- Make it straightforward to import into existing Python experiment stacks, automation scripts, DAQ systems, notebooks, and multi-instrument control programs.
+- Avoid hidden global state, singletons, implicit threads, GUI-owned device state, and framework-specific lifecycle requirements.
+- Keep serial/device ownership clear so another application can create, use, and close the controller predictably.
+- Prefer plain Python classes, simple return values, standard exceptions, and dependency injection only where genuinely useful.
+- Avoid excessive abstractions, registries, policy objects, ownership systems, compatibility layers, helper classes, and premature extensibility.
+- Preserve only hardware-relevant safety and reliability: setpoint validation, serial timeouts, bounded read recovery, clean shutdown, no blind replay of uncertain writes, and clear errors.
+- Keep the simulator compatible with the same simple controller interface so higher-level software can be developed without hardware.
+- Keep monitoring and CSV logging optional; users should be able to use the controller without them.
+- Keep Dash optional and thin. It should be an example client of the controller, not part of the controller architecture.
+- Reduce dependencies and optional-package complexity where practical.
+- Delete dead code, redundant helpers, obsolete exports, stale examples, and tests that only protect unnecessary internal abstractions.
+- Rewrite tests around externally meaningful controller behavior.
+- Update imports, package exports, README, architecture docs, and examples to reflect the simplified design.
+- Do not create compatibility modules merely to preserve old internal structure unless there is a real external API requirement.
+- Do not invent or implement unverified Tark hardware commands.
+
+Before editing, produce a short merge/delete plan showing the current modules and the final reduced layout. Then execute the simplification decisively.
+
+Success criterion: the repository becomes a compact, reusable hardware driver that a researcher can understand quickly and integrate into a larger experimental control stack with only a few lines of Python.

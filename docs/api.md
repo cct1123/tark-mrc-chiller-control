@@ -1,73 +1,108 @@
 # Python API
 
-[Home](../README.md) · [Quick start](quickstart.md) · [Dashboard](usage.md)
+[Home](../README.md) · [Examples](../README.md#numbered-examples) · [Hardware](hardware.md)
 
-Start with `Chiller(SimulatedDevice())`. The simulator works now. The serial device
-shares these operations but still needs a documented protocol implementation.
-Use **one Chiller per device**, shared by controls and monitoring.
+Use one `Chiller` per backend and share that instance with your experiment code.
+Import and construction do not open a connection or start monitoring.
 
-## Device control
+```python
+from tark_chiller import Chiller, Simulator
 
-| Call | What it does | When to use it |
+with Chiller(Simulator()) as chiller:
+    print(chiller.read_temperature())
+    chiller.set_setpoint(18.0)
+    print(chiller.read_setpoint())
+```
+
+All temperatures are Celsius. The context manager connects on entry and
+disconnects on exit, including when the script raises an exception.
+
+## Function layout
+
+| Function or property | What it does | When to use it |
 | --- | --- | --- |
-| `connect()` | Opens the device connection; never sends a target | Before temperature reads or writes |
-| `disconnect()` | Closes the software connection; cancels read recovery | At the end of use; does not switch physical power off |
-| `is_connected` | Boolean connection property | A quick connection check, not a coolant/safety check |
-| `get_temperature()` | Returns a finite Celsius reading | Read the current temperature |
-| `get_setpoint()` | Returns the device's reported Celsius target | Check the target, especially after a write |
-| `set_setpoint(value_c)` | Validates and sends one target request | Change temperature within the coolant limits |
-| `get_status()` | Returns `connected`, `backend` and `detail` | Inspect connection/backend diagnostics, including while disconnected |
+| `connect()` | Opens the backend without writing a target | Before reads or control |
+| `disconnect()` | Cancels recovery, closes the connection, stops monitoring and closes CSV | End of use; does not switch physical power off |
+| `is_connected` | Returns the driver's connection state | Connection check, not safety check |
+| `read_temperature()` | Returns a finite Celsius measurement | Synchronous measurement |
+| `read_setpoint()` | Returns the device's reported Celsius target | Before and after a target change |
+| `set_setpoint(value_c)` | Validates and sends one target request | A deliberate temperature change |
+| `read_status()` | Returns `Status(connected, backend, detail)` | Connection and device diagnostics |
+| `start_monitoring(interval_s=1, csv_path=None, history_size=3600)` | Starts one worker and returns its snapshot handle | Optional acquisition/recording |
+| `stop_monitoring(timeout_s=5)` | Joins the worker and closes CSV; keeps the connection | Finish recording, then continue direct reads |
 
-Connection and device failures raise `ChillerError` subclasses. Invalid targets
-raise `SetpointValidationError` before device access. Use numeric Celsius values;
-strings, booleans, NaN and infinity are rejected. No Fahrenheit/Kelvin conversion
-is performed. A lost write confirmation is uncertain: read the target before
-considering another write. No setpoint write is automatically repeated.
+Starting a second monitor while one is active raises `RuntimeError`.
+Use Chiller's public functions. Backend methods beginning with an underscore are
+internal I/O hooks and bypass application safety checks.
 
-[Read example](../examples/01_read_temperature.py) ·
-[Setpoint example](../examples/02_set_temperature.py)
+## Monitoring
 
-## Monitoring and recording
+```python
+from time import sleep
+from tark_chiller import Chiller, Simulator
 
-Import `Chiller`, `SimulatedDevice`, `Monitor` and `CsvLogger` from `tark_chiller`.
-Monitoring is independent of the GUI. `Monitor(chiller)` creates its own limited
-history; pass `state=LiveState(capacity=120)` only when you need explicit shared state.
+with Chiller(Simulator()) as chiller:
+    monitor = chiller.start_monitoring(interval_s=0.5, csv_path="temperature.csv")
+    sleep(3)
+    chiller.stop_monitoring()
+    snapshot = monitor.snapshot()
+    if snapshot.service_error or snapshot.logging_error:
+        raise RuntimeError(snapshot.service_error or snapshot.logging_error)
+    print(snapshot.sample_count, snapshot.logged_samples)
+```
 
-| Call or object | What it does | When to use it |
-| --- | --- | --- |
-| `Monitor(chiller, interval_s=1.0, logger=None)` | Sets up sampling; does not connect or start | Once per experiment |
-| `monitor.start()` | Starts one background sampling thread | Continuous monitoring; repeated start does not add a thread |
-| `monitor.poll_once()` | Reads and records one sample synchronously | Small scripts; never while the background thread runs |
-| `monitor.state.snapshot()` | Returns a consistent copy of history, counters and errors | GUI refresh or experiment progress |
-| `monitor.request_stop()` | Stops scheduling new polls | First step of application shutdown |
-| `monitor.stop()` | Requests stop and waits for active polling to finish | Before closing the CSV; a timeout raises an error |
-| `CsvLogger(path, append=False)` | Opens a new CSV; use `append=True` to validate an existing file | Pass as `logger=` to Monitor |
-| `logger.write(sample)` | Writes and flushes one Monitor sample | Only when you intentionally manage recording yourself |
-| `logger.rows_written` / `logger.close()` | Counts this session's rows / closes the file | Confirm recording and release the file |
+`monitor.snapshot()` reads memory only. Its immutable result contains:
 
-A sample contains UTC time, elapsed seconds, temperature, setpoint, status and an
-optional error. Failed polls have blank temperatures, not zero. A snapshot also
-reports `running`, `sample_count`, `failed_samples`, `logged_samples`, `service_error`
-and `logging_error`. Check both errors: temperature sampling can continue after
-CSV recording fails.
+- `history` and `latest`: samples with time, temperature, target, status and errors.
+- `running`, `sample_count` and `failed_samples`: acquisition progress.
+- `logging_enabled`, `logged_samples` and `logging_error`: recording progress.
+- `service_error`: an unexpected worker failure.
 
-Shutdown order is explicit: request stop → disconnect → wait for monitor → close
-CSV. If `stop()` times out, keep the logger open until polling has ended. The
-[background experiment example](../examples/04_monitor_experiment.py) shows this
-order; the [CSV example](../examples/03_log_temperature.py) uses simpler manual polls.
+Failed samples have missing temperature/target values and an `error`. Check both
+service and recording errors: acquisition can continue after writing fails.
+History retains at most `history_size` samples; CSV records the complete run.
+A stop timeout means work is still active. Resolve pending I/O and retry
+shutdown; do not assume recording has closed.
 
-## Optional settings
+See [example 04](../examples/04_monitor_experiment.py) and [CSV details](usage.md#csv-recording).
 
-The default setpoint profile is distilled water, 2–40 °C. A custom `CoolantProfile`
-requires a name, finite limits and a documented source, configured on both Chiller
-and its device. It is a software limit, not evidence of the installed coolant.
+## Limits and recovery
 
-`RecoveryPolicy(max_reconnect_attempts=2)` enables a limited number of read/connect
-recovery attempts per outage. The default is zero. Recovery never repeats writes,
-and invalid protocol replies stop automatic recovery. A new explicit `connect()`
-is required after exhaustion. These are software settings, not Tark serial settings.
+Defaults: `setpoint_range=(2.0, 40.0)`, `coolant="distilled water"`.
+Strings, booleans, NaN, infinity and out-of-range targets raise `ValueError`
+before backend access. No unit conversion is performed.
 
-For custom dashboards, `tark_chiller.gui.create_app(chiller, monitor.state)` creates
-the Dash app only. The caller still owns connection, monitor, CSV and shutdown.
-Use one server process with its reloader disabled. The standard launcher already
-does this; [example 05](../examples/05_launch_dashboard.py) uses that launcher.
+Custom bounds require an explicit coolant name and a nonempty `coolant_source`
+documenting their applicability. These constructor arguments describe operator
+policy; they do not detect fluid or establish safe sub-zero operation.
+
+`reconnect_attempts=0` disables automatic recovery. An integer from 1 to 10
+enables bounded read/connect recovery; `reconnect_delay_s` defaults to 0.05 s.
+A successful read resets the outage budget. Protocol errors suspend recovery;
+exhaustion requires an explicit `connect()`. Writes are never retried or replayed.
+
+| Error | Meaning |
+| --- | --- |
+| `ValueError` | Invalid target or configuration |
+| `ConnectionError` | Disconnected, cancelled or exhausted recovery |
+| `TimeoutError` | Serial I/O or monitoring shutdown exceeded its budget |
+| `OSError` | Port or recording failure |
+| `ProtocolError` | Invalid reply or codec result |
+| `ProtocolUnavailableError` | No documented codec configured |
+
+A write timeout has an uncertain outcome. Read back the target before deciding
+whether a new write is appropriate.
+
+## Optional GUI
+
+`tark_chiller.gui.create_app(chiller, monitor)` creates a display for an existing
+driver and monitoring handle. It does not connect or start acquisition.
+The host owns startup/shutdown. Use one server process with its reloader disabled.
+The [standard launcher](../examples/05_launch_dashboard.py) manages this lifecycle.
+
+## Updating an older script
+
+Version 0.2 uses `Simulator`, `read_temperature()`, `read_setpoint()` and
+`read_status()`. Replace Monitor/CsvLogger/LiveState setup with
+`chiller.start_monitoring(csv_path=...)`, and use `monitor.snapshot()`.
+CSV append and simulator fault/noise configuration are not part of this API.

@@ -1,41 +1,8 @@
-<svg xmlns="http://www.w3.org/2000/svg" width="960" height="414" viewBox="0 0 960 414" role="img" aria-labelledby="title desc">
-  <title id="title">Controller system overview</title>
-  <desc id="desc">Dash reads live history and sends explicit controls to the Chiller API. An independent monitor polls that same API and publishes live history and CSV. The API uses a simulator or serial device.</desc>
-  <defs><marker id="arrow" markerWidth="8" markerHeight="8" refX="7" refY="4" orient="auto"><path d="M0 0 L8 4 L0 8Z" fill="#526b79"/></marker></defs>
-  <rect width="960" height="414" rx="14" fill="#f5f8fa"/>
-  <g font-family="Segoe UI,Arial,sans-serif" fill="#18313d">
-    <text x="32" y="34" font-size="22" font-weight="600">One application, independent responsibilities</text>
-    <g fill="none" stroke="#526b79" stroke-width="2" marker-end="url(#arrow)">
-      <path d="M150 110V76H810V110" stroke-dasharray="6 4"/>
-      <path d="M150 174V342H360"/>
-      <path d="M480 174V310"/>
-      <path d="M600 142H700"/>
-      <path d="M600 156H650V242H700"/>
-      <path d="M600 342H700"/>
-    </g>
-    <g fill="#fff" stroke="#c6d4dc" stroke-width="1.5">
-      <rect x="40" y="110" width="220" height="64" rx="8"/>
-      <rect x="360" y="110" width="240" height="64" rx="8"/>
-      <rect x="700" y="110" width="220" height="64" rx="8"/>
-      <rect x="700" y="210" width="220" height="64" rx="8"/>
-      <rect x="360" y="310" width="240" height="64" rx="8" fill="#e5f4f2" stroke="#087f8c"/>
-      <rect x="700" y="310" width="220" height="64" rx="8"/>
-    </g>
-    <g font-size="20" text-anchor="middle">
-      <text x="150" y="149">Dash dashboard</text>
-      <text x="480" y="149">Acquisition monitor</text>
-      <text x="810" y="138">Shared live state</text><text x="810" y="160" font-size="16">Bounded history</text>
-      <text x="810" y="249">CSV recording</text>
-      <text x="480" y="349">Public Chiller API</text>
-      <text x="810" y="338">Device backend</text><text x="810" y="360" font-size="16">Simulator or SerialDevice</text>
-    </g>
-    <g font-size="16" fill="#526b79">
-      <text x="315" y="66">Read snapshots; no device polling</text>
-      <text x="168" y="330">Explicit control</text>
-      <text x="491" y="249">Poll</text>
-      <text x="610" y="129">Publish</text>
-      <text x="660" y="230">Log</text>
-      <text x="32" y="401">The browser does not own acquisition or the device connection.</text>
-    </g>
-  </g>
-</svg>
+<svg xmlns="http://www.w3.org/2000/svg" width="960" height="350" viewBox="0 0 960 350" role="img" aria-labelledby="title desc">
+<title id="title">One driver owns device access</title><desc id="desc">An experiment uses Chiller, which owns the backend and optional monitoring. The monitor supplies CSV and optional Dash snapshots.</desc>
+<defs><marker id="arrow" markerWidth="8" markerHeight="8" refX="7" refY="4" orient="auto"><path d="M0 0 L8 4 L0 8Z" fill="#536c79"/></marker></defs>
+<rect width="960" height="350" rx="14" fill="#f5f8fa"/>
+<g font-family="Segoe UI,Arial,sans-serif" fill="#18313d">
+<text x="30" y="36" font-size="22" font-weight="600">One driver owns device access</text>
+<path d="M250 126H355" fill="none" stroke="#536c79" stroke-width="2" marker-end="url(#arrow)"/><path d="M600 126H705" fill="none" stroke="#536c79" stroke-width="2" marker-end="url(#arrow)"/><path d="M480 162V246" fill="none" stroke="#536c79" stroke-width="2" marker-end="url(#arrow)" stroke-dasharray="6 4"/><path d="M355 286H255" fill="none" stroke="#536c79" stroke-width="2" marker-end="url(#arrow)"/><path d="M600 286H705" fill="none" stroke="#536c79" stroke-width="2" marker-end="url(#arrow)"/><rect x="35" y="90" width="215" height="72" rx="8" fill="#fff" stroke="#c6d4dc" stroke-width="1.5"/><text x="142.5" y="119" text-anchor="middle" font-size="20">Your experiment</text><text x="142.5" y="144" text-anchor="middle" font-size="15" fill="#536c79">Script or application</text><rect x="360" y="90" width="240" height="72" rx="8" fill="#e5f4f2" stroke="#087f8c" stroke-width="1.5"/><text x="480" y="119" text-anchor="middle" font-size="20">Chiller</text><text x="480" y="144" text-anchor="middle" font-size="15" fill="#536c79">Connect · read · set · stop</text><rect x="710" y="90" width="215" height="72" rx="8" fill="#fff" stroke="#c6d4dc" stroke-width="1.5"/><text x="817.5" y="119" text-anchor="middle" font-size="20">Backend</text><text x="817.5" y="144" text-anchor="middle" font-size="15" fill="#536c79">Simulator or SerialDevice</text><rect x="360" y="250" width="240" height="72" rx="8" fill="#fff" stroke="#c6d4dc" stroke-width="1.5"/><text x="480" y="279" text-anchor="middle" font-size="20">Optional monitoring</text><text x="480" y="304" text-anchor="middle" font-size="15" fill="#536c79">Started explicitly by Chiller</text><rect x="35" y="250" width="215" height="72" rx="8" fill="#fff" stroke="#c6d4dc" stroke-width="1.5"/><text x="142.5" y="279" text-anchor="middle" font-size="20">Optional Dash</text><text x="142.5" y="304" text-anchor="middle" font-size="15" fill="#536c79">Reads snapshots</text><rect x="710" y="250" width="215" height="72" rx="8" fill="#fff" stroke="#c6d4dc" stroke-width="1.5"/><text x="817.5" y="279" text-anchor="middle" font-size="20">Optional CSV</text><text x="817.5" y="304" text-anchor="middle" font-size="15" fill="#536c79">New file per run</text><text x="490" y="211" font-size="16" fill="#536c79">Owns lifecycle</text>
+</g></svg>

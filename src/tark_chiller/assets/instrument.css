@@ -15,6 +15,8 @@ h1 { font-size: clamp(1.75rem, 3vw, 2.2rem); font-weight: 650; letter-spacing: -
 .instrument-mark { color: #82959e; font-size: .7rem; letter-spacing: .16em; border: 1px solid #cfdce2; padding: 9px 12px; border-radius: 5px; }
 .card { --bs-card-border-color: #dce5e9; --bs-card-border-radius: 9px; --bs-card-bg: #fff; box-shadow: 0 2px 3px #16333d03; }
 .card-body { padding: 22px; }
+.reading-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 16px; }
+.instrument-panels { display: grid; grid-template-columns: minmax(0, 2fr) minmax(280px, 1fr); gap: 16px; }
 .metric-label { font-size: .8rem; color: var(--instrument-muted); font-weight: 600; margin-bottom: 12px; }
 .metric-value { font-variant-numeric: tabular-nums; font-size: clamp(2.4rem, 4vw, 3.3rem); letter-spacing: -.035em; line-height: 1.1; font-weight: 600; white-space: nowrap; }
 .metric-value span { font-size: 1.25rem; font-weight: 400; margin-left: .5rem; }
@@ -41,17 +43,20 @@ h1 { font-size: clamp(1.75rem, 3vw, 2.2rem); font-weight: 650; letter-spacing: -
 .form-control:focus { border-color: #087f8c; box-shadow: 0 0 0 .2rem #087f8c20; }
 .btn { font-size: .85rem; min-height: 40px; }
 .btn-primary { --bs-btn-bg: #087f8c; --bs-btn-border-color: #087f8c; --bs-btn-hover-bg: #086d78; --bs-btn-hover-border-color: #086d78; --bs-btn-active-bg: #065e67; --bs-btn-active-border-color: #065e67; }
-.btn-outline-secondary { --bs-btn-color: #415f6c; --bs-btn-border-color: #bdced6; --bs-btn-hover-bg: #eaf0f3; --bs-btn-hover-color: #183642; --bs-btn-hover-border-color: #a3bcc8; }
-.connection-actions { display: flex; flex-wrap: wrap; gap: 8px; }
-.connection-actions .btn { flex: 1 1 auto; }
 .action-result { font-size: .8rem; line-height: 1.5; overflow-wrap: anywhere; }
 .action-result:not(:empty) { margin-top: 12px; padding: 10px; background: #f1f5f7; border-left: 3px solid #7e969f; }
 hr { border-color: #cedbe1; margin: 22px 0; }
 .safety-note { font-size: .75rem; line-height: 1.6; color: var(--instrument-muted); margin-top: 18px; padding: 0 2px; }
+@media (max-width: 991px) {
+  .reading-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .reading-grid > :last-child { grid-column: 1 / -1; }
+  .instrument-panels { grid-template-columns: minmax(0, 1fr); }
+}
 @media (max-width: 575px) {
   .dashboard { padding: 20px 15px; }
   .instrument-mark { display: none; }
   .card-body { padding: 18px; }
   .session-summary { flex-direction: column; }
   .metric-value { font-size: 2.6rem; }
+  .reading-grid { grid-template-columns: minmax(0, 1fr); }
 }

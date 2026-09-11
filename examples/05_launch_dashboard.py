@@ -1,4 +1,4 @@
-"""Launch the simulator dashboard; accepts the same options as python -m tark_chiller."""
+"""Launch the simulator dashboard; accepts the standard launcher options."""
 
 from tark_chiller.__main__ import main
 

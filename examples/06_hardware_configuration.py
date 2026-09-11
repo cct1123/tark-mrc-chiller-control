@@ -1,29 +1,20 @@
-"""Configuration template only: the missing MRC protocol prevents connection.
+"""Configuration template only: no controller protocol or serial defaults.
 
-Supply SerialSettings from the matching controller manual and verified port.
-For RS-485, also supply RS485Mode for the verified adapter. There are deliberately
-no example baud rates, pin levels or addresses. This script never opens a port.
+Supply settings from the matching controller/adapter documentation and verified
+OS port. Construction opens nothing; connect refuses while no codec is supplied.
 """
 
 from tark_chiller import Chiller
-from tark_chiller.errors import ProtocolUnavailableError
-from tark_chiller.hardware import SerialDevice
-from tark_chiller.protocol import MissingProtocol
-from tark_chiller.transport import RS232Transport, RS485Mode, RS485Transport, SerialSettings
+from tark_chiller.serial import RS485Mode, SerialDevice, SerialSettings
 
 
-def configure(settings: SerialSettings, *, rs485_mode: RS485Mode | None = None) -> Chiller:
-    """Build the common API without connecting; its default codec refuses hardware."""
-    transport = (
-        RS232Transport(settings)
-        if rs485_mode is None
-        else RS485Transport(settings, mode=rs485_mode)
-    )
-    return Chiller(SerialDevice(transport))
+def configure(settings: SerialSettings, *, rs485: RS485Mode | None = None) -> Chiller:
+    """Build a disconnected driver with deliberately unavailable protocol."""
+    return Chiller(SerialDevice(settings, rs485=rs485))
 
 
 if __name__ == "__main__":
-    try:
-        MissingProtocol().ensure_available()
-    except ProtocolUnavailableError as exc:
-        raise SystemExit(f"Hardware unavailable: {exc}") from None
+    raise SystemExit(
+        "Hardware unavailable: Controller communication manual is required; "
+        "no documented codec is configured."
+    )

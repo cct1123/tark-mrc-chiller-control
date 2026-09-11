@@ -1,14 +1,8 @@
-<svg xmlns="http://www.w3.org/2000/svg" width="1000" height="270" viewBox="0 0 1000 270" role="img" aria-labelledby="title desc">
-  <title id="title">Set up a local simulator session</title>
-  <desc id="desc">Install Python and the GUI packages, launch the simulator in a terminal, open the local browser page, and record CSV. Closing the browser does not stop the terminal session.</desc>
-  <defs><marker id="arrow" markerWidth="8" markerHeight="8" refX="7" refY="4" orient="auto"><path d="M0 0L8 4L0 8Z" fill="#637b85"/></marker></defs>
-  <rect width="1000" height="270" rx="12" fill="#f2f6f8"/>
-  <g font-family="Segoe UI,Arial,sans-serif" fill="#183642">
-    <text x="28" y="36" font-size="22" font-weight="600">From installation to a recorded experiment</text>
-    <g stroke="#637b85" stroke-width="2" marker-end="url(#arrow)"><path d="M238 132H272"/><path d="M486 132H520"/><path d="M734 132H768"/></g>
-    <g fill="#fff" stroke="#c7d8df"><rect x="28" y="80" width="210" height="115" rx="9"/><rect x="276" y="80" width="210" height="115" rx="9"/><rect x="524" y="80" width="210" height="115" rx="9"/><rect x="772" y="80" width="200" height="115" rx="9"/></g>
-    <g font-size="19" font-weight="600"><text x="46" y="112">1  Install</text><text x="294" y="112">2  Launch</text><text x="542" y="112">3  Open browser</text><text x="790" y="112">4  Record</text></g>
-    <g font-size="16"><text x="46" y="148">Python 3.12+</text><text x="46" y="174">App + GUI packages</text><text x="294" y="148">Simulator in terminal</text><text x="294" y="174">Launch with --csv</text><text x="542" y="148">127.0.0.1:8050</text><text x="542" y="174">Set target; watch plot</text><text x="790" y="148">Check rows written</text><text x="790" y="174">Ctrl+C to finish</text></g>
-    <text x="28" y="239" font-size="16" fill="#526b79">No chiller or serial adapter needed. After installation, the dashboard works locally without a CDN.</text>
-  </g>
-</svg>
+<svg xmlns="http://www.w3.org/2000/svg" width="960" height="237" viewBox="0 0 960 237" role="img" aria-labelledby="title desc">
+<title id="title">Start with the driver; add only what you need</title><desc id="desc">Install the base driver, run the read example, optionally record data, then add the GUI extra for a dashboard.</desc>
+<defs><marker id="arrow" markerWidth="8" markerHeight="8" refX="7" refY="4" orient="auto"><path d="M0 0 L8 4 L0 8Z" fill="#536c79"/></marker></defs>
+<rect width="960" height="237" rx="14" fill="#f5f8fa"/>
+<g font-family="Segoe UI,Arial,sans-serif" fill="#18313d">
+<text x="30" y="36" font-size="22" font-weight="600">Start with the driver; add only what you need</text>
+<path d="M225 125H262" fill="none" stroke="#536c79" stroke-width="2" marker-end="url(#arrow)"/><path d="M465 125H502" fill="none" stroke="#536c79" stroke-width="2" marker-end="url(#arrow)"/><path d="M705 125H742" fill="none" stroke="#536c79" stroke-width="2" marker-end="url(#arrow)"/><rect x="25" y="90" width="200" height="72" rx="8" fill="#e5f4f2" stroke="#087f8c" stroke-width="1.5"/><text x="125" y="119" text-anchor="middle" font-size="20">1 · Install</text><text x="125" y="144" text-anchor="middle" font-size="15" fill="#536c79">python -m pip install .</text><rect x="265" y="90" width="200" height="72" rx="8" fill="#fff" stroke="#c6d4dc" stroke-width="1.5"/><text x="365" y="119" text-anchor="middle" font-size="20">2 · Read</text><text x="365" y="144" text-anchor="middle" font-size="15" fill="#536c79">Run example 01</text><rect x="505" y="90" width="200" height="72" rx="8" fill="#fff" stroke="#c6d4dc" stroke-width="1.5"/><text x="605" y="119" text-anchor="middle" font-size="20">3 · Record</text><text x="605" y="144" text-anchor="middle" font-size="15" fill="#536c79">Run example 03</text><rect x="745" y="90" width="190" height="72" rx="8" fill="#fff" stroke="#c6d4dc" stroke-width="1.5"/><text x="840" y="119" text-anchor="middle" font-size="20">4 · Optional GUI</text><text x="840" y="144" text-anchor="middle" font-size="15" fill="#536c79">Install the gui extra</text><text x="30" y="211" font-size="16" fill="#536c79">Simulator: no hardware required. Expected first reading: 20.00 Celsius.</text>
+</g></svg>

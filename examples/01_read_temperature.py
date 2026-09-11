@@ -1,17 +1,13 @@
-"""Read a simulated chiller once. No physical device is used."""
+"""Read one simulated temperature, target and status; no hardware is used."""
 
-from tark_chiller import Chiller, SimulatedDevice
+from tark_chiller import Chiller, Simulator
 
 
 def main() -> None:
-    chiller = Chiller(SimulatedDevice())
-    try:
-        chiller.connect()
-        print(f"Temperature: {chiller.get_temperature():.2f} Celsius")
-        print(f"Setpoint: {chiller.get_setpoint():.2f} Celsius")
-        print(chiller.get_status())
-    finally:
-        chiller.disconnect()
+    with Chiller(Simulator()) as chiller:
+        print(f"Temperature: {chiller.read_temperature():.2f} Celsius")
+        print(f"Setpoint: {chiller.read_setpoint():.2f} Celsius")
+        print(chiller.read_status())
 
 
 if __name__ == "__main__":

@@ -1,25 +1,21 @@
-"""Write five simulator samples to a new CSV in the current folder."""
+"""Record five seconds of simulator data in a new CSV file."""
 
 from time import sleep
 
-from tark_chiller import Chiller, CsvLogger, Monitor, SimulatedDevice
+from tark_chiller import Chiller, Simulator
 
 
 def main() -> None:
-    chiller = Chiller(SimulatedDevice())
-    with CsvLogger("outputs/03_temperature.csv") as logger:
-        monitor = Monitor(chiller, logger=logger)
+    with Chiller(Simulator()) as chiller:
+        monitor = chiller.start_monitoring(csv_path="outputs/03_temperature.csv")
         try:
-            chiller.connect()
-            for _ in range(5):
-                sample = monitor.poll_once()
-                if error := monitor.state.snapshot().logging_error:
-                    raise RuntimeError(error)
-                print(sample.timestamp_utc.isoformat(), sample.temperature_c, sample.error)
-                sleep(1)
-        finally:
-            chiller.disconnect()
-        print(f"Saved {logger.rows_written} rows to outputs/03_temperature.csv")
+            sleep(5)
+        except KeyboardInterrupt:
+            print("Stopping recording.")
+    snapshot = monitor.snapshot()
+    if snapshot.service_error or snapshot.logging_error:
+        raise RuntimeError(snapshot.service_error or snapshot.logging_error)
+    print(f"Saved {snapshot.logged_samples} rows to outputs/03_temperature.csv")
 
 
 if __name__ == "__main__":

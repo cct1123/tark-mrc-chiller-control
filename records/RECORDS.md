@@ -1016,3 +1016,121 @@ remain. No physical discovery, opening, actuation or calibration was attempted.
 All software acceptance is PASS; only matching-protocol and identified-hardware
 criteria remain BLOCKED. The exact source facts and resumption procedure are in
 [STATE](../STATE.md) and [REPORT](../outputs/REPORT.md).
+
+## D006
+
+Date: 2026-09-10 (America/Chicago). Source: prompt 12.
+Decision: replace the fragmented 0.1 architecture with a 0.2 reusable driver.
+
+| Previous files | Final files |
+| --- | --- |
+| api, device, safety | controller.py |
+| hardware, protocol, transport | serial.py |
+| monitoring, csvlog | monitor.py |
+| simulator | simulator.py |
+| gui, errors | gui.py, errors.py |
+| package / module entry | __init__.py, __main__.py |
+| development testing/demo machinery | bounded fixtures and production-path tests in tests/ |
+
+The merge/delete plan was presented before editing. Six functional modules plus
+entry files replace thirteen package files. Chiller owns one backend and optional
+monitor; the caller controls connect/disconnect. No global registry, LiveState,
+RecoveryPolicy, CoolantProfile, public CsvLogger or compatibility module remains.
+Plain constructor arguments configure immutable coolant limits and finite read
+recovery. Built-in ValueError/OSError/ConnectionError/TimeoutError replace error
+wrappers; ProtocolError distinguishes untrusted response format from transport
+failure. Raw backend operations are private, and Chiller validates every public
+setpoint before backend access. No backend is shared between Chiller instances.
+
+Scope changes authorized by prompt 12: REQ-018 now requires exclusive new CSV
+creation; append/resume, sessions and independent logger lifecycles are removed.
+REQ-016 retains deterministic thermal response and fault testing, with synthetic
+faults moved entirely to tests; seeded noise and cadence configuration are removed.
+GUI connection management is removed; the GUI reads snapshots and submits one
+public setpoint request. REQ-023 adds observable compactness and integration checks.
+These are deliberate breaking changes, not compatibility aliases. The core remains
+standard-library only; GUI and pySerial extras are optional.
+
+## E029
+
+Date: 2026-09-10 (America/Chicago).
+Scope: fresh compact-driver audit, implementation review and startup diagnosis;
+REQ-001–014, REQ-016–023 / TEST-001–011, TEST-013–020.
+Baseline: d1aabc0, 13 Python package files / 2,056 lines. Old PASS statements were
+invalidated for affected behavior before editing. PROJECT criteria were explicitly
+updated under D006; historical E028 evidence does not validate the new API.
+
+Coordinator inspected the implementation, tests, configuration, guides and records;
+bounded specialists independently implemented the serial consolidation and thin
+GUI, revised user docs/examples, then reviewed controller/monitor safety and
+concurrency. Fault injection uses memory-only endpoints through real SerialDevice
+and Chiller. Simulator-to-Dash integration uses real public methods and sampling.
+Tests protecting removed ownership registries, CSV append internals and simulation
+configuration were replaced by observable driver/lifecycle/data-integrity tests.
+
+Independent review reproduced a CSV leak when worker construction was interrupted
+before Thread.start. The start method now protects ready-event and Thread
+construction, closes an unstarted CSV and preserves the original interruption.
+Regressions cover both constructors, start failure and interruption after launch.
+A failed or timed-out monitor remains observable; disconnect cancels read recovery,
+closes serialized I/O and joins the monitor, whose finally block closes CSV.
+
+Manual/protocol facts remain E002/E027: the available official Rev 13 manual
+supports the distilled-water 2–40 °C envelope and mentions RS232/RS485 while
+referring to a separate controller manual. Available project inputs still contain
+no matching communication protocol or identified physical unit. No new hardware
+fact, command, register, framing, baud default or telemetry claim was introduced.
+No real serial port was discovered or opened. Final evidence follows in E030.
+
+## E030
+
+Date: 2026-09-10 (America/Chicago).
+Scope: final 0.2 compact-driver software acceptance; TEST-001–011 and TEST-013–020.
+Configuration: Windows, Python 3.12.14, [pinned dependencies](../requirements-tested.txt),
+fresh isolated virtual environment and a normal non-editable installation.
+The installed package's eight Python files matched the source byte-for-byte.
+Example subprocess tests inherit the selected runtime rather than forcing a
+source import, so installed-package checks exercise the installed driver too.
+
+**187 tests PASS in 29.81 s**. Ruff lint and format checks, mypy (eight package
+files), pip check, source archive/wheel build and entry-point smoke checks PASS.
+[JUnit](../outputs/driver-tests.xml), [build](../outputs/driver-build.txt),
+[module/package/browser audit](../outputs/driver-audit.json),
+[current source manifest](../outputs/driver-source-manifest.sha256).
+The package has six functional modules plus two entry files and 1,249 Python
+lines versus 2,056 at d1aabc0 (39.3% fewer). The installed wheel excludes test
+fixtures and all removed modules. The source archive retains durable records.
+
+Sustained method: set TARK_SOAK_SECONDS=600, then run
+`python -m pytest tests/test_end_to_end.py::test_simulator_monitor_csv_dash -s`.
+Observed **600 seconds PASS**: 18,445 samples equal 18,445 CSV rows; 14,730
+concurrent callback/reload cycles; history bounded to 25 samples; temperature
+converged from 20 °C to 18.000000000000007 °C. Sampling continued without browsers,
+and worker, CSV and connection closed. [Output](../outputs/driver-soak.txt).
+This run started before the final event-construction interruption guard, which
+changes failed startup only. The final installed full suite revalidated successful
+startup and every interruption regression after that repair. The successful
+running path was unchanged. Fault integration separately verified sustained
+unavailable rows, exhausted reconnect budget and explicit recovery through the
+production serial backend; 67 dedicated serial cases cover the broader fault set.
+
+Actual simulator browser: 18 °C accepted/read back, 1 °C rejected, reload preserved
+acquisition, and native screenshot saved to docs/assets/dashboard.jpg. Desktop
+layout and narrow 390-pixel layout inspected; settled page scroll width was 375.
+The screenshot is the actual GUI, not a generated mockup. Five SVG diagrams and
+rendered README assets inspected; 85 current local file links checked, including
+case-sensitive names. One uppercase architecture link was corrected for GitHub.
+Removed the stale embedded screenshot-tour SVG; text tour uses the actual image.
+
+After browser closure, 327 additional measured rows were written; final CSV had
+2,450 complete eight-field rows, no failed samples and an 18 °C readback. Ctrl-C
+printed the stopped message. CSV could be reopened and ports 8050/8051 were closed.
+Signal regressions also cover SIGINT/SIGTERM/SIGBREAK where available. Temporary
+servers, previews, build environments and recordings are cleanup-only artifacts;
+the concise audit, JUnit, build output, manifest and soak result are durable evidence.
+
+All updated hardware-independent criteria PASS. Real hardware portions of
+REQ-002/006 and REQ-015 remain BLOCKED by EXT-001/003. No physical commands,
+settings, signal availability, calibration or reliability are inferred from
+simulation. The next engineering action remains obtaining the matching controller
+manual, then implementing cited codec bytes inside serial.py before candidate review.

@@ -1,148 +1,152 @@
-# Engineering report — software release candidate
+# Engineering report — compact driver 0.2.0
 
 ## Objective and outcome
 
-Deliver a small laboratory controller with a common Python API, independent
-monitoring, CSV recording and a clear Dash display. **The software release
-candidate is complete: 401 tests and the ten-minute fault run pass.** Physical
-MRC150/300 operation remains unavailable pending its matching communication
-protocol and approved validation. Package version 0.1.0; Windows/Python 3.12.14.
+Refactor the project into a small laboratory device driver, usable directly from
+scripts and larger experiment-control programs. The software candidate has six
+functional modules plus package/module entry files: **13 → 8 Python files,
+2,056 → 1,249 lines (39.3% fewer)**. There are no core dependencies, implicit
+workers, global registries or compatibility modules.
 
-## Implemented architecture
+**187 current tests PASS**, as do static checks, a fresh non-editable installation
+and a ten-minute simulator/CSV/Dash run. Real MRC control is unavailable: the
+matching controller communication manual is missing and no physical unit has
+been validated. No serial hardware was discovered, opened or operated.
 
-![Controller architecture](../docs/assets/system.svg)
+## Architecture and API
 
-Dash reads bounded shared snapshots and submits controls through Chiller. One
-Monitor samples the same API and sends rows to CsvLogger. SimulatedDevice and
-SerialDevice implement the device boundary; the latter composes the protocol
-codec and explicit RS232/RS485 transport. MissingProtocol refuses connection
-before port creation. No acquisition worker belongs to Dash.
+![Architecture](../docs/assets/system.svg)
 
-The public control API remains connect/disconnect, is_connected, temperature
-read, setpoint read/write and status read. Monitor starts/stops sampling; CsvLogger
-opens/closes recording. Developer fixtures are outside the installed package.
-The core has no third-party dependencies; Dash, Plotly, Bootstrap components and
-pySerial are optional. GUI styling is local, without a runtime CDN.
+`controller.py` provides Chiller, validation, serialized device access and bounded
+read recovery. `serial.py` holds explicit configuration, the codec boundary and
+byte exchange. `simulator.py` supplies the hardware-free backend. `monitor.py`
+combines optional polling, CSV and immutable bounded snapshots. `gui.py` is a thin
+optional client; `errors.py` defines only the two protocol exceptions.
 
-## Requirements audit and corrections
+```python
+from tark_chiller import Chiller, Simulator
 
-The coordinator read the project, state, instructions, complete implementation,
-tests, records and available manual before editing. E026's 38 entry hashes matched,
-but independent review still reproduced four interruption defects: lost monitoring
-ownership during startup, unclosed serial transactions, silent worker termination
-and reuse of an uncertain CSV writer. Each was repaired with a failing regression
-before the complete suite was rerun. No public API layer was added.
+with Chiller(Simulator()) as chiller:
+    print(chiller.read_temperature())
+    chiller.set_setpoint(18.0)
+    print(chiller.read_setpoint())
+```
 
-Headless recording now runs until Ctrl+C when --duration is omitted. A timed run
-requires --headless. Missing GUI packages produce an installation message before
-CSV creation. Cooperative termination uses the normal ordered shutdown path.
-The configuration template uses current API types without invented serial values.
-README/guides cover installation, API, recording, safe targets and future hardware
-work; the refreshed screenshot is an actual simulator session.
+The other public operations are connect/disconnect, is_connected, read_status,
+start_monitoring and stop_monitoring. Chiller owns one backend and optional
+monitor. Stopping monitoring closes CSV but retains the connection; disconnect
+also cancels recovery and joins polling. Dash creates neither connection nor
+worker; it reads snapshots and submits setpoints through the same API.
 
-All hardware-independent criteria REQ-001–014 and REQ-016–022 are **PASS**.
-Physical portions of REQ-002/006 and REQ-015 are **BLOCKED** by EXT-001/003.
-The complete criterion-by-criterion matrix is in [STATE](../STATE.md), with methods
-and reproduced defects in [E027/E028 and D005](../records/RECORDS.md#e027).
+Version 0.2 deliberately removes the old get_* names, separate policy/state/logger
+objects, CSV append/resume and simulator noise/fault configuration. Each recording
+creates a new file exclusively; fault fixtures live only in tests. No old internal
+import paths are preserved. [D006](../records/RECORDS.md#d006) records the criterion
+changes authorized by prompt 12. [API guide](../docs/api.md).
 
-## Validation evidence
+## Requirements and test evidence
 
-| Check | Observed result |
+Hardware-independent REQ-001–014 and REQ-016–023 PASS against their updated
+criteria. Physical portions of REQ-002/006 and REQ-015 remain BLOCKED by EXT-001/003.
+The [current matrix](../STATE.md) maps every requirement; [E029/E030](../records/RECORDS.md#e029)
+records review, corrections and evidence. Earlier 0.1 results are historical.
+
+| Validation | Observed result |
 | --- | --- |
-| Full unit/integration/fault suite | 401 PASS in 27.55 s; [JUnit](release-tests.xml) |
-| Fresh installation | Python 3.12.14, all 43 pinned dependencies installed afresh; no shared third-party paths |
-| Static checks | Ruff lint/format PASS; mypy 13 modules PASS; pip check PASS |
-| Package | Source archive and wheel build/install PASS; 17 package files identical to tested source; [integrity](release-package.json), [build](release-build.txt) |
-| Ten-minute complete-stack fault run | 596 samples/CSV rows, history bounded at 120, 31 unavailable polls, 4,002 refreshes, 161 page reloads; [summary](release-soak.json) |
-| Writes and recovery in that run | 401 unsafe requests rejected; exactly three applied writes and seven planned opens; uncertain write not replayed; final 18.014839 °C at target 18 °C |
-| Simulator browser | Safe/unsafe controls, disconnect/reconnect and reload PASS; 360 CSV rows, including 37 after tab closure; Ctrl+C stopped sampling; [operations](release-operations.json) |
-| Researcher workflow | Normal install, module/console commands, headless recording/append, README Python, numbered examples and blocked hardware template PASS; rendered guides/images/links checked |
+| Installed unit/integration/fault/example tests | 187 PASS in 29.81 s; [JUnit](driver-tests.xml) |
+| Static checks | Ruff lint/format PASS; mypy eight files PASS; pip check PASS |
+| Installation | Fresh Python 3.12.14 environment, pinned dependencies, non-editable package |
+| Packaging | Source archive/wheel build and module/console entry checks; [build](driver-build.txt), [inventory/integrity](driver-audit.json) |
+| Sustained simulator → Chiller → monitor → CSV/Dash | 600 s, 18,445 samples/CSV rows, 14,730 concurrent callbacks, 25 retained samples; [run](driver-soak.txt) |
+| Sustained temperature and shutdown | Cooled from 20 °C to 18 °C; acquisition continued without browsers; no worker/file/connection left active |
+| Fake serial | Explicit RS232/RS485 setup, unavailable/busy/permission failures, truncated/malformed/delayed replies, timeouts/unplug, bounded recovery and lost-write-acknowledgement tests |
+| Browser and guides | Actual screenshot, 18 °C accepted / 1 °C rejected, page reload, responsive layout, 85 local links and five diagrams reviewed |
+| GUI shutdown | 2,450 complete rows; 327 measured after browser closure; Ctrl-C stopped sampling; CSV accessible and local ports closed |
 
-The [source manifest](release-source-manifest.sha256) identifies 40 source/test/
-example/configuration files. [Exact dependencies](../requirements-tested.txt)
-include Dash 4.4.1, Plotly 6.9.0, dash-bootstrap-components 2.0.4 and pySerial 3.5.
-All serial tests use memory endpoints and explicitly synthetic fixture bytes.
-They do not establish electrical compatibility or physical performance.
+Independent review found interrupted startup could leak an open CSV before the
+thread started. Ready-event and thread construction now occur within cleanup
+protection; regression tests cover these failures and interruption after launch.
+Other tests exercise queued-write cancellation across reconnect, one active
+worker, pending-read shutdown, disk-full recording failure and fatal worker state.
+Acquisition errors produce missing values, never substitute zeros.
 
-## Exact operating instructions
+The sustained run began before the final startup-interruption guard adjustment.
+That adjustment affects failed startup only; the full installed suite, including
+successful startup and all interruption regressions, passed on the final source.
+The complete successful running path was unchanged. No physical performance is
+inferred from simulated temperatures, synthetic messages or callback throughput.
 
-In the project folder, with Python 3.12 or newer selected, use Windows PowerShell:
+## Exact operation
+
+From the repository root with Python 3.12+ on Windows PowerShell:
 
 ```powershell
 python -m venv .venv
-.\.venv\Scripts\python -m pip install -c requirements-tested.txt ".[gui]"
-.\.venv\Scripts\python -m tark_chiller --csv outputs/session.csv
+.\.venv\Scripts\python -m pip install .
+.\.venv\Scripts\python examples/01_read_temperature.py
+.\.venv\Scripts\python examples/02_set_temperature.py
+.\.venv\Scripts\python examples/03_log_temperature.py
+.\.venv\Scripts\python -m tark_chiller --headless --duration 60 --csv outputs/run-01.csv
 ```
 
-Open [127.0.0.1:8050](http://127.0.0.1:8050). Confirm simulator/Monitoring/CSV
-Enabled; try an 18 °C target. Default water limits are 2–40 °C. All numeric inputs
-mean Celsius; strings, booleans, NaN, infinity and out-of-range targets are rejected.
-Software cannot identify coolant or prove sub-zero safety. Setpoints are never
-automatically replayed on reconnect.
-
-For continuous recording without a browser:
+For the optional GUI:
 
 ```powershell
-.\.venv\Scripts\python -m tark_chiller --headless --csv outputs/experiment.csv
+.\.venv\Scripts\python -m pip install -c requirements-tested.txt ".[gui]"
+.\.venv\Scripts\python -m tark_chiller --csv outputs/gui-01.csv
 ```
 
-Add --duration 60 for one minute or --interval 0.5 for twice-per-second sampling.
-Use a fresh filename; --append-csv explicitly validates and adds a new session to
-an existing file. The console entry point .\.venv\Scripts\tark-chiller is equivalent.
-Press **Ctrl+C in the terminal**: request stop → disconnect → join → close CSV.
-Closing the browser leaves monitoring running. A forced OS kill bypasses cleanup.
+Open http://127.0.0.1:8050. Choose a new CSV filename each run. Ctrl-C in the
+terminal shuts down the worker, connection and CSV; closing the browser does not.
+Use `start_monitoring(csv_path=...)` for recording inside your own application.
+The [quick start](../docs/quickstart.md) and [examples](../README.md#numbered-examples)
+show the current API. The [development guide](../development/README.md) gives exact
+suite, type, build and sustained-test commands.
 
-Start with [README](../README.md), [quick start](../docs/quickstart.md),
-[API layout](../docs/api.md), [examples](../README.md#five-examples) and
-[troubleshooting](../docs/troubleshooting.md). The source archive includes these
-guides; the wheel installs the application. After changing source, reinstall it.
+## Protocol, safety and remaining limitations
 
-## Protocol source and physical validation
+The available official [MRC150/300 User Manual Rev 13](https://tark-solutions.com/sites/default/files/fields/media.file.field_media_file/2024-03/MRC150-300-User-Manual.pdf)
+(E002 source/hash) supports the default distilled-water 2–40 °C envelope on p7.
+Page 12 mentions RS232/RS485 while delegating the protocol to a separate controller
+manual. Rev 13 also records interface variant changes; applicability to the actual
+unit must be checked. The original attachment was unavailable.
 
-Available source: official Tark-hosted **MRC150/300 User Manual Rev 13**, 16 pages,
-SHA-256 `24a64ef551f3e209addfb133a085c353f046ca20421d9f7453b8c9f16f4ca4eb`.
-Page 12 mentions RS232/RS485 and delegates details to the separate controller
-manual; pages 4/7 require actual variant confirmation. Page 7 supports the default
-distilled-water 2–40 °C software policy. No authoritative communication manual or
-identified physical unit is available in the exposed inputs. The unavailable
-original attachment has not been represented as read.
+No real codec exists. SerialDevice refuses connection before endpoint creation
+without a codec. Software timeout/response limits are not claimed Tark settings.
+Setpoints must be finite numbers in Celsius within the configured bounds; custom
+coolant bounds require an explicit source. Controller acceptance never proves
+sub-zero safety. No software telemetry for coolant presence, leaks, flow, level
+or alarms is established. Connection status is not physical safety status.
 
-**No physical stage was attempted.** There is no working hardware CLI, device
-calibration result, verified electrical interface or serial safety telemetry.
-The [hardware guide](../docs/hardware.md) cites manual facts and gives all required
-serial fields. Installing serial support does not implement a protocol.
+Writes are never retried or replayed. Read recovery is off by default, bounded
+when enabled, and suspended by malformed protocol responses. Uncertain writes
+require deliberate readback before a new request. A stop timeout means cleanup is
+incomplete. Uncooperative OS calls, forced process termination and power loss
+cannot guarantee cleanup or CSV durability. Polling is not hard real time;
+simulator dynamics are uncalibrated. Other platforms remain untested.
 
-To resume:
+## Exact resumption procedure
 
-1. Supply the matching controller manual, chiller suffix, controller model/firmware,
-   interface/wiring, known serial settings and installed coolant information.
-   Resolve the water-range source discrepancy for this unit (EXT-003/E017).
-2. Extract baud/parity/data/stop bits, flow control/RTS/DTR, RS485 addressing,
-   command syntax/registers, framing/terminators, temperature/target reads and
-   target write, acknowledgements/errors, checksum/CRC, units/scaling, correlation,
-   timing and side effects. Cite every command; implement only in protocol.py and
-   add source-derived byte fixtures. Example 06 currently refuses connection.
-3. Rerun the [exact development checks](../development/README.md#run-the-checks).
-   Record candidate revision, configuration and exact first transactions for the
-   physical review gate. Hardware and a safe setup must actually be available.
-4. After candidate authorization, validate **interface/status → repeated temperature
-   reads/front-panel comparison → existing setpoint read/front-panel comparison**.
-   Record raw replies, reference readings, units, timeouts and approved disconnection
-   handling. No setpoint change belongs in these read-only stages.
-5. Only after explicit write authorization, confirm the coolant profile/range,
-   choose one small change inside the already-safe region, send one target, read
-   it back and observe response. Restore the original target only if appropriate
-   and authorized. Never test extremes or bypass limits. Finish with ordered
-   software cleanup and the lab's separate equipment shutdown procedure.
+1. Obtain the controller manual matching the identified chiller model/suffix,
+   controller model and firmware (EXT-001). Extract baud, parity, data/stop bits,
+   flow control, RTS/DTR, RS485 addressing/direction, commands/registers,
+   framing/terminators, temperature/setpoint reads, setpoint writes,
+   acknowledgements/errors, checksum/CRC, units/scaling, response identity,
+   timing and side effects.
+2. Implement only source-supported codec behavior inside serial.py. Cite each
+   command/page and add exact byte fixtures. Re-run the full software suite.
+3. Prepare a reviewed candidate with the intended unit/interface, documented
+   settings and wiring, installed coolant, safe setup and reference instrument
+   (EXT-003). Obtain explicit integration approval under AGENTS.md.
+4. Follow the [hardware tutorial](../docs/hardware.md): establish the reviewed
+   interface, perform documented read-only status/identification, compare repeated
+   temperature and setpoint reads with the front panel/reference.
+5. Only with explicit write authorization, send one small safe change, read it
+   back, observe temperature and restore the original target if appropriate.
+   Record configuration, raw replies, measurements and outcome. Never test
+   extremes or override software limits. Shut down software and equipment using
+   their respective procedures.
 
-An exact executable physical command cannot be supplied until the documented
-codec and unit configuration exist. This is the remaining external dependency;
-it does not prevent installation or simulator use.
-
-## Known limits
-
-Windows/Python 3.12 was exercised; other platforms and physical RS485 are untested.
-Sampling is not hard real time; readings are sequential. CSV flush is not durable
-against power loss. Uncooperative OS/backend calls and forced process termination
-cannot be guaranteed to clean up. One process owns each device. Software cannot
-detect coolant presence, flow, leaks or level; disconnect does not power off a chiller.
+`python examples/06_hardware_configuration.py` currently exits with the precise
+missing-protocol message and does not open a serial port. There is no usable
+hardware GUI command or supported physical-control claim before these steps.

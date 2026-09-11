@@ -1,0 +1,56 @@
+{
+  "baseline_commit": "d1aabc0",
+  "baseline_modules": 13,
+  "baseline_python_lines": 2056,
+  "baseline_files": [
+    "__init__.py",
+    "__main__.py",
+    "api.py",
+    "csvlog.py",
+    "device.py",
+    "errors.py",
+    "gui.py",
+    "hardware.py",
+    "monitoring.py",
+    "protocol.py",
+    "safety.py",
+    "simulator.py",
+    "transport.py"
+  ],
+  "final_modules": 8,
+  "final_functional_modules": 6,
+  "final_python_lines": 1249,
+  "final_files": [
+    "__init__.py",
+    "__main__.py",
+    "controller.py",
+    "errors.py",
+    "gui.py",
+    "monitor.py",
+    "serial.py",
+    "simulator.py"
+  ],
+  "installed_package_files_match_source": true,
+  "version": "0.2.0",
+  "installed_python": "C:\\projects\\tark-mrc-chiller-control\\outputs\\release-check\\venv\\Lib\\site-packages\\tark_chiller",
+  "python_line_reduction_percent": 39.3,
+  "screenshot_sha256": "2cac53b86db1a98e94d690d4a2bf2f867ca1a8b668c4f75f9a832656448a6e30",
+  "gui_validation": {
+    "rows": 2450,
+    "rows_while_browser_closed": 327,
+    "ports_closed": [
+      8050,
+      8051
+    ],
+    "safe_18_c_accepted": true,
+    "unsafe_1_c_rejected": true,
+    "native_screenshot": true,
+    "narrow_viewport_width": 390,
+    "settled_narrow_scroll_width": 375,
+    "local_doc_links_checked": 85,
+    "svg_diagrams_reviewed": 5
+  },
+  "wheel_sha256": "a8609f5b1d7653d57a0da9add51b8076c60c3d232d099f0acdc283b8c4e77b3d",
+  "wheel_source_install_matching_files": 12,
+  "obsolete_modules_absent_from_wheel_and_sdist": true
+}

@@ -2,13 +2,14 @@
 
 [User documentation](../README.md) · [Architecture](architecture.md)
 
-The installed package contains the controller, simulator, monitoring, CSV and
-optional GUI. Developer-only serial fixtures and the fault demonstration live
-here and are not installed in the controller wheel.
+The v0.2 package is a synchronous Chiller driver with a simulator, optional
+monitoring/CSV and optional GUI. Fake endpoints belong in tests, not the installed
+driver. The earlier demonstration framework and multi-object application API have
+been removed.
 
 ## Run the checks
 
-From the repository root, after creating the environment in the quick start:
+From the repository root, after creating the quick-start environment:
 
 ```powershell
 .\.venv\Scripts\python -m pip install -r requirements-tested.txt
@@ -21,24 +22,29 @@ From the repository root, after creating the environment in the quick start:
 .\.venv\Scripts\python -m build --no-isolation
 ```
 
-A sustained fault test uses the real transport/device/API/monitor/CSV/Dash code
-with a software serial endpoint. Choose a fresh output name:
+Tests exercise production driver/serial/monitor/GUI code with simulator or memory
+backends. Synthetic settings and messages establish no electrical compatibility.
+Run researcher scripts from [examples](../README.md#numbered-examples).
+
+For a ten-minute simulator/CSV/Dash integration run:
 
 ```powershell
-.\.venv\Scripts\python -m development.hardware_free_demo --duration 600 --interval 1 --output outputs/soak
+$env:TARK_SOAK_SECONDS = '600'
+.\.venv\Scripts\python -m pytest tests/test_end_to_end.py::test_simulator_monitor_csv_dash -s
+Remove-Item Env:TARK_SOAK_SECONDS
 ```
 
-It creates CSV, Plotly HTML and a JSON result. Its bytes/settings are deliberately
-synthetic; never use this fixture with a physical port. Normal researcher examples
-are under [examples](../README.md#five-examples).
+The normal suite uses a short run. Its separate
+`test_fake_serial_monitor_reports_outage_and_recovers` test injects a cable fault
+into a memory endpoint; neither test touches hardware.
 
 ## Engineering records
 
-- [Project requirements](../PROJECT.md) and [current state](../STATE.md)
-- [Evidence and decisions](../records/RECORDS.md) and [engineering report](../outputs/REPORT.md)
-- [Template workflow](../AGENTS.md) and [verbatim prompt log](../prompt%20log.md)
+- [Requirements](../PROJECT.md) and [current state](../STATE.md)
+- [Evidence/decisions](../records/RECORDS.md) and [report](../outputs/REPORT.md)
+- [Engineering workflow](../AGENTS.md) and [prompt log](../prompt%20log.md)
 
-These canonical files retain the original engineering workflow. Historical records
-refer to the source layout and software revision at the time of each test; current
-commands are listed here. Protocol development is blocked on the matching controller
-manual. Physical work requires a separately reviewed candidate and authorization.
+Historical records describe their own revisions. Current acceptance must refer
+to the v0.2 implementation and its tests. The matching controller protocol remains
+an external dependency; physical interaction requires a reviewed candidate and
+specific authorization.

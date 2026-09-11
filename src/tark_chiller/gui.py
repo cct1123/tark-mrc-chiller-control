@@ -1,46 +1,35 @@
-"""Dash presentation; refreshing the page never reads a device or starts a worker."""
+"""Optional dashboard: render monitor snapshots and submit validated setpoints."""
 
-from datetime import UTC, datetime
 from time import monotonic
 
 import dash_bootstrap_components as dbc
 import plotly.graph_objects as go
-from dash import Dash, Input, Output, State, ctx, dcc, html
+from dash import Dash, Input, Output, State, dcc, html
 
-from .api import Chiller
-from .errors import ChillerError
-from .monitoring import LiveSnapshot, LiveState, positive_seconds
+from .controller import Chiller
+from .errors import ProtocolError
+from .monitor import Monitor, Snapshot
 
 
-def _reading_card(label: str, value: float | None, caption: str, color: str) -> dbc.Card:
+def _reading(label: str, value: float | None, caption: str, color: str) -> dbc.Card:
     return dbc.Card(
-        dbc.CardBody(
-            [
-                html.H2(label, className="metric-label"),
-                html.Div(
-                    ["—" if value is None else f"{value:.2f}", html.Span("°C")],
-                    className=f"metric-value {color}",
-                ),
-                html.P(caption, className="metric-caption"),
-            ]
-        ),
-        className="h-100",
+        [
+            html.H2(label, className="metric-label"),
+            html.Div(
+                ["—" if value is None else f"{value:.2f}", html.Span("°C")],
+                className=f"metric-value {color}",
+            ),
+            html.P(caption, className="metric-caption"),
+        ],
+        body=True,
     )
 
 
 def render_snapshot(
-    snapshot: LiveSnapshot,
-    *,
-    now: datetime | None = None,
-    stale_after_s: float = 3.0,
+    snapshot: Snapshot, *, stale_after_s: float = 3.0
 ) -> tuple[html.Div, go.Figure]:
     latest = snapshot.latest
-    age = None
-    if latest:
-        if now is None and latest.sampled_monotonic is not None:
-            age = max(0.0, monotonic() - latest.sampled_monotonic)
-        else:
-            age = max(0.0, ((now or datetime.now(UTC)) - latest.timestamp_utc).total_seconds())
+    age = max(0.0, monotonic() - latest.sampled_monotonic) if latest else None
     stale = age is not None and age > stale_after_s
     available = bool(latest and latest.status.connected and snapshot.running and not stale)
     connection = "Waiting for the first sample"
@@ -50,75 +39,62 @@ def render_snapshot(
     recording = (
         "Failed" if snapshot.logging_error else "Enabled" if snapshot.logging_enabled else "Off"
     )
+    caption = f"Sample age {age:.1f} s" if age is not None else "Waiting for a reading"
+    if latest and not available:
+        caption += " · No fresh reading"
     issues = [
         issue
         for issue in (
-            latest.error if latest else None,
+            latest.error if latest else "",
             snapshot.service_error,
             snapshot.logging_error,
         )
         if issue
     ]
-    caption = f"Sample age {age:.1f} s" if age is not None else "Waiting for a reading"
-    if not available and latest:
-        caption += " · No fresh reading"
     status = html.Div(
         [
-            dbc.Row(
+            html.Div(
                 [
-                    dbc.Col(
-                        _reading_card(
-                            "Temperature",
-                            latest.temperature_c if latest and available else None,
-                            caption,
-                            "temperature-color",
-                        ),
-                        md=6,
-                        lg=4,
+                    _reading(
+                        "Temperature",
+                        latest.temperature_c if latest and available else None,
+                        caption,
+                        "temperature-color",
                     ),
-                    dbc.Col(
-                        _reading_card(
-                            "Reported setpoint",
-                            latest.setpoint_c if latest and available else None,
-                            "Read from the device" if available else "Waiting for fresh readback",
-                            "setpoint-color",
-                        ),
-                        md=6,
-                        lg=4,
+                    _reading(
+                        "Reported setpoint",
+                        latest.setpoint_c if latest and available else None,
+                        "Device readback" if available else "Waiting for fresh readback",
+                        "setpoint-color",
                     ),
-                    dbc.Col(
-                        dbc.Card(
-                            dbc.CardBody(
+                    dbc.Card(
+                        [
+                            html.H2("Session status", className="metric-label"),
+                            html.Div(
                                 [
-                                    html.H2("Session status", className="metric-label"),
-                                    html.Div(
-                                        [
-                                            dbc.Badge(
-                                                latest.status.backend if latest else "No sample",
-                                                color="light",
-                                                text_color="dark",
-                                            ),
-                                            dbc.Badge(
-                                                freshness,
-                                                color="success" if available else "warning",
-                                                text_color="dark",
-                                            ),
-                                        ],
-                                        className="status-badges",
+                                    dbc.Badge(
+                                        latest.status.backend if latest else "No sample",
+                                        color="light",
+                                        text_color="dark",
                                     ),
-                                    html.P(connection, className="connection-status"),
-                                    html.P(
-                                        f"CSV {recording} · Rows written {snapshot.logged_samples:,}",
-                                        className="recording-status",
+                                    dbc.Badge(
+                                        freshness,
+                                        color="success" if available else "warning",
+                                        text_color="dark",
                                     ),
-                                ]
+                                ],
+                                className="status-badges",
                             ),
-                            className="h-100",
-                        ),
-                        lg=4,
+                            html.P(connection, className="connection-status"),
+                            html.P(
+                                f"CSV {recording} · Rows written {snapshot.logged_samples:,}",
+                                className="recording-status",
+                            ),
+                        ],
+                        body=True,
                     ),
                 ],
-                className="g-3",
+                className="reading-grid",
             ),
             html.Div(
                 [
@@ -137,24 +113,23 @@ def render_snapshot(
         [
             go.Scatter(
                 x=times,
-                y=[sample.temperature_c for sample in snapshot.history],
+                y=[s.temperature_c for s in snapshot.history],
                 name="Temperature",
                 mode="lines",
                 connectgaps=False,
                 line={"color": "#087f8c", "width": 3},
-                hovertemplate="%{y:.2f} °C<extra>Temperature</extra>",
             ),
             go.Scatter(
                 x=times,
-                y=[sample.setpoint_c for sample in snapshot.history],
+                y=[s.setpoint_c for s in snapshot.history],
                 name="Setpoint",
                 mode="lines",
                 connectgaps=False,
                 line={"color": "#b76b18", "width": 2, "dash": "dash"},
-                hovertemplate="%{y:.2f} °C<extra>Setpoint</extra>",
             ),
         ]
     )
+    figure.update_traces(hovertemplate="%{y:.2f} °C")
     figure.update_layout(
         template="plotly_white",
         xaxis_title="Time (UTC)",
@@ -163,31 +138,64 @@ def render_snapshot(
         uirevision="history",
         hovermode="x unified",
         legend={"orientation": "h", "y": 1.16, "x": 0},
-        font={"family": "Segoe UI, sans-serif", "color": "#304b58"},
         height=410,
+        font={"family": "Segoe UI, sans-serif", "color": "#304b58"},
     )
-    figure.update_xaxes(showgrid=True, gridcolor="#edf1f3")
-    figure.update_yaxes(gridcolor="#edf1f3", zeroline=False)
     return status, figure
 
 
-def submit_setpoint(chiller: Chiller, value: object) -> str:
-    try:
-        chiller.set_setpoint(value)
-    except ChillerError as exc:
-        return f"Rejected / failed: {exc}"
-    return "Setpoint request completed; monitor readback will show the reported value."
-
-
-def create_app(chiller: Chiller, state: LiveState, *, stale_after_s: float = 3.0) -> Dash:
-    stale_after_s = positive_seconds(stale_after_s, "stale threshold")
+def create_app(chiller: Chiller, monitor: Monitor, *, stale_after_s: float = 3.0) -> Dash:
+    """The caller connects the chiller, starts monitoring and owns shutdown."""
+    if (
+        isinstance(stale_after_s, bool)
+        or not isinstance(stale_after_s, (int, float))
+        or not 0 < stale_after_s < float("inf")
+    ):
+        raise ValueError("stale_after_s must be positive finite seconds")
     app = Dash(
         __name__, meta_tags=[{"name": "viewport", "content": "width=device-width, initial-scale=1"}]
     )
     app.title = "Tark MRC · Temperature monitor"
+    low, high = chiller.setpoint_range
+    controls = dbc.Card(
+        [
+            html.H2("Set temperature", className="panel-heading"),
+            html.P(f"{chiller.coolant} · {low:g}–{high:g} °C", className="coolant-profile"),
+            dbc.Label("Requested temperature (°C)", html_for="setpoint-input"),
+            dbc.InputGroup(
+                [
+                    dbc.Input(
+                        id="setpoint-input",
+                        type="number",
+                        step="any",
+                        placeholder="Enter a setpoint",
+                    ),
+                    dbc.InputGroupText("°C"),
+                ]
+            ),
+            dbc.Button(
+                "Apply setpoint",
+                id="apply-setpoint",
+                n_clicks=0,
+                color="primary",
+                className="w-100 mt-3",
+            ),
+            html.Div(id="setpoint-result", role="status", className="action-result"),
+            html.P(
+                "Every request is checked against the coolant limits. Readback appears above.",
+                className="panel-caption mt-3",
+            ),
+            html.Hr(),
+            html.P(
+                "The calling program owns the connection and recording. Closing this page does not stop monitoring.",
+                className="panel-caption",
+            ),
+        ],
+        body=True,
+    )
 
     def layout() -> dbc.Container:
-        status, figure = render_snapshot(state.snapshot(), stale_after_s=stale_after_s)
+        status, figure = render_snapshot(monitor.snapshot(), stale_after_s=stale_after_s)
         return dbc.Container(
             [
                 html.Header(
@@ -206,105 +214,27 @@ def create_app(chiller: Chiller, state: LiveState, *, stale_after_s: float = 3.0
                     className="page-header",
                 ),
                 html.Div(status, id="live-status", role="status"),
-                dbc.Row(
+                html.Div(
                     [
-                        dbc.Col(
-                            dbc.Card(
-                                dbc.CardBody(
-                                    [
-                                        html.H2("Temperature history", className="panel-heading"),
-                                        html.P(
-                                            "Drag to zoom. Double-click to reset. Gaps mark unavailable readings.",
-                                            className="panel-caption",
-                                        ),
-                                        dcc.Graph(
-                                            id="temperature-history",
-                                            figure=figure,
-                                            config={"displaylogo": False, "responsive": True},
-                                        ),
-                                    ]
+                        dbc.Card(
+                            [
+                                html.H2("Temperature history", className="panel-heading"),
+                                html.P(
+                                    "Drag to zoom. Double-click to reset. Gaps mark unavailable readings.",
+                                    className="panel-caption",
                                 ),
-                                className="h-100 history-panel",
-                            ),
-                            lg=8,
-                        ),
-                        dbc.Col(
-                            dbc.Card(
-                                dbc.CardBody(
-                                    [
-                                        html.H2("Set temperature", className="panel-heading"),
-                                        html.P(
-                                            f"{chiller.coolant.name} · {chiller.coolant.minimum_c:g}–{chiller.coolant.maximum_c:g} °C",
-                                            className="coolant-profile",
-                                        ),
-                                        dbc.Label(
-                                            "Requested temperature (°C)", html_for="setpoint-input"
-                                        ),
-                                        dbc.InputGroup(
-                                            [
-                                                dbc.Input(
-                                                    id="setpoint-input",
-                                                    type="number",
-                                                    step="any",
-                                                    placeholder="Enter a setpoint",
-                                                ),
-                                                dbc.InputGroupText("°C"),
-                                            ]
-                                        ),
-                                        dbc.Button(
-                                            "Apply setpoint",
-                                            id="apply-setpoint",
-                                            n_clicks=0,
-                                            color="primary",
-                                            className="w-100 mt-3",
-                                        ),
-                                        html.Div(
-                                            id="setpoint-result",
-                                            role="status",
-                                            className="action-result",
-                                        ),
-                                        html.P(
-                                            "Every request is checked against the coolant limits. Readback appears above.",
-                                            className="panel-caption mt-3",
-                                        ),
-                                        html.Hr(),
-                                        html.H2("Connection", className="panel-heading"),
-                                        html.Div(
-                                            [
-                                                dbc.Button(
-                                                    "Connect / retry",
-                                                    id="connect-device",
-                                                    n_clicks=0,
-                                                    outline=True,
-                                                    color="secondary",
-                                                ),
-                                                dbc.Button(
-                                                    "Disconnect",
-                                                    id="disconnect-device",
-                                                    n_clicks=0,
-                                                    outline=True,
-                                                    color="secondary",
-                                                ),
-                                            ],
-                                            className="connection-actions",
-                                        ),
-                                        html.Div(
-                                            id="connection-result",
-                                            role="status",
-                                            className="action-result",
-                                        ),
-                                        html.P(
-                                            "Close the terminal session with Ctrl+C to stop monitoring.",
-                                            className="panel-caption mt-3",
-                                        ),
-                                    ]
+                                dcc.Graph(
+                                    id="temperature-history",
+                                    figure=figure,
+                                    config={"displaylogo": False, "responsive": True},
                                 ),
-                                className="h-100",
-                            ),
-                            lg=4,
+                            ],
+                            body=True,
+                            className="history-panel",
                         ),
+                        controls,
                     ],
-                    className="g-3",
+                    className="instrument-panels",
                 ),
                 html.Footer(
                     "Coolant presence, leaks, flow, fluid level and alarms: telemetry unavailable. "
@@ -325,7 +255,7 @@ def create_app(chiller: Chiller, state: LiveState, *, stale_after_s: float = 3.0
         Input("refresh", "n_intervals"),
     )
     def refresh(_ticks: int) -> tuple[html.Div, go.Figure]:
-        return render_snapshot(state.snapshot(), stale_after_s=stale_after_s)
+        return render_snapshot(monitor.snapshot(), stale_after_s=stale_after_s)
 
     @app.callback(
         Output("setpoint-result", "children"),
@@ -334,24 +264,10 @@ def create_app(chiller: Chiller, state: LiveState, *, stale_after_s: float = 3.0
         prevent_initial_call=True,
     )
     def apply_setpoint(_clicks: int, value: object) -> str:
-        return submit_setpoint(chiller, value)
-
-    @app.callback(
-        Output("connection-result", "children"),
-        Input("connect-device", "n_clicks"),
-        Input("disconnect-device", "n_clicks"),
-        prevent_initial_call=True,
-    )
-    def connection_action(_connects: int, _disconnects: int) -> str:
         try:
-            if ctx.triggered_id == "connect-device":
-                chiller.connect()
-                if not state.snapshot().running:
-                    return "Connected; monitoring is stopped. Restart the monitoring service."
-                return "Connected; monitoring will publish fresh readings."
-            chiller.disconnect()
-            return "Disconnected; monitoring continues and will record unavailable readings."
-        except ChillerError as exc:
-            return f"Connection action failed: {exc}"
+            chiller.set_setpoint(value)
+        except (ValueError, OSError, ProtocolError) as exc:
+            return f"Rejected / failed: {exc}"
+        return "Setpoint request completed; monitor readback will show the reported value."
 
     return app

@@ -1,31 +1,27 @@
 # Troubleshooting
 
-[Home](../README.md) · [Quick start](quickstart.md) · [User guide](usage.md)
+[Home](../README.md) · [Quick start](quickstart.md) · [Hardware](hardware.md)
 
-These checks concern the software and simulator. Use the equipment manual and
-your lab's procedure for physical chiller problems; this project has no validated
-hardware operation yet.
-
-| Symptom | What to check or do |
+| Symptom | What to do |
 | --- | --- |
-| Python missing or package will not install | Check that Python is 3.12 or newer and PowerShell is in the folder containing `pyproject.toml`. Follow the [quick start](quickstart.md), including its Python version check. |
-| No module named tark_chiller or dash | Repeat the quick-start install with `.[gui]`. Use `.\.venv\Scripts\python` to install and run the app. |
-| Browser cannot connect | Keep the launching terminal open, check its error message and use http://127.0.0.1:8050 on the same computer. |
-| Address/port already in use | If another copy of this app is running, stop it with Ctrl+C in its terminal. The app uses port 8050; it has no command-line option to change that port. |
-| CSV already exists | Choose a new filename, or use `--append-csv` to check the existing file and add readings. The app does not overwrite files automatically. |
-| Cannot lock CSV / permission denied | Close other programs using the file. Check that you can write to the folder, or choose a new file in a writable local folder. |
-| CSV schema mismatch / unterminated record | The file has unexpected columns or a damaged/incomplete row. Keep the original and start a new CSV. The app does not repair damaged files. |
-| CSV Failed | Read the file error. Monitoring may still run, but new rows are not being recorded. Fix the storage problem, stop with Ctrl+C and start a new recording. |
-| Setpoint rejected | Enter a number in °C within the displayed limits (2–40 °C by default). See [safety and hardware limits](usage.md#safe-temperature-changes) before changing a profile. |
-| Temperature does not jump to the target | Normal simulator behavior: it approaches the target gradually. Check the reported setpoint on the next update. |
-| Last poll: Unavailable | Read the error. After an intentional disconnect, use Connect / retry. Failed polls have blank readings and remain in the CSV. |
-| Stale / Monitoring stopped / live cards show dashes | Read the displayed error and check the terminal. Connect / retry does not restart monitoring. Fix the error, then stop and relaunch the app. |
-| Recording continues after tab closure | Expected: monitoring runs separately from the browser. Stop it with Ctrl+C in its terminal. |
-| Controller communication manual is required | Real-hardware mode is unavailable. Do not guess serial settings or commands; use the simulator until the matching manual is available and its protocol is implemented. |
-| Serial port missing | Future hardware use: confirm the intended adapter is attached and its OS port name has not changed. The simulator needs no serial port. |
-| Serial permission denied / port busy | Future hardware use: close the other application using the identified port and check the OS permissions. Do not start another controller process. |
-| Serial timeout / disconnected / malformed reply | Stop relying on the last value. Inspect the cable and documented configuration; an uncertain write must be resolved by readback before any new write. Automatic read recovery is bounded and off by default. |
+| Python/install fails | Use Python 3.12+ from the project folder. Check `python --version`. |
+| No module named tark_chiller | Install and run with the same environment's Python. |
+| Dashboard import fails | Install the `gui` extra; the base driver does not include Dash. |
+| Browser cannot connect | Keep the launch terminal open, read its error and open http://127.0.0.1:8050 on that computer. |
+| Port 8050 busy | Stop another copy with Ctrl+C. The launcher has no port-selection option. |
+| CSV exists | Choose a new filename. There is no append or overwrite mode. |
+| CSV write/permission error | Check the error, free space and folder permissions. Stop, resolve the problem and choose a new file. |
+| Recording stops, temperature updates | Inspect `logging_error`; those new readings are not being saved. |
+| Target rejected | Enter a finite numeric Celsius value within the bounds, 2–40 °C by default. |
+| Temperature moves slowly | Expected simulator behavior; check the reported target and wait. |
+| Unavailable/stale readings | Read the fault and terminal output. Resolve the cause before relying on values again. |
+| Monitoring already started | Reuse the handle, or call `stop_monitoring()` before a new run. |
+| Stop timeout | Polling is active. Resolve pending I/O and retry shutdown; do not assume CSV is closed. |
+| Tab closed but recording continues | Expected: stop with Ctrl+C in the terminal. |
+| Controller communication manual required | Hardware is blocked before port opening. Use the simulator; do not guess settings. |
+| Future serial port missing/denied/busy | Verify the intended adapter, OS port, permissions and competing applications against the approved setup. |
+| Future serial timeout/malformed reply | Stop relying on old data. Check the documented setup; read back an uncertain target before another write. |
 
-When reporting a software issue, include the exact command, Python version,
-displayed error and whether it occurred in the simulator or a developer test.
-Do not describe fake-serial results as physical measurements.
+When reporting a software issue, include the command, Python version, full error
+and whether it used the simulator or a fake-serial test. Use the equipment manual
+and approved lab procedure for physical faults; no physical chiller is validated.

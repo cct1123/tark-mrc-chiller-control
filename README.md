@@ -1,137 +1,137 @@
-# Tark MRC150/300 laboratory controller
+# Tark MRC150/300 Python controller
 
-Watch temperature, set a safe target, and record an experiment from Python or a
-Plotly Dash dashboard. The simulator runs without a chiller or serial adapter.
+A small driver for laboratory scripts: connect, read temperature, set a target,
+and optionally monitor to CSV. Use the simulator now; add the dashboard when you
+need a live display.
 
-**Physical MRC control is not available yet.** The matching controller communication
-manual is missing. The serial code is tested with software devices; no physical
-chiller has been validated. [Hardware setup and current limits](docs/hardware.md).
+**Real MRC control is not available yet.** The matching controller communication
+manual is missing. No physical chiller has been validated. [Hardware guide](docs/hardware.md).
 
-![Simulator dashboard with temperature, setpoint, connection and recording status](docs/assets/dashboard.jpg)
+## Use it in a script
 
-*Actual simulator session. [Annotated dashboard tour](docs/usage.md#dashboard-tour).*
+```python
+from tark_chiller import Chiller, Simulator
 
-## Start in a few minutes
+with Chiller(Simulator()) as chiller:
+    print(chiller.read_temperature())  # Celsius
+    chiller.set_setpoint(18.0)
+    print(chiller.read_setpoint())
+```
 
-Use Python **3.12 or newer**. In Windows PowerShell, open the downloaded project
-folder containing `pyproject.toml`. Check `python --version` before installing.
+The context manager connects on entry and disconnects on exit. Import and
+construction do not open devices or start threads. Keep one Chiller instance for
+your experiment. [Function-by-function API](docs/api.md).
+
+## Install and run
+
+Use Python **3.12 or newer**. From the downloaded project folder in Windows
+PowerShell, check `python --version`, then install the driver:
 
 ```powershell
 python -m venv .venv
+.\.venv\Scripts\python -m pip install .
+.\.venv\Scripts\python examples/01_read_temperature.py
+```
+
+Expect **Temperature: 20.00 Celsius** and simulator status.
+The base driver has no external dependencies.
+
+For the optional dashboard:
+
+```powershell
 .\.venv\Scripts\python -m pip install -c requirements-tested.txt ".[gui]"
 .\.venv\Scripts\python -m tark_chiller --csv outputs/session.csv
 ```
 
-Open **[127.0.0.1:8050](http://127.0.0.1:8050)** in your browser. Enter **18** as the
-setpoint (target temperature). Watch the simulated temperature fall from 20 °C.
-Press **Ctrl+C in the terminal** to stop. Use a new CSV filename on the next run.
+Open **[127.0.0.1:8050](http://127.0.0.1:8050)**. Request an **18 °C** target
+and watch the simulator cool from 20 °C. Press **Ctrl+C in the terminal** to stop
+monitoring and close CSV. Choose a new filename for each run.
 
-[Step-by-step quick start](docs/quickstart.md) · [Troubleshooting](docs/troubleshooting.md)
+![Actual simulator dashboard with live temperature, target and recording status](docs/assets/dashboard.jpg)
 
-## What it does
+[Quick start](docs/quickstart.md) · [Dashboard tour](docs/usage.md#dashboard-tour)
 
-- Reads temperature, setpoint and device status through one small Python API.
-- Checks every requested target against the coolant limits; default water range is **2–40 °C**.
-- Monitors in the background and records timestamped CSV data, including failed reads.
-- Shows temperature history, sample age, connection faults and recording status.
-- Keeps monitoring when the browser closes. All dashboard styles are included locally.
+## What it provides
 
-All temperatures are Celsius. Software cannot check installed coolant, flow,
-leaks or fluid level. A successful connection does not prove physical safety.
+- One explicit API for the simulator and the future serial device.
+- Celsius setpoint validation; default distilled-water limits **2–40 °C**.
+- Optional background monitoring, bounded history and flushed CSV rows.
+- Clear connection/recording errors and bounded optional read recovery.
+- A Dash/Bootstrap display that reads snapshots independently of acquisition.
 
-## Five examples
+Software cannot establish installed coolant, flow, leaks or fluid level.
+Connection is not proof of physical safety. Writes are never retried or replayed.
 
-Each script uses the simulator. Run them from the project folder after installation.
-Files created by examples 03 and 04 are never overwritten automatically.
+## Monitor an experiment
 
-| Example | Run after `.\.venv\Scripts\python` | Expected result |
-| --- | --- | --- |
-| [01 · Read temperature](examples/01_read_temperature.py) | `examples/01_read_temperature.py` | 20.00 °C temperature and target, plus simulator status |
-| [02 · Set temperature](examples/02_set_temperature.py) | `examples/02_set_temperature.py` | Target reads 18.00 °C; temperature changes gradually |
-| [03 · Log temperature](examples/03_log_temperature.py) | `examples/03_log_temperature.py` | Five samples in `outputs/03_temperature.csv` |
-| [04 · Monitor an experiment](examples/04_monitor_experiment.py) | `examples/04_monitor_experiment.py` | Ten seconds of background cooling and CSV recording |
-| [05 · Launch dashboard](examples/05_launch_dashboard.py) | `examples/05_launch_dashboard.py --csv outputs/dashboard.csv` | Browser dashboard and CSV recording |
+```python
+from time import sleep
+from tark_chiller import Chiller, Simulator
 
-For example:
-
-```powershell
-.\.venv\Scripts\python examples/01_read_temperature.py
+with Chiller(Simulator()) as chiller:
+    monitor = chiller.start_monitoring(interval_s=1, csv_path="experiment.csv")
+    sleep(5)
+    chiller.stop_monitoring()
+    snapshot = monitor.snapshot()
+    if snapshot.service_error or snapshot.logging_error:
+        raise RuntimeError(snapshot.service_error or snapshot.logging_error)
+    print(snapshot.logged_samples)
 ```
 
-## Continuous monitoring and CSV
+`stop_monitoring()` closes recording and keeps the device connected.
+`disconnect()` also stops monitoring and closes CSV. There is no separate logger
+or live-state object to manage. [Monitoring](docs/api.md#monitoring).
 
-To record without a browser until you press Ctrl+C:
+## Numbered examples
+
+Run each with `.\.venv\Scripts\python`. Examples 01–05 use the simulator.
+
+| Example | Result |
+| --- | --- |
+| [01 · Read temperature](examples/01_read_temperature.py) | One temperature, target and status read |
+| [02 · Set temperature](examples/02_set_temperature.py) | Request 18 °C and read the target back |
+| [03 · Log temperature](examples/03_log_temperature.py) | Five seconds in `outputs/03_temperature.csv` |
+| [04 · Monitor an experiment](examples/04_monitor_experiment.py) | Ten seconds of cooling, progress and CSV |
+| [05 · Launch dashboard](examples/05_launch_dashboard.py) | The standard simulator dashboard |
+| [06 · Hardware configuration](examples/06_hardware_configuration.py) | Template; reports the missing protocol |
+
+For continuous recording without a browser:
 
 ```powershell
 .\.venv\Scripts\python -m tark_chiller --headless --csv outputs/experiment.csv
 ```
 
-Add `--duration 60` for a one-minute run or `--interval 0.5` to sample twice a
-second. CSV contains UTC time, elapsed seconds, temperature, setpoint, status and
-errors. Failed readings are blank. Use a new filename, or explicitly add
-`--append-csv` to validate and continue an existing file with a new session ID.
-The equivalent console command is `.\.venv\Scripts\tark-chiller`.
+Stop with Ctrl+C; add `--duration 60` for a one-minute run.
+CSV files are never overwritten or appended automatically.
 
-Ctrl+C stops the worker, disconnects the device and closes CSV. Closing the browser
-leaves monitoring running. Forced process termination or power loss cannot guarantee
-cleanup. See [recording and shutdown](docs/usage.md#csv-recording).
+## Real hardware
 
-## Small, explicit API
+The [hardware tutorial](docs/hardware.md) covers connection, port identification,
+read-only validation, recording, target changes, GUI use and shutdown. It is a
+preparation guide until the correct protocol is implemented and reviewed.
 
-```python
-from tark_chiller import Chiller, SimulatedDevice
+The serial backend accepts explicit settings and an optional RS-485 mode.
+It refuses to open a port without a codec. Installing pySerial does not supply
+the controller protocol. No baud rate, pinout or command is guessed.
 
-chiller = Chiller(SimulatedDevice())
-try:
-    chiller.connect()
-    print(chiller.get_temperature())
-    chiller.set_setpoint(18.0)
-    print(chiller.get_setpoint())
-finally:
-    chiller.disconnect()
-```
-
-`Chiller` connects, reads and sets the target. `Monitor` starts/stops sampling.
-`CsvLogger` writes the data. The GUI reads `monitor.state` and never starts its
-own acquisition loop. See the [function-by-function API guide](docs/api.md).
-
-![Software and device paths](docs/assets/modes.svg)
-
-## Real-hardware quick start
-
-**Start with the [hardware tutorial](docs/hardware.md).**
-Identify the chiller/controller and obtain its communication manual. The software
-then needs a documented protocol implementation and tests before an approved
-physical trial. There is currently no hardware command-line mode. Installing
-pySerial alone does not enable one, and the default protocol blocks port opening.
-
-[Example 06](examples/06_hardware_configuration.py) is a configuration template,
-not a connection command. It accepts explicit `SerialSettings`; RS-232 uses
-`RS232Transport`, while RS-485 also requires `RS485Mode`. Baud rate, parity, data/
-stop bits, flow control, RTS/DTR, addressing and wiring must come from the matching
-controller/adapter documentation. None are supplied as Tark defaults. See the
-[configuration table and staged validation procedure](docs/hardware.md).
+![Same driver, two device paths](docs/assets/modes.svg)
 
 ## Compatibility and validation
 
-| Scope | Status |
+| Scope | Evidence |
 | --- | --- |
-| Windows / Python 3.12 | Installation, examples, tests, CSV locking and browser use exercised |
-| Simulator | API, safe targets, monitoring, CSV and dashboard tested |
-| Fake RS-232 / RS-485 | Production transport/device code tested with injected faults; no electrical validation |
-| Physical MRC150/300 | **Not validated; matching protocol still missing** |
-| Other operating systems / Python versions | Python 3.12+ is declared; other platforms have not been exercised here |
+| Simulator | Script API, validation, monitoring, CSV and GUI tested without hardware |
+| Fake serial | Production serial path tested with memory endpoints and injected failures |
+| Physical MRC150/300 | **Not validated; authoritative communication protocol missing** |
+| Windows / Python 3.12 | Development and validation platform |
+| Other systems / Python versions | Python 3.12+ declared; other platforms not exercised here |
 
-If the browser cannot connect, keep the terminal open and read its error. If a
-future serial connection reports a missing/busy port, permission failure or timeout,
-check the identified adapter, competing applications and documented settings;
-do not retry a temperature write blindly. [Troubleshooting](docs/troubleshooting.md)
-explains these errors and CSV/installation problems.
+Version **0.2** replaces the earlier multi-object API. Update old scripts using
+the [API guide](docs/api.md); old `get_*` names and separate monitor/logger
+constructors are not retained.
 
-## Guides
-
-[Quick start](docs/quickstart.md) · [Dashboard and CSV](docs/usage.md) ·
-[Python API](docs/api.md) · [Hardware tutorial](docs/hardware.md) ·
+[Quick start](docs/quickstart.md) · [API](docs/api.md) ·
+[Dashboard and CSV](docs/usage.md) · [Hardware](docs/hardware.md) ·
 [Troubleshooting](docs/troubleshooting.md)
 
-For contributors: [development notes, architecture and validation records](development/README.md).
+For contributors: [development and validation](development/README.md).
