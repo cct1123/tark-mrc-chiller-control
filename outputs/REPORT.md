@@ -1,4 +1,4 @@
-# Fresh engineering review — MRC150/300 controller
+# Engineering report — MRC150/300 controller
 
 2026-09-10. The independent review found and repaired consequential software
 defects that the earlier passing suite missed. **349 tests now pass in a fresh
@@ -6,6 +6,28 @@ environment, and the final ten-minute fault run passed.** All hardware-independe
 requirements are PASS. Real communication
 remains unavailable pending the authoritative controller protocol; no hardware
 was accessed and this is not a physically validated release.
+
+## Lab documentation
+
+Prompt 7's documentation phase is complete. [README](../README.md) is the landing
+page, with a [quick start](../docs/quickstart.md), [GUI/API/CSV guide](../docs/usage.md)
+and [troubleshooting](../docs/troubleshooting.md). An actual simulator screenshot
+and three editable SVG diagrams show the interface and software boundaries.
+The guides distinguish simulator and synthetic serial checks from physical
+validation, and state the manual-supported safety policy and protocol limitation.
+
+All current guide commands and Python examples passed in a fresh Python 3.12.14
+environment, including both CSV append paths. The complete 349-test suite,
+static/type/dependency checks and package build passed again. Rendered guides,
+images and local links were checked. E022/E023 record the observations. Application
+code, tests and dependencies are unchanged from published software commit 0a45586;
+the earlier sustained-run evidence below remains applicable.
+
+Prompt 8 simplified the guides for new users: setup now explains the project
+folder and Python environment; setpoint, poll and sample are defined; CSV append,
+restart and error handling use plain language. Duplicate explanations were removed.
+Commands, examples and images are unchanged. The 349-test suite and static checks
+passed again before publication; E024 records this review.
 
 ## Findings and corrections
 
@@ -62,7 +84,7 @@ The sustained run applied exactly three targets and ended at simulated 17.998355
 for an 18 °C target. Its seven opens match the planned faults/reconnects exactly;
 the old unexplained deadlines did not recur. Workers, files and preview closed.
 The generated CSV and Plotly HTML stay local; reproduce them using the
-[README demonstration](../README.md#hardware-free-end-to-end-demonstration).
+[validation demonstration](../ARCHITECTURE.md#validation-reproduction).
 [Final source/config hashes](source-manifest.sha256) identify the tested code.
 E019 supersedes the earlier sustained result; no source change overlapped this run.
 

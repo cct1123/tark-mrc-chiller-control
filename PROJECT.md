@@ -14,6 +14,10 @@ Source of intent: [session prompt 2](prompt%20log.md#prompt-2), extended by
 functionality, including ownership, recovery, reusable fault simulation,
 append/resume CSV, type checks and sustained end-to-end operation. This does not
 authorize physical commissioning or imply a validated hardware release.
+[Prompt 7](prompt%20log.md#prompt-7) adds lab-user documentation, verified examples
+and visuals; physical validation remains out of scope.
+[Prompt 8](prompt%20log.md#prompt-8) requests a new-user language review, cleanup,
+commit and push of the documentation.
 
 ## Requirements / acceptance criteria
 
@@ -43,6 +47,7 @@ belong in [records/RECORDS.md](records/RECORDS.md).
 | REQ-017 | Configured read recovery has finite reconnect budget and delay, recovers transient transport faults and reports exhaustion. Explicit disconnect cancels recovery intent; invalid writes and unknown/malformed protocol errors are never retried as writes. No write replay. | TEST-014 recovery/fault tests |
 | REQ-018 | Explicit CSV append validates existing schema, avoids duplicate headers, preserves completed rows, and refuses malformed/truncated records unchanged. Concurrent logger owners are refused without changing the file. Session boundaries and elapsed-time resets remain distinguishable. | TEST-015 CSV resume tests |
 | REQ-019 | A reproducible simulator → acquisition → CSV → Dash/state demonstration produces a cooling trajectory and survives browser refresh/absence. Sustained concurrent callbacks, injected faults, bounded history and clean shutdown pass; lint/type/build checks pass. | TEST-016 sustained end-to-end validation |
+| REQ-020 | A new lab user can install, launch the simulator/Dash, safely request a setpoint, record CSV and use the Python API from concise guides. Every documented command/example runs; screenshot is an actual simulator session; three diagrams and local links render; simulator, fake-serial and physical evidence are distinguished. | TEST-017 documentation examples, links and visual review |
 
 ## Constraints
 

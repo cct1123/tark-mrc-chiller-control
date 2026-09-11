@@ -151,6 +151,7 @@ and serial parameters are fixture data, never Tark configuration examples.
 | TEST-014 | `tests/test_recovery.py`: finite outage budget, successful recovery/reset, explicit cancellation/exhaustion, no protocol retries or write replay, concurrent disconnect and long recovery delay. |
 | TEST-015 | `tests/test_csv_resume.py`: explicit append, session IDs, header/schema/record validation before writing, malformed/truncated input unchanged, flush/error latch and concurrent close/write. |
 | TEST-016 | `tests/test_end_to_end.py` and `examples/hardware_free_demo.py`: combined fault run; default sustained conditions 600 s, 1 s polls, capacity 120, seeded 0.01 °C noise. Require >=80% requested sample count, exact CSV/sample/row counts, bounded history/trace, failed polls visible, exactly three applied writes, final valid temperature within 0.2 °C of 18 °C, GUI callbacks/reloads and acquisition before/after browser activity, clean shutdown. These are synthetic software criteria, not hardware tolerances. |
+| TEST-017 | In a fresh Python 3.12 environment, execute the current quick-start and maintainer commands and Python blocks extracted from the user guide. Verify CSV fields, row counts and append session separation. Use the real simulator GUI for safe/unsafe controls and an unedited screenshot. Render Markdown and all three SVG diagrams, inspect layout/images, check local links/anchors, and distinguish simulator/fake-serial evidence from unavailable physical validation. |
 
 Before hardware readiness, extend short tests with a sustained run and combined
 fault injection while GUI is active. Measure cadence, bounded history, file growth,
@@ -613,3 +614,121 @@ Remote origin/main resolved to 593400cb9483d1a680819ae80dc6c147b827e235 before
 publication; it matches the local baseline. Publication is authorized to the
 existing main branch with a normal fast-forward push. Git HEAD and origin/main
 identify the final revision. Hardware authority and EXT-001/003 are unchanged.
+
+## E022
+
+Date: 2026-09-10 (America/Chicago).
+Kind / scope: lab documentation and executable examples; TEST-010/011/017,
+REQ-001/014/020. Software baseline: published commit 0a45586. Prompt 7 is recorded
+verbatim; this phase authorizes documentation and software-only checks.
+
+The implementation, tests, requirements, architecture and current review evidence
+were read before writing the guides. Renewed repository/attachment search found
+no supplied MRC or controller communications manual. Re-extracted the official
+replacement Rev 13, pages 4/7/11/12/13; its SHA-256 remains E002's
+`24a64ef551f3e209addfb133a085c353f046ca20421d9f7453b8c9f16f4ca4eb`.
+User-facing hardware facts cite that source and page numbers, including the
+interface-variant caveat. No wire settings, safety telemetry or coolant recipe
+was inferred. EXT-001/003 remain; unavailable attachment provenance is explicit.
+
+A temporary repository copy and newly created virtual environment exercised the
+commands in [quick start](../docs/quickstart.md), [usage](../docs/usage.md) and
+[maintainer checks](../ARCHITECTURE.md#validation-reproduction). Initial PATH
+selected unsupported Python 3.9.12 and its package download failed with SSL errors.
+The guide now separates the version check and requires stopping below 3.12.
+Selecting installed Python 3.12.14 and creating a fresh environment succeeded;
+`pip install -e ".[gui]"` installed Dash 4.4.1 / Plotly 6.9.0.
+
+Observed results:
+
+- Basic API block, extracted directly from Markdown: connected, 20 °C initial
+  reading, 18 °C target, simulator status and clean disconnect. ASCII console
+  labels avoid dependence on Windows degree-symbol output encoding.
+- Python CSV block: ten valid rows with cooling from 20 to approximately
+  19.7214 °C. Documented append variant: 20 total rows, two session IDs, no errors.
+- Five-second headless CLI: normal exit and 24 valid simulator CSV rows.
+- Exact GUI/CSV command: 18 °C accepted, cooling displayed; 1 °C rejected.
+  Disconnect retained acquisition and produced 57 unavailable rows with blank
+  readings; reconnect restored the same process's 18 °C target. Ctrl+C stopped
+  cleanly without traceback, 321 total rows (PTY interruption exit code 1).
+- Exact CLI append command: new simulator/readback at 20 °C, 214 additional rows,
+  535 total rows, two session IDs and one header. Original 61,830-byte prefix
+  unchanged (SHA-256 `1908d91934cad3130aec75f28469c1c7ca3601b10cf233c0fc04caf2da51e4f1`).
+  The guide distinguishes resuming a file from restoring model state. Clean stop.
+- Exact maintainer install/check commands: **349 tests PASS in 10.67 s**, Ruff
+  lint/format PASS (24 files), mypy PASS (14 modules), pip check PASS, sdist/wheel
+  build PASS. The tested 42-package snapshot installed without dependency errors.
+- Documented five-second fault demo: 46 samples/CSV rows, four unavailable polls,
+  32 Dash HTTP refreshes, two reloads, four rejected invalid writes, exactly three
+  applied targets and seven planned opens; final 18.010357 °C, clean stop.
+
+All serial endpoints were synthetic. No physical port or chiller was used.
+Scoped local-process/network-install sandbox escalation enabled these checks;
+none was skipped for permissions. Windows/Python 3.12 is the demonstrated setup.
+Temporary environments, copies, preview HTML and short-run CSVs are disposable;
+the concise observations here preserve their results without duplicate artifacts.
+
+## E023
+
+Date: 2026-09-10 (America/Chicago).
+Kind / scope: documentation visual acceptance and handoff; TEST-001/017, REQ-020.
+
+[GUI screenshot](../docs/assets/simulator-gui.jpg) is an unedited full-page JPEG browser
+capture from the production simulator CLI, 1265 × 1313 pixels, 90,426 bytes,
+SHA-256 `39f70efd318146f94d78f0e55dc326baf1157f6a5eb8e1ea82a21d55edd6cefc`.
+It shows 122 samples/CSV rows, zero failed polls, 18.35 °C at an 18 °C target,
+one-second polling and the software's actual telemetry-unavailable wording.
+Reproduce the view with the quick-start GUI command, submit 18 °C and allow cooling;
+timestamps and thermal trajectory depend on when the target is submitted.
+
+README is the lab landing page; quick start, usage and troubleshooting hold the
+operating instructions. Developer checks moved to ARCHITECTURE instead of
+competing with setup instructions. Its duplicate ASCII diagram was replaced by
+links to three editable SVG sources: system overview, simulator/hardware paths
+and acquisition/CSV/GUI data flow. No documentation framework or dependency added.
+Persistent requirements/state/records/report and historical evidence are retained.
+
+Result: PASS. All 11 Markdown documents parse, and local file/image links and
+heading anchors resolve. README, quick start, usage and troubleshooting were
+rendered with bundled Markdown tooling and inspected in a real browser. All four
+images loaded at their expected sizes. Each SVG has an explicit intrinsic size,
+viewBox and accessible title/description; labels and arrows were visually checked.
+The screenshot retains the browser's native JPEG bytes and matching extension.
+
+All 30 source/config hashes still match E020's manifest; no software behavior,
+tests or dependencies changed. Git whitespace check passes. Requirements retain
+all 20 IDs with current evidence. Temporary documentation environments, preview
+and sample logs were removed after stopping their processes and closing their
+tabs. No documentation monitor, server or pending test remains. REQ-020 is PASS;
+only authoritative protocol and eventual physical acceptance remain blocked.
+Documentation changes are uncommitted; prompt 6's earlier publication was already
+completed at 0a45586. No physical validation was begun.
+
+## E024
+
+Date: 2026-09-10 (America/Chicago).
+Kind / scope: new-user language review and publication checks; TEST-001/010/017,
+REQ-001/014/020. Prompt 8 requests plain technical English, cleanup, commit and push.
+
+Reviewed the landing page, setup, GUI/API/CSV instructions, troubleshooting and
+architecture against the implementation. Explained setpoint, poll, sample and
+the local Python environment. Replaced dense wording about serial tests, file
+validation, reconnects and monitoring with short descriptions of what users see
+and do. Removed repeated dependency explanations and unnecessary architecture
+terminology. Hardware limitations and all 20 acceptance criteria are preserved.
+Historical evidence and the template workflow remain intact; prompt 8 is verbatim.
+
+Validation: **349 tests PASS in 9.94 s**, Ruff lint/format PASS (24 Python files),
+mypy PASS (14 modules), pip check PASS. Commands and Python examples are unchanged
+from E022's clean-environment execution, and all 30 source/config hashes still
+match the published software baseline. E023's screenshot/SVG checks remain valid;
+these assets are unchanged. The updated lab guides passed browser review.
+All 95 local links/image references across 11 Markdown files resolve, including
+heading anchors. Git whitespace checks pass.
+
+No runtime change, new dependency, physical connection or hardware test occurred.
+The temporary preview was stopped and its files removed. Origin/main was verified at
+0a4558608b2ac1b0f8c30248cdcbccc389bcd74f before publication. The reviewed documentation
+is authorized for a normal fast-forward push to that branch; Git HEAD and upstream
+identify the final revision. Authoritative protocol and later physical acceptance
+remain the only engineering blockers.

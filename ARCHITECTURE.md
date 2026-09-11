@@ -1,6 +1,6 @@
 # Controller software architecture
 
-The package uses ordinary synchronous Python and one acquisition thread. The
+The package uses synchronous Python and one background thread for monitoring. The
 engineering loop and future hardware review gate remain in [AGENTS.md](AGENTS.md).
 Source framework: [agentic-engineering-template](https://github.com/cct1123/agentic-engineering-template),
 commit 724a7f772069d3357ea66dbc4742d25bd874a33e. Project decisions: D001–D003 in
@@ -8,47 +8,42 @@ commit 724a7f772069d3357ea66dbc4742d25bd874a33e. Project decisions: D001–D003 
 
 ## Dependencies and ownership
 
-    CLI application ──creates/owns──> Chiller, Monitor, LiveState, CsvLogger, Dash
-    Dash ──refresh──> LiveState (no device reads or worker lifecycle)
-    Dash ──explicit control──> Chiller
-    Monitor ──poll──> Chiller
-    Monitor ──publish──> LiveState and SampleSink (implemented by CsvLogger)
-    Chiller ──serialized operations──> ChillerDevice
-                                      ├─ SimulatedDevice
-                                      └─ SerialDevice ──> ProtocolCodec
-                                                     └─> RS232/RS485 transport
+The CLI creates Chiller, Monitor, LiveState, CsvLogger and Dash. The
+[system overview](docs/assets/system.svg), [device paths](docs/assets/modes.svg)
+and [data flow](docs/assets/data-flow.svg) show the boundaries. Lab instructions
+and runnable Python examples are in the [user guide](docs/usage.md).
 
-The device orchestrates encoding, transport exchange and decoding; codec and
-transport do not import each other. The transport accepts a response-completion
-predicate from the codec. GUI, API and monitor contain no serial commands.
-There is no manager, plugin framework, database, command queue or GUI-owned loop.
+The device uses the protocol codec to encode a command, asks the transport to
+exchange bytes, then decodes the reply. The codec and transport do not import
+each other. The codec supplies a function that tells the transport when a reply
+is complete. GUI, API and monitor contain no serial commands.
 
-The application creates exactly one Chiller facade for each device and shares it
-between control and acquisition. One Monitor may actively own a Chiller and
-LiveState; another worker or competing manual poll is rejected. A stopped monitor
-releases ownership only after its polling is quiescent. A CSV file has one logger
-owner, enforced on its open descriptor. Immutable snapshots and their counters
-publish together under the state lock.
+The application shares one Chiller instance between controls and monitoring for
+each device. Only one Monitor may use a Chiller and LiveState at a time; competing
+workers or manual polls are rejected. A stopped monitor releases them only after
+all its polling has finished. A file lock allows only one CsvLogger to write to a
+CSV. Samples and counters are published together under a lock; readers receive
+snapshots that cannot be changed.
 
 ## Boundaries
 
 | Module | Responsibility |
 | --- | --- |
-| api.py / device.py | Seven-operation public API, structural device contract, serialized access and finite read recovery |
-| safety.py | Single authoritative Celsius/profile validator, reused by API and device before writes |
-| simulator.py | Same device contract; deterministic thermal response, optional noise/cadence/faults |
-| hardware.py | Maps device operations through codec/transport; validates normalized results |
-| protocol.py | Sole insertion point for documented wire semantics; MissingProtocol fails before opening |
-| transport.py | Explicit pySerial configuration, bounded exchange, locking, cleanup, RS232/RS485 modes |
-| monitoring.py | Worker/manual-poll lifecycle, immutable samples, bounded history, errors and recording counters |
-| csvlog.py | Validated append/session schema, file ownership, flush/close and failed-write latch |
-| gui.py | Snapshot presentation and explicit API callbacks only |
-| __main__.py | Simulator application composition and shutdown |
-| testing.py | Clearly synthetic protocol and memory endpoint through real production layers |
+| api.py / device.py | Common seven-operation API, one operation at a time, limited read-recovery attempts |
+| safety.py | One setpoint validator, used by the API and device before writes |
+| simulator.py | Device interface with a repeatable temperature model and optional noise, timing and faults |
+| hardware.py | Device operations through the codec and transport; checks decoded results |
+| protocol.py | Device command/reply format; MissingProtocol blocks connection before opening a port |
+| transport.py | Explicit pySerial settings, time/size limits, locking, cleanup and RS232/RS485 modes |
+| monitoring.py | Background or manual polling, samples, limited history, errors and counters |
+| csvlog.py | CSV checks, append sessions, one writer per file; stops recording after a write error |
+| gui.py | Displays snapshots and calls the API when the user submits a control |
+| __main__.py | Creates and stops the simulator application |
+| testing.py | Software serial stand-in and test protocol that exercise the production code |
 
-Core API/acquisition need only the standard library. Dash/Plotly and pySerial are
-optional runtime extras. Serial factories exist only for lazy optional imports
-and hardware-free injection, not speculative backend selection.
+The core API and monitoring use only the Python standard library. Dash/Plotly and
+pySerial are optional packages. A replaceable serial constructor allows tests to
+use software endpoints and lets the core load without pySerial installed.
 
 ## Safety and lifecycle
 
@@ -58,12 +53,12 @@ bounds are 2–40 °C; alternatives require provenance at API and backend. Confi
 policy does not establish installed coolant, leaks, flow, fluid level or alarms.
 
 A reconnect never sends a target. Failed/uncertain writes are never replayed.
-A queued control retains its original connection intent and is cancelled if an
-explicit connect/disconnect supersedes that intent before the write begins.
-Read recovery has a finite per-outage budget; malformed protocol suspends it.
+A waiting setpoint request is cancelled if a newer connect/disconnect action
+occurs before the write begins. Read recovery has a fixed attempt limit for each
+outage; an invalid protocol reply stops automatic recovery.
 
 Shutdown order: request monitor stop, disconnect the serialized Chiller (cancels
-recovery), join the monitor, close CSV. An in-flight cancelled poll may publish one
+recovery), wait for the monitor to finish, close CSV. A cancelled poll may publish one
 unavailable final row. A timeout reports that polling is still active; its logger
 must remain open. Uncooperative OS/backend calls cannot be forcibly interrupted.
 
@@ -84,3 +79,32 @@ source-derived byte fixtures. No protocol or physical behavior is guessed.
 The synthetic fixture's JSON envelopes/settings are test data only. Real-unit
 validation and exact first interactions require the authoritative codec, confirmed
 hardware/coolant/setup and the review gate in AGENTS.md.
+
+## Validation reproduction
+
+Maintainer commands, from the repository root after creating the quick-start
+virtual environment. The version snapshot supplies the build/test tools too.
+
+```powershell
+.\.venv\Scripts\python -m pip install -r requirements-tested.txt
+.\.venv\Scripts\python -m pip install -e ".[gui,serial,dev]" --no-deps
+.\.venv\Scripts\python -m pytest -q -p no:cacheprovider
+.\.venv\Scripts\python -m ruff check .
+.\.venv\Scripts\python -m ruff format --check src tests examples
+.\.venv\Scripts\python -m mypy
+.\.venv\Scripts\python -m pip check
+.\.venv\Scripts\python -m build --no-isolation
+```
+
+Hardware-free fault demonstration (use a fresh output name):
+
+```powershell
+.\.venv\Scripts\python examples/hardware_free_demo.py --duration 5 --interval 0.1 --output outputs/demo
+```
+
+This traverses simulator → synthetic serial → production transport/device/API →
+monitor/CSV/state → concurrent Dash HTTP callbacks. It produces a CSV, Plotly HTML
+and JSON summary. The ten-minute validation evidence is in
+[E019](records/RECORDS.md#e019). The reusable software serial stand-in lives in
+testing.py; its message format is unrelated to Tark. Diagrams are editable SVG
+files. The screenshot shows an actual simulator session; records describe its capture.

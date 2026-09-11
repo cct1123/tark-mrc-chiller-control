@@ -1,0 +1,37 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="960" height="416" viewBox="0 0 960 416" role="img" aria-labelledby="title desc">
+  <title id="title">Acquisition, logging and GUI data flow</title>
+  <desc id="desc">The monitor polls Chiller independently of the browser. Each sample is flushed to CSV and published to bounded shared history. Dash refresh reads history; an explicit setpoint submission uses the Chiller API validator.</desc>
+  <defs><marker id="arrow" markerWidth="8" markerHeight="8" refX="7" refY="4" orient="auto"><path d="M0 0 L8 4 L0 8Z" fill="#526b79"/></marker></defs>
+  <rect width="960" height="416" rx="14" fill="#f5f8fa"/>
+  <g font-family="Segoe UI,Arial,sans-serif" fill="#18313d">
+    <text x="32" y="35" font-size="22" font-weight="600">Readings flow independently of the browser</text>
+    <g fill="none" stroke="#526b79" stroke-width="2" marker-end="url(#arrow)">
+      <path d="M260 127H364"/>
+      <path d="M584 111H688"/>
+      <path d="M474 159V270"/>
+      <path d="M584 306H688"/>
+      <path d="M798 343V383H150V159" stroke-dasharray="6 4"/>
+    </g>
+    <g fill="#fff" stroke="#c6d4dc" stroke-width="1.5">
+      <rect x="40" y="95" width="220" height="64" rx="8" fill="#e5f4f2" stroke="#087f8c"/>
+      <rect x="364" y="95" width="220" height="64" rx="8"/>
+      <rect x="688" y="79" width="220" height="64" rx="8"/>
+      <rect x="364" y="270" width="220" height="73" rx="8"/>
+      <rect x="688" y="270" width="220" height="73" rx="8"/>
+    </g>
+    <g font-size="20" text-anchor="middle">
+      <text x="150" y="134">Chiller API</text>
+      <text x="474" y="122">Monitor</text><text x="474" y="146" font-size="15">One independent polling loop</text>
+      <text x="798" y="118">CSV file</text>
+      <text x="474" y="299">Shared state / history</text><text x="474" y="326" font-size="15">Bounded, immutable snapshots</text>
+      <text x="798" y="299">Dash dashboard</text><text x="798" y="326" font-size="16">Status and temperature plot</text>
+    </g>
+    <g font-size="16" fill="#526b79">
+      <text x="276" y="116">Readings</text>
+      <text x="596" y="97">Flush row</text>
+      <text x="486" y="220">Publish sample + counters</text>
+      <text x="598" y="293">Refresh</text>
+      <text x="248" y="375">Explicit setpoint → validation → one write request</text>
+    </g>
+  </g>
+</svg>

@@ -422,3 +422,45 @@ Do not stop for a problem that can still be solved locally.
 ## Prompt 6
 
 review prune commit push
+
+## Prompt 7
+
+Continue the Tark MRC150/300 controller project from the current repository state.
+
+This phase is for HUMAN-FACING DOCUMENTATION only. Do not begin physical hardware validation yet.
+
+Read the current implementation, tests, PROJECT.md, STATE.md, and the supplied MRC150/300 manual. Document only functionality that actually exists and only hardware/protocol facts supported by the manual. The manual confirms RS-232/RS-485 availability but delegates detailed serial communication to a separate controller manual. :contentReference[oaicite:0]{index=0}
+
+Create clear, concise documentation for lab users who did not develop the software.
+
+Priorities:
+
+- Improve README.md as the main landing page.
+- Add a short quick-start guide.
+- Explain simulator mode and real-hardware mode.
+- Explain how to launch and use the Plotly Dash GUI.
+- Show basic Python API usage and CSV logging.
+- Explain safe setpoint behavior and current hardware/protocol limitations.
+- Add a concise troubleshooting guide.
+- Clearly distinguish simulator-tested, fake-serial-tested, and real-hardware-validated features.
+
+Create useful visual material:
+
+- actual GUI screenshot using the simulator
+- simple system architecture diagram
+- simulator vs hardware flow diagram
+- acquisition / logging / GUI data-flow diagram
+
+Keep illustrations clean, technical, and easy to understand. Prefer reproducible diagrams such as Mermaid/SVG where practical.
+
+Test all documented commands and code examples. Ensure links and screenshots render correctly. Fix small usability inconsistencies discovered during documentation.
+
+Prune stale, duplicate, speculative, or overly developer-focused documentation.
+
+Update STATE.md with documentation status and remaining dependencies.
+
+Finish when a new user can quickly understand, install, run the simulator, use the GUI, log data, and understand what remains before real-hardware validation.
+
+## Prompt 8
+
+read the repo like a new human users. simple technical english language improvement. clean up. commit. push.

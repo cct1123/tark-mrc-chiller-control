@@ -1,0 +1,30 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="920" height="450" viewBox="0 0 920 450" role="img" aria-labelledby="title desc">
+  <title id="title">Simulator versus physical hardware</title>
+  <desc id="desc">Both modes use the common Chiller API. The simulator works now without serial I/O. The physical path has SerialDevice and a serial transport, but a missing controller protocol blocks communication before opening a port.</desc>
+  <defs><marker id="arrow" markerWidth="8" markerHeight="8" refX="7" refY="4" orient="auto"><path d="M0 0 L8 4 L0 8Z" fill="#526b79"/></marker></defs>
+  <rect width="920" height="450" rx="14" fill="#f5f8fa"/>
+  <g font-family="Segoe UI,Arial,sans-serif" fill="#18313d">
+    <text x="32" y="35" font-size="22" font-weight="600">Same API, different device paths</text>
+    <rect x="290" y="62" width="340" height="62" rx="8" fill="#e5f4f2" stroke="#087f8c" stroke-width="1.5"/>
+    <text x="460" y="100" text-anchor="middle" font-size="21">Chiller API</text>
+    <g fill="none" stroke="#526b79" stroke-width="2" marker-end="url(#arrow)">
+      <path d="M390 124V153H230V186"/>
+      <path d="M530 124V153H690V186"/>
+      <path d="M690 245V282"/>
+    </g>
+    <rect x="50" y="186" width="360" height="190" rx="10" fill="#fff" stroke="#087f8c" stroke-width="1.5"/>
+    <rect x="510" y="186" width="360" height="59" rx="8" fill="#fff" stroke="#c6d4dc" stroke-width="1.5"/>
+    <rect x="510" y="282" width="360" height="94" rx="8" fill="#fff4e5" stroke="#a66a13" stroke-width="1.5"/>
+    <g text-anchor="middle">
+      <text x="230" y="225" font-size="22">SimulatedDevice</text>
+      <text x="230" y="260" font-size="18" fill="#087f8c" font-weight="600">AVAILABLE NOW</text>
+      <text x="230" y="298" font-size="18">Thermal model in memory</text>
+      <text x="230" y="327" font-size="18">No serial port or chiller required</text>
+      <text x="690" y="223" font-size="21">SerialDevice</text>
+      <text x="690" y="312" font-size="19" fill="#89530d" font-weight="600">BLOCKED: protocol missing</text>
+      <text x="690" y="340" font-size="17">No physical port is opened</text>
+      <text x="690" y="364" font-size="17">by the default MissingProtocol</text>
+    </g>
+    <text x="32" y="413" font-size="17">RS232/RS485 transport software is tested with fakes. Actual MRC communication is unvalidated.</text>
+  </g>
+</svg>
