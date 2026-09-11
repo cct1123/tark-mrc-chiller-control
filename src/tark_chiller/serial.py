@@ -76,8 +76,9 @@ class RS485Mode:
             if type(getattr(self, name)) is not bool:
                 raise ValueError(f"{name} must be an explicit boolean")
         for name in ("delay_before_tx", "delay_before_rx"):
-            if (value := getattr(self, name)) is not None:
-                _seconds(value, name, allow_zero=True)
+            delay = getattr(self, name)
+            if delay is not None:
+                _seconds(delay, name, allow_zero=True)
 
 
 class Codec(Protocol):
@@ -174,13 +175,15 @@ class SerialDevice:
         self.disconnect()
         try:
             config = asdict(self.settings)
-            rts, dtr = config.pop("rts"), config.pop("dtr")
+            rts = config.pop("rts")
+            dtr = config.pop("dtr")
             config.update(port=None, timeout=self.timeout_s, write_timeout=self.timeout_s)
             self._endpoint = self._factory(**config)
             if self._endpoint.is_open:
                 raise OSError("Serial factory must return an unopened endpoint")
             self._endpoint.port = self.settings.port
-            self._endpoint.rts, self._endpoint.dtr = rts, dtr
+            self._endpoint.rts = rts
+            self._endpoint.dtr = dtr
             if self.rs485 is not None:
                 from serial.rs485 import RS485Settings
 
@@ -236,7 +239,8 @@ class SerialDevice:
             if not isinstance(request, bytes) or not request:
                 raise ProtocolError("Codec must supply a nonempty byte request")
             self._endpoint.write_timeout = remaining()
-            if type(written := self._endpoint.write(request)) is not int or written != len(request):
+            written = self._endpoint.write(request)
+            if type(written) is not int or written != len(request):
                 raise OSError("Partial serial write; outcome unknown, not retried")
             response = bytearray()
             while True:
@@ -301,5 +305,5 @@ class SerialDevice:
 
     def _read_status(self) -> Status:
         if not self.is_connected:
-            return Status(False, "hardware", self._last_error)
+            return Status(connected=False, backend="hardware", detail=self._last_error)
         return cast(Status, self._exchange("get_status"))

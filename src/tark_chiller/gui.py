@@ -35,10 +35,18 @@ def render_snapshot(
     connection = "Waiting for the first sample"
     if latest:
         connection = "Last poll: Connected" if latest.status.connected else "Last poll: Unavailable"
-    freshness = "Monitoring stopped" if not snapshot.running else "Stale" if stale else "Monitoring"
-    recording = (
-        "Failed" if snapshot.logging_error else "Enabled" if snapshot.logging_enabled else "Off"
-    )
+    if not snapshot.running:
+        freshness = "Monitoring stopped"
+    elif stale:
+        freshness = "Stale"
+    else:
+        freshness = "Monitoring"
+    if snapshot.logging_error:
+        recording = "Failed"
+    elif snapshot.logging_enabled:
+        recording = "Enabled"
+    else:
+        recording = "Off"
     caption = f"Sample age {age:.1f} s" if age is not None else "Waiting for a reading"
     if latest and not available:
         caption += " · No fresh reading"
@@ -113,7 +121,7 @@ def render_snapshot(
         [
             go.Scatter(
                 x=times,
-                y=[s.temperature_c for s in snapshot.history],
+                y=[sample.temperature_c for sample in snapshot.history],
                 name="Temperature",
                 mode="lines",
                 connectgaps=False,
@@ -121,7 +129,7 @@ def render_snapshot(
             ),
             go.Scatter(
                 x=times,
-                y=[s.setpoint_c for s in snapshot.history],
+                y=[sample.setpoint_c for sample in snapshot.history],
                 name="Setpoint",
                 mode="lines",
                 connectgaps=False,

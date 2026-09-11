@@ -2,97 +2,95 @@
 
 ## Status
 
-**Software candidate 0.2.1 complete; protocol and physical validation BLOCKED.**
-Prompt 12's compact-driver design supersedes the 0.1 internal API. Six functional
-modules plus two entry files replace thirteen files; package Python lines fall
-from 2,056 to 1,271 (38.2%). Current scope and acceptance are in [PROJECT](PROJECT.md),
-with the merge decision in [D006](records/RECORDS.md#d006).
+**Software candidate 0.2.2 complete; protocol and physical validation BLOCKED.**
+The researcher examples now target the serial backend, with no simulator fallback.
+One editable lab connection file replaces the old standalone hardware template.
+Core Python uses explicit names, keyword data construction and clear control flow.
+The package retains six functional modules plus two entry files (1,311 Python lines).
+[PROJECT](PROJECT.md) defines acceptance; [D007](records/RECORDS.md#d007) records
+prompt 14's hardware-example scope. All session requests remain in the
+[prompt log](prompt%20log.md).
 
-No physical discovery, serial opening or device operation was performed.
+No physical discovery, port opening or device operation was performed.
 This is neither HARDWARE_READY nor physically VALIDATED. Resume phase:
-SOFTWARE_DEVELOPMENT when the matching communication manual arrives.
-The [prompt log](prompt%20log.md) includes prompts 12 and 13.
+SOFTWARE_DEVELOPMENT when the matching controller communication manual arrives.
 
 ## Requirements status
 
-All software PASS entries below were revalidated for 0.2.1 in E032 after the
-four E031 review findings were fixed. E030 describes the earlier 0.2.0 candidate;
-E028 describes 0.1 and includes features removed under D006.
+E033/E034 revalidate the current software. Earlier E030/E032 results apply to
+0.2.0/0.2.1 respectively and remain historical evidence.
 
 | ID | Short criterion | Method | Current result | Evidence |
 | --- | --- | --- | --- | --- |
-| REQ-001 | Workspace, prompts and traceability | TEST-001 | PASS | E031/E032, D006 |
-| REQ-002 | Common synchronous Chiller API | TEST-002/012 | Software PASS; physical BLOCKED | E032; EXT-001/003 |
-| REQ-003 | 2–40 °C validation before backend access | TEST-003 | PASS | Controller, serial and GUI adversarial tests |
+| REQ-001 | Workspace, prompts and traceability | TEST-001 | PASS | E033/E034, D007 |
+| REQ-002 | Common synchronous Chiller API | TEST-002/012 | Software PASS; physical BLOCKED | E034; EXT-001/003 |
+| REQ-003 | 2–40 °C validation before backend access | TEST-003 | PASS | Controller/serial/GUI/example adversarial tests |
 | REQ-004 | Explicit coolant bounds and source | TEST-003 | PASS | Controller configuration tests |
-| REQ-005 | Missing protocol prevents port creation | TEST-004/019 | PASS | Serial and hardware-template tests |
+| REQ-005 | Missing protocol prevents port creation | TEST-004/019 | PASS | Missing-codec and incomplete-example-configuration tests |
 | REQ-006 | Explicit RS232/RS485 backend | TEST-005/012 | Software PASS; physical BLOCKED | Serial fixtures; EXT-001/003 |
-| REQ-007 | Serialized I/O, faults and no stale write | TEST-002/005/014 | PASS | Controller and serial fault tests |
-| REQ-008 | Optional single monitor and bounded stop | TEST-006/019 | PASS | Monitor and interruption tests |
+| REQ-007 | Serialized I/O, faults and no stale write | TEST-002/005/014 | PASS | Controller/serial faults; per-controller example codec isolation |
+| REQ-008 | Optional single monitor and bounded stop | TEST-006/019 | PASS | Fixed interval, paced worker and shutdown tests |
 | REQ-009 | CSV time, units, missing values and errors | TEST-007/019 | PASS | Monitor/example disk-fault tests |
 | REQ-010 | Bounded snapshots and honest freshness | TEST-006/008 | PASS | Monitor and GUI tests |
-| REQ-011 | Thin Dash display and safe setpoint callback | TEST-008/011 | PASS | GUI HTTP tests and browser review |
+| REQ-011 | Thin Dash client and validated writes | TEST-008/011 | PASS | Real Dash HTTP tests; physical-backend example lifecycle |
 | REQ-012 | Simulator substitution; dependency-free core | TEST-002/009/019 | PASS | Import isolation and integration tests |
-| REQ-013 | No invented physical safety telemetry | TEST-008/011 | PASS | Manual/source/GUI review |
-| REQ-014 | Reproducible typed package and dependencies | TEST-010/019 | PASS | Fresh non-editable install and package checks |
+| REQ-013 | No invented safety telemetry | TEST-008/011 | PASS | Manual/source/GUI review |
+| REQ-014 | Reproducible typed package | TEST-010/019 | PASS | Fresh non-editable install, build/static checks |
 | REQ-015 | Identified-unit physical acceptance | TEST-012 | BLOCKED | EXT-001/003; no physical test |
 | REQ-016 | Deterministic simulator and synthetic faults | TEST-013 | PASS | Controller/serial/end-to-end tests |
-| REQ-017 | Finite read recovery, no write replay | TEST-014 | PASS | Serial fault and queued-write tests |
-| REQ-018 | Exclusive new CSV; no overwrite | TEST-015/019 | PASS | Monitor and example repeat-run tests; D006 |
-| REQ-019 | Sustained independent whole-stack operation | TEST-016 | PASS | E032: 60 s / 1,656 rows / 1,218 callbacks plus fault suite |
-| REQ-020 | Tested guides, examples and actual visuals | TEST-017 | PASS | Example tests, links and browser review |
-| REQ-021 | Bootstrap client and researcher workflow | TEST-018 | PASS | GUI tests, screenshot and five SVGs |
-| REQ-022 | Install/CLI/termination/hardware template | TEST-019 | PASS | Fresh installation, signals and example tests |
-| REQ-023 | Compact reusable driver, explicit lifecycle | TEST-020 | PASS | Module inventory, import and multi-controller tests |
+| REQ-017 | Finite read recovery, no write replay | TEST-014 | PASS | Serial faults, queued writes, uncertain-write example |
+| REQ-018 | Exclusive CSV, no overwrite | TEST-015/019 | PASS | Monitor and example repeat-run tests |
+| REQ-019 | Sustained whole-stack operation | TEST-016 | PASS | 60 s, 1,763 rows, 1,527 concurrent callbacks |
+| REQ-020 | Hardware-oriented guides and examples | TEST-017 | Software PASS; physical execution BLOCKED | E034; EXT-001/003 |
+| REQ-021 | Bootstrap client and researcher workflow | TEST-018 | PASS | GUI, example, link and illustration checks |
+| REQ-022 | Install, lifecycle and explicit lab configuration | TEST-019 | PASS | Installed suite, signals, real serial path with memory endpoints |
+| REQ-023 | Compact reusable driver | TEST-020 | PASS | Eight modules, direct API, no implicit workers/dependencies |
 
-## Implementation and current evidence
+## Current implementation and evidence
 
-[Architecture](development/architecture.md): Chiller owns one backend and optionally
-one monitor. Applications use synchronous read/set functions; monitor start is
-explicit. Disconnect cancels recovery, closes serialized device I/O and joins the
-worker; the worker closes its CSV. Dash reads snapshots and calls the same public
-setpoint method. The serial backend contains the codec boundary and bounded byte
-exchange. No global registry, compatibility shim or separate logger/state lifecycle
-remains. Serial configuration is read-only; CSV close runs outside the snapshot
-lock; headless recording now exits with an error when CSV writing fails.
-Do not share a raw backend across controllers or processes.
+Chiller owns its backend and optional monitor. The GUI only reads snapshots and
+calls the public setpoint method. Serial settings and monitoring interval are
+read-only after validation. Stop/start monitoring to change its rate. CSV close
+runs outside the snapshot lock; writes are never retried or replayed.
 
-- 193 unit/integration/fault/example tests PASS against a non-editable installation
-  in a fresh Python 3.12.14 environment; [JUnit](outputs/holistic-tests.xml).
-- Ruff lint/format, mypy for eight package files and pip check PASS. Zero core
-  dependencies; pinned GUI/serial/development dependencies installed normally.
-- Core module count and installed/source integrity: [audit](outputs/holistic-review.json).
-- Sustained simulator/CSV/Dash result: [run](outputs/holistic-soak.txt).
-- GUI source/styles and the actual screenshot remain unchanged from E030.
-  Current callbacks, snapshot behavior, guides and links were revalidated.
-  [Report](outputs/REPORT.md), [E031/E032](records/RECORDS.md#e031).
+- **209 tests PASS** in a fresh Python 3.12.14 environment with a normal installation:
+  [JUnit](outputs/human-installed-tests.xml).
+- Ruff lint/format, mypy and pip check PASS. Source/wheel packaging and source
+  archive tests are recorded in [E034](records/RECORDS.md#e034) and the
+  [audit](outputs/human-review.json).
+- Sustained software-only regression: [run](outputs/human-soak.txt).
+- All five researcher examples exercise production SerialDevice with test-only
+  endpoints. Tests verify reads, one deliberate target, mismatched/uncertain
+  readback, CSV errors, Ctrl-C, Dash HTTP, independent codec state and refusal of
+  incomplete configuration. No test bytes are copied into examples.
+- README and API snippets use the same configured hardware path. The actual
+  screenshot remains explicitly labeled simulator data. The updated hardware
+  setup diagram was inspected in a browser. [Report](outputs/REPORT.md).
 
-Version 0.2 intentionally removes old get_* names, public policy/monitor/logger
-constructors, CSV append, and simulator noise/fault configuration. See D006 for
-the explicit criterion changes. Safety bounds, timeout recovery and no write replay
-remain. The simulator thermal model is uncalibrated; polling is not hard real time.
-Windows was tested; other OS/Python versions and native electrical RS485 behavior
-remain unvalidated. An uncooperative OS/backend call or forced process kill cannot
-guarantee timely cleanup. Software cannot detect installed coolant, flow or leaks.
+Only protocol exceptions are custom; normal failures use Python's standard
+exceptions. No new package module, configuration framework or dependency was added.
+Polling is not real time. Other OS/Python versions and electrical RS485 behavior
+remain unvalidated. Forced termination or an uncooperative OS call can prevent
+cleanup. One upstream Plotly deprecation warning occurred during integration;
+no map trace is used and no test failed.
 
-## Remaining dependencies and exact next action
+## Dependencies and exact next action
 
-- **EXT-001:** obtain the controller communication manual matching the actual unit,
-  plus model/suffix, controller identity and firmware. Required information: baud,
-  parity, data/stop bits, flow control, RTS/DTR, RS485 addressing/direction,
-  commands/registers, framing/terminators, temperature/setpoint reads, setpoint
-  write, acknowledgements/errors, checksum/CRC, units/scaling, response identity,
-  timing and side effects.
-- **EXT-003:** physical acceptance later requires that identified unit/interface,
+- **EXT-001:** obtain the communication manual matching the chiller model/suffix,
+  controller identity and firmware. Required: baud, parity, data/stop bits, flow
+  control, RTS/DTR, RS485 addressing/direction, commands/registers, framing and
+  terminators, temperature/setpoint reads, setpoint write, acknowledgements/errors,
+  checksum/CRC, units/scaling/resolution, response identity, timing and side effects.
+- **EXT-003:** later physical acceptance requires the identified unit/interface,
   verified wiring, installed coolant, safe lab setup, reference instrument and
-  candidate authorization. Resolve Rev 13's table/product-page water guidance for
-  the actual unit before use (E017).
-- **EXT-002, provenance only:** original attachment unavailable. Official Tark-hosted
-  Rev 13 is the provisional source; compare revisions if the attachment arrives.
+  candidate authorization. Resolve the manual/product-page water guidance for
+  the actual unit (E017).
+- **EXT-002, provenance only:** the original attachment is unavailable. The cached
+  official Tark-hosted Rev 13 manual still matches E002's SHA-256.
 
-Next action: verify manual applicability, implement only documented codec behavior
-inside serial.py, and add page-cited byte fixtures. Rerun software acceptance and
-prepare exact first transactions for candidate review. Then perform approved
-read-only interface/temperature/setpoint validation; one small setpoint change
-requires explicit write authorization. The [hardware guide](docs/hardware.md)
-gives the staged procedure. No physical authorization is requested now.
+Next: verify the communication manual, implement only its documented codec in
+serial.py and add page-cited byte fixtures. Configure examples/connection.py with
+verified settings and the implemented codec class. Rerun software acceptance,
+then obtain candidate review before physical reads. A small controlled target
+change requires explicit write authorization. Follow the [hardware guide](docs/hardware.md).
+No physical authorization is requested now.

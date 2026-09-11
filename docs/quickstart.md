@@ -1,77 +1,108 @@
-# Quick start
+# Hardware quick start
 
 [Home](../README.md) · [API](api.md) · [Troubleshooting](troubleshooting.md)
 
-You need Python 3.12+ and a copy of this project. The simulator needs no chiller,
-cable or serial adapter. Commands below use Windows PowerShell.
+The five examples use the physical serial backend. They never fall back to a
+simulator. You can install the software now, but hardware operation is blocked
+until the matching controller manual, verified settings and codec are available.
 
-![Install, read, monitor, and optionally open the dashboard](assets/quickstart.svg)
+![Document, configure, validate reads, then record](assets/quickstart.svg)
 
-## 1. Install the driver
+## 1. Install
 
-Open PowerShell in the folder containing `pyproject.toml`.
+Use Python 3.12+ and open Windows PowerShell in the folder containing
+`pyproject.toml`. Check the version first:
 
 ```powershell
 python --version
 ```
 
-Stop if the version is older than 3.12. Select a supported Python installation,
-reopen PowerShell and check again. Then:
+If it is older than 3.12, select a supported Python installation and reopen the
+terminal. Then:
 
 ```powershell
 python -m venv .venv
-.\.venv\Scripts\python -m pip install .
+.\.venv\Scripts\python -m pip install -c requirements-tested.txt ".[serial]"
+```
+
+Use this environment's Python for subsequent commands; activation is unnecessary.
+
+## 2. Configure the lab connection
+
+Open [examples/connection.py](../examples/connection.py).
+
+- `SERIAL_SETTINGS`: a `SerialSettings` object containing the verified port and all ten documented serial fields.
+- `CODEC_CLASS`: the implemented and tested codec class for the identified controller.
+- `RS485_MODE`: native direction settings when required by the verified RS-485
+  adapter; otherwise `None`. This option does not select the electrical interface.
+
+Keep required entries unset while information is missing. There is no codec
+included to select. The [hardware guide](hardware.md) explains each field,
+manual limitations and the physical review sequence.
+
+## 3. Validate reads before writing
+
+For the reviewed configuration and approved physical setup:
+
+```powershell
 .\.venv\Scripts\python examples/01_read_temperature.py
 ```
 
-Expect `Temperature: 20.00 Celsius`, a 20.00 Celsius target and simulator status.
-Use this environment's Python for later commands; activation is unnecessary.
+It prints measured temperature, reported setpoint and status. Compare the values
+and units with the front panel and approved reference. The script makes no
+setpoint change.
 
-## 2. Read and set a target
+With the shipped, unconfigured helper, the expected result is **Hardware not
+configured**, a nonzero exit and no port opening. That is an intentional dependency
+check, not a failed physical test.
 
-```powershell
-.\.venv\Scripts\python examples/02_set_temperature.py
-```
+## 4. Record readings
 
-The reported target becomes 18.00 Celsius. Temperature changes gradually.
-Each new simulator starts at 20 °C. The default allowed target range is 2–40 °C.
-
-## 3. Record data
+After reads are validated:
 
 ```powershell
 .\.venv\Scripts\python examples/03_log_temperature.py
 ```
 
-After about five seconds, the script reports its row count. Open
-`outputs/03_temperature.csv` in a text editor or spreadsheet. Expect UTC times,
-Celsius readings and a simulator label. Existing filenames are refused.
+This records for about five seconds. Open `outputs/03_temperature.csv`; check UTC
+times, Celsius values, the hardware label and any errors. Each run needs a new
+filename, editable in the script.
 
-To record until Ctrl+C without a browser:
-
-```powershell
-.\.venv\Scripts\python -m tark_chiller --headless --csv outputs/experiment.csv
-```
-
-For a short timed run:
+For continuous read-only recording:
 
 ```powershell
-.\.venv\Scripts\python -m tark_chiller --headless --duration 5 --interval 0.2 --csv outputs/timed.csv
+.\.venv\Scripts\python examples/04_monitor_experiment.py
 ```
 
-## 4. Add the optional dashboard
+Press **Ctrl+C** to stop and close `outputs/04_experiment.csv`.
+
+## 5. Change one approved target
+
+Only after read validation and approval for the intended change:
 
 ```powershell
-.\.venv\Scripts\python -m pip install -c requirements-tested.txt ".[gui]"
-.\.venv\Scripts\python -m tark_chiller --csv outputs/dashboard.csv
+$targetC = Read-Host "Approved target in Celsius"
+.\.venv\Scripts\python examples/02_set_temperature.py $targetC
 ```
 
-Open [127.0.0.1:8050](http://127.0.0.1:8050). Check the **simulator** label,
-temperature and recording status. Enter **18** and apply the target. The target
-line changes first; the temperature curve approaches it.
+The script prints the original target, makes one validated write and reads back
+the reported target. Readback does not prove the liquid has reached that
+temperature. If confirmation fails, resolve the uncertain outcome before a new write.
 
-Try **1** to see a rejected target. Requests must stay within the displayed
-2–40 °C limits. Closing the tab leaves acquisition running. Stop with
-**Ctrl+C in its terminal** to join monitoring and close CSV.
+## 6. Open the optional dashboard
 
-Continue with the [dashboard tour](usage.md#dashboard-tour) or [API](api.md).
-Real devices still need the [missing protocol and physical validation](hardware.md).
+```powershell
+.\.venv\Scripts\python -m pip install -c requirements-tested.txt ".[gui,serial]"
+.\.venv\Scripts\python examples/05_launch_dashboard.py
+```
+
+Open [127.0.0.1:8050](http://127.0.0.1:8050). Check backend, sample age, errors and
+recording status. Apply only approved targets. It records to
+`outputs/05_dashboard.csv` without needing the browser to remain open.
+
+Stop with **Ctrl+C in the terminal**. This stops monitoring and closes CSV and
+the software connection. Follow the equipment shutdown procedure separately;
+disconnect does not switch off the chiller.
+
+[Dashboard tour](usage.md#dashboard-tour) · [API](api.md) ·
+[Development-only simulator](../development/README.md#simulator-utilities)

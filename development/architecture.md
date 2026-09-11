@@ -17,6 +17,7 @@ effects. The driver works directly inside an existing Python experiment.
 | serial.py | Explicit serial settings, codec interface and bounded transactions |
 | monitor.py | Optional worker, bounded snapshots and new-file CSV recording |
 | gui.py | Optional snapshot display and validated target control |
+| errors.py | Protocol exceptions; ordinary failures use Python's standard exceptions |
 | __main__.py | Simulator launcher; owns application startup and shutdown |
 
 Application → Chiller → backend. SerialDevice encodes and checks messages through
@@ -28,6 +29,12 @@ Chiller creates monitoring only on `start_monitoring()`. The returned handle
 provides `snapshot()`; the worker owns its history and CSV. Dash receives the
 existing Chiller and monitor and starts no work. Package imports do not require
 GUI or serial extras.
+
+The five researcher examples use SerialDevice. Their single connection.py file
+holds explicit lab settings and constructs a fresh disconnected Chiller per call.
+It is ordinary editable example code, not package configuration machinery. No
+example imports Simulator or the simulator launcher. Missing settings or codec
+produce a clear error before device creation; no fallback is selected.
 
 ## Safety and lifecycle
 
@@ -48,6 +55,7 @@ that ignore their timeout cannot be forcibly interrupted by Python.
 CSV close runs outside the snapshot lock, so snapshots and stop-timeout errors
 remain available while filesystem cleanup is pending. Serial settings and
 transaction limits are fixed at construction, including across reconnects.
+The monitoring interval is also read-only; stop and start a new run to change it.
 
 Snapshots are immutable, history is bounded, and poll timestamps refer to the
 start of sequential reads. A failed poll has missing values. CSV failure remains

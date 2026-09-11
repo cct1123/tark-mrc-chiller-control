@@ -1,14 +1,19 @@
-"""Read one simulated temperature, target and status; no hardware is used."""
+"""Read temperature, setpoint and status from the configured physical chiller."""
 
-from tark_chiller import Chiller, Simulator
+from connection import create_chiller
+
+from tark_chiller import ProtocolError
 
 
 def main() -> None:
-    with Chiller(Simulator()) as chiller:
+    with create_chiller() as chiller:
         print(f"Temperature: {chiller.read_temperature():.2f} Celsius")
         print(f"Setpoint: {chiller.read_setpoint():.2f} Celsius")
         print(chiller.read_status())
 
 
 if __name__ == "__main__":
-    main()
+    try:
+        main()
+    except (OSError, ProtocolError) as error:
+        raise SystemExit(str(error)) from error

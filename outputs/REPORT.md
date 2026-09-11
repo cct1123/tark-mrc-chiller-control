@@ -1,157 +1,139 @@
-# Engineering report — compact driver 0.2.1
+# Engineering report — laboratory driver 0.2.2
 
 ## Objective and outcome
 
-Refactor the project into a small laboratory device driver, usable directly from
-scripts and larger experiment-control programs. The software candidate has six
-functional modules plus package/module entry files: **13 → 8 Python files,
-2,056 → 1,271 lines (38.2% fewer)**. There are no core dependencies, implicit
-workers, global registries or compatibility modules.
+Provide a small Python controller that researchers can read and integrate into
+an existing experiment. The five numbered examples now use the physical serial
+backend through one explicit lab connection file. There is no simulator fallback,
+automatic target selection or global device instance. Simulator utilities remain
+in development documentation and tests.
 
-**193 current tests PASS**, as do static checks, a fresh non-editable installation
-and a one-minute simulator/CSV/Dash regression. Real MRC control is unavailable: the
-matching controller communication manual is missing and no physical unit has
-been validated. No serial hardware was discovered, opened or operated.
+**209 tests pass in a fresh, non-editable Python 3.12.14 installation.** Real MRC
+operation remains unavailable because the matching controller protocol is missing.
+No physical port was opened and no hardware validation is claimed.
 
-## Architecture and API
+## Architecture and readability
 
 ![Architecture](../docs/assets/system.svg)
 
-`controller.py` provides Chiller, validation, serialized device access and bounded
-read recovery. `serial.py` holds explicit configuration, the codec boundary and
-byte exchange. `simulator.py` supplies the hardware-free backend. `monitor.py`
-combines optional polling, CSV and immutable bounded snapshots. `gui.py` is a thin
-optional client; `errors.py` defines only the two protocol exceptions.
+Six functional modules plus two entry files contain 1,311 Python lines:
+controller for the synchronous API and safety; serial for configuration, codec
+and I/O; simulator for software development; monitor for polling, CSV and history;
+gui for the optional Dash client; errors for protocol exceptions.
 
-```python
-from tark_chiller import Chiller, Simulator
+Names identify retry budgets and sample counts. Keyword dataclass construction
+replaces positional booleans/counters; control flow avoids nested conditionals
+inside expressions. Python 3.12 type parameters replace the global TypeVar.
+Required locks, cancellation and bounded recovery remain. No new package module,
+framework, compatibility layer or dependency was introduced.
 
-with Chiller(Simulator()) as chiller:
-    print(chiller.read_temperature())
-    chiller.set_setpoint(18.0)
-    print(chiller.read_setpoint())
-```
+The public API is connect/disconnect, is_connected, read_temperature,
+read_setpoint, set_setpoint, read_status, start_monitoring and stop_monitoring.
+Import and construction perform no I/O. Monitoring is optional; its interval is
+fixed for each run. Dash uses the same controller as ordinary experiment code.
+[API guide](../docs/api.md), [architecture](../development/architecture.md).
 
-The other public operations are connect/disconnect, is_connected, read_status,
-start_monitoring and stop_monitoring. Chiller owns one backend and optional
-monitor. Stopping monitoring closes CSV but retains the connection; disconnect
-also cancels recovery and joins polling. Dash creates neither connection nor
-worker; it reads snapshots and submits setpoints through the same API.
+## Evidence and corrections
 
-Version 0.2 deliberately removes the old get_* names, separate policy/state/logger
-objects, CSV append/resume and simulator noise/fault configuration. Each recording
-creates a new file exclusively; fault fixtures live only in tests. No old internal
-import paths are preserved. [D006](../records/RECORDS.md#d006) records the criterion
-changes authorized by prompt 12. [API guide](../docs/api.md).
+[STATE](../STATE.md) maps every requirement. Hardware-independent acceptance
+passes; physical portions of REQ-002/006/020 and REQ-015 remain blocked by the
+missing protocol and identified/authorized setup. [E033/E034](../records/RECORDS.md#e033)
+record the review and current validation; [D007](../records/RECORDS.md#d007)
+records the revised user-example workflow.
 
-## Requirements and test evidence
-
-Hardware-independent REQ-001–014 and REQ-016–023 PASS against their updated
-criteria. Physical portions of REQ-002/006 and REQ-015 remain BLOCKED by EXT-001/003.
-The [current matrix](../STATE.md) maps every requirement; [E031/E032](../records/RECORDS.md#e031)
-records review, corrections and evidence. Earlier 0.2.0 and 0.1 results remain historical evidence.
-
-| Validation | Observed result |
+| Check | Evidence |
 | --- | --- |
-| Installed unit/integration/fault/example tests | 193 PASS in 29.80 s; [JUnit](holistic-tests.xml) |
-| Extracted source archive tests | 193 PASS in 29.77 s; [JUnit](holistic-archive-tests.xml) |
-| Static checks | Ruff lint/format PASS; mypy eight files PASS; pip check PASS |
-| Installation | Fresh Python 3.12.14 environment, pinned dependencies, non-editable package |
-| Packaging | Source archive/wheel build and module/console entry checks; [build](holistic-build.txt), [inventory/integrity](holistic-review.json) |
-| Current installed simulator → Chiller → monitor → CSV/Dash | 60-second regression with concurrent callbacks and bounded history; [run](holistic-soak.txt) |
-| Fake serial | Explicit RS232/RS485 setup, fixed configuration, unavailable/busy/permission failures, truncated/malformed/delayed replies, bounded recovery and no write replay |
-| Lifecycle faults | Stalled CSV close preserves snapshot access and stop timeout; headless disk-full exits promptly and releases resources |
-| User path | Examples and README/API code blocks run against the installed package; local links, anchors and SVG XML checked |
-| Visual baseline | GUI source/styles/assets unchanged from E030; current callback and snapshot tests PASS |
+| Installed unit/integration/fault/examples | 209 PASS; [JUnit](human-installed-tests.xml) |
+| Source archive | Complete suite and packaged example/configuration files; [JUnit](human-archive-tests.xml) |
+| Static checks | Ruff lint/format, mypy eight modules, pip check PASS |
+| Build/install | Source archive and wheel, pinned environment, source/installed integrity; [build](human-build.txt), [audit](human-review.json) |
+| Sustained integration | 60 s, 1,763 CSV rows, 1,527 concurrent Dash callbacks, history capped at 25, clean shutdown; [run](human-soak.txt) |
+| Hardware examples | Production SerialDevice with test-only byte protocol and memory endpoints; no Simulator in the example path |
+| User documentation | README/API blocks exercised with the configured serial path; links, SVG syntax and updated diagram checked |
 
-The holistic review reproduced four defects: CSV close held the snapshot lock,
-headless recording did not report failure until shutdown, mutable serial
-configuration could disable validated transaction limits, and source archives
-omitted the shared serial test fixture. The repairs stay within
-the existing modules. Regressions verify real worker/file behavior and bounded
-memory-serial transactions. [E031](../records/RECORDS.md#e031) records diagnosis.
+A mutable monitoring interval could bypass its validation and produce rapid
+polling: NaN reassignment yielded 2,306 samples in 30 ms during diagnosis. The
+interval is now read-only. An event-controlled regression proves rejected
+reassignment, a positive scheduled wait, one sample and clean shutdown.
 
-The API and GUI can continue monitoring after a CSV error with an explicit
-logging_error. The headless launcher now stops and exits nonzero immediately.
-Serial settings, RS485 mode, timeout and byte limit are read-only after construction.
-A stop timeout leaves cleanup ownership intact while snapshots remain accessible.
+During example review, a successful write acknowledgement followed by a different
+readback still printed confirmation. The example now reports an unconfirmed
+target, with no assumed rounding tolerance or retry. Each configured controller
+also receives its own codec instance so separate instruments cannot share mutable
+parser state. Native RS485 direction settings are documented separately from the
+physical adapter/interface.
 
-E030's ten-minute run and actual simulator screenshot remain historical baseline
-evidence. The full installed suite and one-minute integration were rerun for this
-patch; no hardware performance is inferred from either test duration.
+The GUI screenshot is an actual earlier simulator session, retained as a labeled
+interface illustration. Layout/styles are unchanged; equivalent presentation
+logic and callbacks were revalidated. A Plotly dependency emitted one existing
+scattermapbox deprecation warning during the full suite; no map trace is used.
 
-## Exact operation
+## Operation
 
-From the repository root with Python 3.12+ on Windows PowerShell:
+From the project root in Windows PowerShell, with Python 3.12+:
 
 ```powershell
 python -m venv .venv
-.\.venv\Scripts\python -m pip install .
+.\.venv\Scripts\python -m pip install -c requirements-tested.txt ".[serial]"
 .\.venv\Scripts\python examples/01_read_temperature.py
-.\.venv\Scripts\python examples/02_set_temperature.py
-.\.venv\Scripts\python examples/03_log_temperature.py
-.\.venv\Scripts\python -m tark_chiller --headless --duration 60 --csv outputs/run-01.csv
 ```
 
-For the optional GUI:
+The shipped configuration deliberately reports **Hardware not configured** with
+no port opening. Once the documented codec, configuration and physical candidate
+are approved, this same command reads the actual temperature, setpoint and status.
+
+Edit examples/connection.py once with the verified SerialSettings and CODEC_CLASS;
+the helper constructs a fresh codec and disconnected Chiller for each call.
+RS485_MODE supplies native direction settings only if required by the verified
+adapter. These are ordinary example settings, not an installed configuration system.
+Existing applications can construct Chiller and SerialDevice directly.
+
+After read validation, example 03 records five seconds; example 04 records until
+Ctrl+C. Each has an editable CSV path and refuses existing files. Example 02 takes
+one required operator-selected Celsius target; use only after authorization for
+that change. Example 05 needs the GUI extra:
 
 ```powershell
-.\.venv\Scripts\python -m pip install -c requirements-tested.txt ".[gui]"
-.\.venv\Scripts\python -m tark_chiller --csv outputs/gui-01.csv
+.\.venv\Scripts\python -m pip install -c requirements-tested.txt ".[gui,serial]"
+.\.venv\Scripts\python examples/05_launch_dashboard.py
 ```
 
-Open http://127.0.0.1:8050. Choose a new CSV filename each run. Ctrl-C in the
-terminal shuts down the worker, connection and CSV; closing the browser does not.
-A headless CSV failure stops the run with a nonzero exit and error message.
-Use `start_monitoring(csv_path=...)` for recording inside your own application.
-The [quick start](../docs/quickstart.md) and [examples](../README.md#numbered-examples)
-show the current API. The [development guide](../development/README.md) gives exact
-suite, type, build and sustained-test commands.
+It serves http://127.0.0.1:8050 and records to outputs/05_dashboard.csv.
+Ctrl+C closes monitoring, CSV and the connection; closing the browser does not.
+Disconnecting software does not power off the chiller. A stop timeout means
+cleanup remains pending. [Quick start](../docs/quickstart.md),
+[examples](../README.md#numbered-hardware-examples),
+[development-only simulator](../development/README.md#simulator-utilities).
 
-## Protocol, safety and remaining limitations
+## Protocol, limits and resumption
 
-The available official [MRC150/300 User Manual Rev 13](https://tark-solutions.com/sites/default/files/fields/media.file.field_media_file/2024-03/MRC150-300-User-Manual.pdf)
-(E002 source/hash) supports the default distilled-water 2–40 °C envelope on p7.
-Page 12 mentions RS232/RS485 while delegating the protocol to a separate controller
-manual. Rev 13 also records interface variant changes; applicability to the actual
-unit must be checked. The original attachment was unavailable.
+The official [MRC150/300 User Manual Rev 13](https://tark-solutions.com/sites/default/files/fields/media.file.field_media_file/2024-03/MRC150-300-User-Manual.pdf)
+uses distilled-water limits 2–40 °C in its p7 table. Page 12 mentions RS232/RS485
+but delegates protocol details to a separate controller manual. Its interface
+variant changes must be checked against the actual unit. The original attachment
+was unavailable; the official cached PDF still matches E002's source hash.
 
-No real codec exists. SerialDevice refuses connection before endpoint creation
-without a codec. Software timeout/response limits are not claimed Tark settings.
-Setpoints must be finite numbers in Celsius within the configured bounds; custom
-coolant bounds require an explicit source. Controller acceptance never proves
-sub-zero safety. No software telemetry for coolant presence, leaks, flow, level
-or alarms is established. Connection status is not physical safety status.
+No Tark codec, command, register, baud rate, pinout or telemetry was invented.
+Software cannot establish coolant presence, leaks, flow, level or physical safety.
+Custom limits require a coolant name and documented source; accepted controller
+values do not prove sub-zero safety. Writes are never retried or replayed.
+Read recovery is disabled by default and bounded when enabled.
 
-Writes are never retried or replayed. Read recovery is off by default, bounded
-when enabled, and suspended by malformed protocol responses. Uncertain writes
-require deliberate readback before a new request. A stop timeout means cleanup is
-incomplete. Uncooperative OS calls, forced process termination and power loss
-cannot guarantee cleanup or CSV durability. Polling is not hard real time;
-simulator dynamics are uncalibrated. Other platforms remain untested.
+1. Obtain the matching controller manual and unit/controller/firmware identity.
+   Establish baud/parity/data/stop bits, flow control, RTS/DTR, addressing and
+   direction, commands/registers, framing/terminators, reads/write, acknowledgements,
+   errors, CRC/checksum if used, units/scaling/resolution, timing and side effects.
+2. Implement only documented codec behavior in serial.py. Cite source pages and
+   add exact byte fixtures. Rerun software acceptance and configure the lab helper.
+3. Record the actual interface, wiring, coolant, safe setup and reference instrument.
+   Obtain review of that candidate before opening its port.
+4. Follow the [hardware procedure](../docs/hardware.md): approved interface checks,
+   repeated temperature comparison, setpoint read without changing it, then logging.
+5. Only with explicit write authorization, choose one small safe change, send once,
+   compare readback, observe physical response and restore the original if approved.
+   Record raw replies, configuration and measurements. Never override software limits.
 
-## Exact resumption procedure
-
-1. Obtain the controller manual matching the identified chiller model/suffix,
-   controller model and firmware (EXT-001). Extract baud, parity, data/stop bits,
-   flow control, RTS/DTR, RS485 addressing/direction, commands/registers,
-   framing/terminators, temperature/setpoint reads, setpoint writes,
-   acknowledgements/errors, checksum/CRC, units/scaling, response identity,
-   timing and side effects.
-2. Implement only source-supported codec behavior inside serial.py. Cite each
-   command/page and add exact byte fixtures. Re-run the full software suite.
-3. Prepare a reviewed candidate with the intended unit/interface, documented
-   settings and wiring, installed coolant, safe setup and reference instrument
-   (EXT-003). Obtain explicit integration approval under AGENTS.md.
-4. Follow the [hardware tutorial](../docs/hardware.md): establish the reviewed
-   interface, perform documented read-only status/identification, compare repeated
-   temperature and setpoint reads with the front panel/reference.
-5. Only with explicit write authorization, send one small safe change, read it
-   back, observe temperature and restore the original target if appropriate.
-   Record configuration, raw replies, measurements and outcome. Never test
-   extremes or override software limits. Shut down software and equipment using
-   their respective procedures.
-
-`python examples/06_hardware_configuration.py` currently exits with the precise
-missing-protocol message and does not open a serial port. There is no usable
-hardware GUI command or supported physical-control claim before these steps.
+Physical validation is the remaining dependency, not a failed software test.
+Polling is not real time; other platforms, adapter electrical behavior and actual
+chiller performance remain unvalidated. Forced process termination, uncooperative
+OS calls and power loss cannot guarantee cleanup or CSV durability.

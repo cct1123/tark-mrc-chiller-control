@@ -1,0 +1,334 @@
+* Getting build dependencies for sdist...
+running egg_info
+writing src\tark_mrc_chiller.egg-info\PKG-INFO
+writing dependency_links to src\tark_mrc_chiller.egg-info\dependency_links.txt
+writing entry points to src\tark_mrc_chiller.egg-info\entry_points.txt
+writing requirements to src\tark_mrc_chiller.egg-info\requires.txt
+writing top-level names to src\tark_mrc_chiller.egg-info\top_level.txt
+reading manifest file 'src\tark_mrc_chiller.egg-info\SOURCES.txt'
+reading manifest template 'MANIFEST.in'
+writing manifest file 'src\tark_mrc_chiller.egg-info\SOURCES.txt'
+* Building sdist...
+running sdist
+running egg_info
+writing src\tark_mrc_chiller.egg-info\PKG-INFO
+writing dependency_links to src\tark_mrc_chiller.egg-info\dependency_links.txt
+writing entry points to src\tark_mrc_chiller.egg-info\entry_points.txt
+writing requirements to src\tark_mrc_chiller.egg-info\requires.txt
+writing top-level names to src\tark_mrc_chiller.egg-info\top_level.txt
+reading manifest file 'src\tark_mrc_chiller.egg-info\SOURCES.txt'
+reading manifest template 'MANIFEST.in'
+writing manifest file 'src\tark_mrc_chiller.egg-info\SOURCES.txt'
+running check
+creating tark_mrc_chiller-0.2.2
+creating tark_mrc_chiller-0.2.2\development
+creating tark_mrc_chiller-0.2.2\docs
+creating tark_mrc_chiller-0.2.2\docs\assets
+creating tark_mrc_chiller-0.2.2\examples
+creating tark_mrc_chiller-0.2.2\outputs
+creating tark_mrc_chiller-0.2.2\records
+creating tark_mrc_chiller-0.2.2\src\tark_chiller
+creating tark_mrc_chiller-0.2.2\src\tark_chiller\assets
+creating tark_mrc_chiller-0.2.2\src\tark_mrc_chiller.egg-info
+creating tark_mrc_chiller-0.2.2\tests
+copying files to tark_mrc_chiller-0.2.2...
+copying AGENTS.md -> tark_mrc_chiller-0.2.2
+copying MANIFEST.in -> tark_mrc_chiller-0.2.2
+copying PROJECT.md -> tark_mrc_chiller-0.2.2
+copying README.md -> tark_mrc_chiller-0.2.2
+copying STATE.md -> tark_mrc_chiller-0.2.2
+copying prompt log.md -> tark_mrc_chiller-0.2.2
+copying pyproject.toml -> tark_mrc_chiller-0.2.2
+copying requirements-tested.txt -> tark_mrc_chiller-0.2.2
+copying development\README.md -> tark_mrc_chiller-0.2.2\development
+copying development\architecture.md -> tark_mrc_chiller-0.2.2\development
+copying docs\api.md -> tark_mrc_chiller-0.2.2\docs
+copying docs\hardware.md -> tark_mrc_chiller-0.2.2\docs
+copying docs\quickstart.md -> tark_mrc_chiller-0.2.2\docs
+copying docs\troubleshooting.md -> tark_mrc_chiller-0.2.2\docs
+copying docs\usage.md -> tark_mrc_chiller-0.2.2\docs
+copying docs\assets\dashboard.jpg -> tark_mrc_chiller-0.2.2\docs\assets
+copying docs\assets\data-flow.svg -> tark_mrc_chiller-0.2.2\docs\assets
+copying docs\assets\hardware-setup.svg -> tark_mrc_chiller-0.2.2\docs\assets
+copying docs\assets\modes.svg -> tark_mrc_chiller-0.2.2\docs\assets
+copying docs\assets\quickstart.svg -> tark_mrc_chiller-0.2.2\docs\assets
+copying docs\assets\system.svg -> tark_mrc_chiller-0.2.2\docs\assets
+copying examples\01_read_temperature.py -> tark_mrc_chiller-0.2.2\examples
+copying examples\02_set_temperature.py -> tark_mrc_chiller-0.2.2\examples
+copying examples\03_log_temperature.py -> tark_mrc_chiller-0.2.2\examples
+copying examples\04_monitor_experiment.py -> tark_mrc_chiller-0.2.2\examples
+copying examples\05_launch_dashboard.py -> tark_mrc_chiller-0.2.2\examples
+copying examples\connection.py -> tark_mrc_chiller-0.2.2\examples
+copying outputs\REPORT.md -> tark_mrc_chiller-0.2.2\outputs
+copying outputs\deadline-diagnostic.json -> tark_mrc_chiller-0.2.2\outputs
+copying outputs\documentation-v1.jpg -> tark_mrc_chiller-0.2.2\outputs
+copying outputs\driver-audit.json -> tark_mrc_chiller-0.2.2\outputs
+copying outputs\driver-build.txt -> tark_mrc_chiller-0.2.2\outputs
+copying outputs\driver-soak.txt -> tark_mrc_chiller-0.2.2\outputs
+copying outputs\driver-source-manifest.sha256 -> tark_mrc_chiller-0.2.2\outputs
+copying outputs\driver-tests.xml -> tark_mrc_chiller-0.2.2\outputs
+copying outputs\holistic-archive-tests.xml -> tark_mrc_chiller-0.2.2\outputs
+copying outputs\holistic-build.txt -> tark_mrc_chiller-0.2.2\outputs
+copying outputs\holistic-review.json -> tark_mrc_chiller-0.2.2\outputs
+copying outputs\holistic-soak.txt -> tark_mrc_chiller-0.2.2\outputs
+copying outputs\holistic-tests.xml -> tark_mrc_chiller-0.2.2\outputs
+copying outputs\human-archive-tests.xml -> tark_mrc_chiller-0.2.2\outputs
+copying outputs\human-build.txt -> tark_mrc_chiller-0.2.2\outputs
+copying outputs\human-installed-tests.xml -> tark_mrc_chiller-0.2.2\outputs
+copying outputs\human-soak.txt -> tark_mrc_chiller-0.2.2\outputs
+copying outputs\initial-source-manifest.sha256 -> tark_mrc_chiller-0.2.2\outputs
+copying outputs\precommit-source-manifest.sha256 -> tark_mrc_chiller-0.2.2\outputs
+copying outputs\refactor-build.txt -> tark_mrc_chiller-0.2.2\outputs
+copying outputs\refactor-soak.json -> tark_mrc_chiller-0.2.2\outputs
+copying outputs\refactor-source-manifest.sha256 -> tark_mrc_chiller-0.2.2\outputs
+copying outputs\refactor-tests.xml -> tark_mrc_chiller-0.2.2\outputs
+copying outputs\release-build.txt -> tark_mrc_chiller-0.2.2\outputs
+copying outputs\release-operations.json -> tark_mrc_chiller-0.2.2\outputs
+copying outputs\release-package.json -> tark_mrc_chiller-0.2.2\outputs
+copying outputs\release-soak.json -> tark_mrc_chiller-0.2.2\outputs
+copying outputs\release-source-manifest.sha256 -> tark_mrc_chiller-0.2.2\outputs
+copying outputs\release-tests.xml -> tark_mrc_chiller-0.2.2\outputs
+copying outputs\review-build.txt -> tark_mrc_chiller-0.2.2\outputs
+copying outputs\review-soak.json -> tark_mrc_chiller-0.2.2\outputs
+copying outputs\review-tests.xml -> tark_mrc_chiller-0.2.2\outputs
+copying outputs\soak-600s.json -> tark_mrc_chiller-0.2.2\outputs
+copying outputs\software-source-manifest.sha256 -> tark_mrc_chiller-0.2.2\outputs
+copying outputs\source-manifest.sha256 -> tark_mrc_chiller-0.2.2\outputs
+copying records\RECORDS.md -> tark_mrc_chiller-0.2.2\records
+copying src\tark_chiller\__init__.py -> tark_mrc_chiller-0.2.2\src\tark_chiller
+copying src\tark_chiller\__main__.py -> tark_mrc_chiller-0.2.2\src\tark_chiller
+copying src\tark_chiller\controller.py -> tark_mrc_chiller-0.2.2\src\tark_chiller
+copying src\tark_chiller\errors.py -> tark_mrc_chiller-0.2.2\src\tark_chiller
+copying src\tark_chiller\gui.py -> tark_mrc_chiller-0.2.2\src\tark_chiller
+copying src\tark_chiller\monitor.py -> tark_mrc_chiller-0.2.2\src\tark_chiller
+copying src\tark_chiller\py.typed -> tark_mrc_chiller-0.2.2\src\tark_chiller
+copying src\tark_chiller\serial.py -> tark_mrc_chiller-0.2.2\src\tark_chiller
+copying src\tark_chiller\simulator.py -> tark_mrc_chiller-0.2.2\src\tark_chiller
+copying src\tark_chiller\assets\00-bootstrap.min.css -> tark_mrc_chiller-0.2.2\src\tark_chiller\assets
+copying src\tark_chiller\assets\bootstrap-LICENSE.txt -> tark_mrc_chiller-0.2.2\src\tark_chiller\assets
+copying src\tark_chiller\assets\instrument.css -> tark_mrc_chiller-0.2.2\src\tark_chiller\assets
+copying src\tark_mrc_chiller.egg-info\PKG-INFO -> tark_mrc_chiller-0.2.2\src\tark_mrc_chiller.egg-info
+copying src\tark_mrc_chiller.egg-info\SOURCES.txt -> tark_mrc_chiller-0.2.2\src\tark_mrc_chiller.egg-info
+copying src\tark_mrc_chiller.egg-info\dependency_links.txt -> tark_mrc_chiller-0.2.2\src\tark_mrc_chiller.egg-info
+copying src\tark_mrc_chiller.egg-info\entry_points.txt -> tark_mrc_chiller-0.2.2\src\tark_mrc_chiller.egg-info
+copying src\tark_mrc_chiller.egg-info\requires.txt -> tark_mrc_chiller-0.2.2\src\tark_mrc_chiller.egg-info
+copying src\tark_mrc_chiller.egg-info\top_level.txt -> tark_mrc_chiller-0.2.2\src\tark_mrc_chiller.egg-info
+copying tests\fakes.py -> tark_mrc_chiller-0.2.2\tests
+copying tests\test_cli.py -> tark_mrc_chiller-0.2.2\tests
+copying tests\test_controller.py -> tark_mrc_chiller-0.2.2\tests
+copying tests\test_end_to_end.py -> tark_mrc_chiller-0.2.2\tests
+copying tests\test_examples.py -> tark_mrc_chiller-0.2.2\tests
+copying tests\test_gui.py -> tark_mrc_chiller-0.2.2\tests
+copying tests\test_monitor.py -> tark_mrc_chiller-0.2.2\tests
+copying tests\test_serial.py -> tark_mrc_chiller-0.2.2\tests
+Writing tark_mrc_chiller-0.2.2\setup.cfg
+Creating tar archive
+removing 'tark_mrc_chiller-0.2.2' (and everything under it)
+* Building wheel from sdist
+* Getting build dependencies for wheel...
+running egg_info
+writing src\tark_mrc_chiller.egg-info\PKG-INFO
+writing dependency_links to src\tark_mrc_chiller.egg-info\dependency_links.txt
+writing entry points to src\tark_mrc_chiller.egg-info\entry_points.txt
+writing requirements to src\tark_mrc_chiller.egg-info\requires.txt
+writing top-level names to src\tark_mrc_chiller.egg-info\top_level.txt
+reading manifest file 'src\tark_mrc_chiller.egg-info\SOURCES.txt'
+reading manifest template 'MANIFEST.in'
+writing manifest file 'src\tark_mrc_chiller.egg-info\SOURCES.txt'
+* Building wheel...
+running bdist_wheel
+running build
+running build_py
+creating build\lib\tark_chiller
+copying src\tark_chiller\controller.py -> build\lib\tark_chiller
+copying src\tark_chiller\errors.py -> build\lib\tark_chiller
+copying src\tark_chiller\gui.py -> build\lib\tark_chiller
+copying src\tark_chiller\monitor.py -> build\lib\tark_chiller
+copying src\tark_chiller\serial.py -> build\lib\tark_chiller
+copying src\tark_chiller\simulator.py -> build\lib\tark_chiller
+copying src\tark_chiller\__init__.py -> build\lib\tark_chiller
+copying src\tark_chiller\__main__.py -> build\lib\tark_chiller
+running egg_info
+writing src\tark_mrc_chiller.egg-info\PKG-INFO
+writing dependency_links to src\tark_mrc_chiller.egg-info\dependency_links.txt
+writing entry points to src\tark_mrc_chiller.egg-info\entry_points.txt
+writing requirements to src\tark_mrc_chiller.egg-info\requires.txt
+writing top-level names to src\tark_mrc_chiller.egg-info\top_level.txt
+reading manifest file 'src\tark_mrc_chiller.egg-info\SOURCES.txt'
+reading manifest template 'MANIFEST.in'
+writing manifest file 'src\tark_mrc_chiller.egg-info\SOURCES.txt'
+copying src\tark_chiller\py.typed -> build\lib\tark_chiller
+creating build\lib\tark_chiller\assets
+copying src\tark_chiller\assets\00-bootstrap.min.css -> build\lib\tark_chiller\assets
+copying src\tark_chiller\assets\instrument.css -> build\lib\tark_chiller\assets
+copying src\tark_chiller\assets\bootstrap-LICENSE.txt -> build\lib\tark_chiller\assets
+installing to build\bdist.win-amd64\wheel
+running install
+running install_lib
+creating build\bdist.win-amd64\wheel
+creating build\bdist.win-amd64\wheel\tark_chiller
+creating build\bdist.win-amd64\wheel\tark_chiller\assets
+copying build\lib\tark_chiller\assets\00-bootstrap.min.css -> build\bdist.win-amd64\wheel\.\tark_chiller\assets
+copying build\lib\tark_chiller\assets\bootstrap-LICENSE.txt -> build\bdist.win-amd64\wheel\.\tark_chiller\assets
+copying build\lib\tark_chiller\assets\instrument.css -> build\bdist.win-amd64\wheel\.\tark_chiller\assets
+copying build\lib\tark_chiller\controller.py -> build\bdist.win-amd64\wheel\.\tark_chiller
+copying build\lib\tark_chiller\errors.py -> build\bdist.win-amd64\wheel\.\tark_chiller
+copying build\lib\tark_chiller\gui.py -> build\bdist.win-amd64\wheel\.\tark_chiller
+copying build\lib\tark_chiller\monitor.py -> build\bdist.win-amd64\wheel\.\tark_chiller
+copying build\lib\tark_chiller\py.typed -> build\bdist.win-amd64\wheel\.\tark_chiller
+copying build\lib\tark_chiller\serial.py -> build\bdist.win-amd64\wheel\.\tark_chiller
+copying build\lib\tark_chiller\simulator.py -> build\bdist.win-amd64\wheel\.\tark_chiller
+copying build\lib\tark_chiller\__init__.py -> build\bdist.win-amd64\wheel\.\tark_chiller
+copying build\lib\tark_chiller\__main__.py -> build\bdist.win-amd64\wheel\.\tark_chiller
+running install_egg_info
+Copying src\tark_mrc_chiller.egg-info to build\bdist.win-amd64\wheel\.\tark_mrc_chiller-0.2.2-py3.12.egg-info
+running install_scripts
+creating build\bdist.win-amd64\wheel\tark_mrc_chiller-0.2.2.dist-info\WHEEL
+creating 'C:\\projects\\tark-mrc-chiller-control\\dist\\.tmp-tcpnkoir\\tark_mrc_chiller-0.2.2-py3-none-any.whl' and adding 'build\\bdist.win-amd64\\wheel' to it
+adding 'tark_chiller/__init__.py'
+adding 'tark_chiller/__main__.py'
+adding 'tark_chiller/controller.py'
+adding 'tark_chiller/errors.py'
+adding 'tark_chiller/gui.py'
+adding 'tark_chiller/monitor.py'
+adding 'tark_chiller/py.typed'
+adding 'tark_chiller/serial.py'
+adding 'tark_chiller/simulator.py'
+adding 'tark_chiller/assets/00-bootstrap.min.css'
+adding 'tark_chiller/assets/bootstrap-LICENSE.txt'
+adding 'tark_chiller/assets/instrument.css'
+adding 'tark_mrc_chiller-0.2.2.dist-info/METADATA'
+adding 'tark_mrc_chiller-0.2.2.dist-info/WHEEL'
+adding 'tark_mrc_chiller-0.2.2.dist-info/entry_points.txt'
+adding 'tark_mrc_chiller-0.2.2.dist-info/top_level.txt'
+adding 'tark_mrc_chiller-0.2.2.dist-info/RECORD'
+removing build\bdist.win-amd64\wheel
+Successfully built tark_mrc_chiller-0.2.2.tar.gz and tark_mrc_chiller-0.2.2-py3-none-any.whl
+* Getting build dependencies for sdist...
+running egg_info
+writing src\tark_mrc_chiller.egg-info\PKG-INFO
+writing dependency_links to src\tark_mrc_chiller.egg-info\dependency_links.txt
+writing entry points to src\tark_mrc_chiller.egg-info\entry_points.txt
+writing requirements to src\tark_mrc_chiller.egg-info\requires.txt
+writing top-level names to src\tark_mrc_chiller.egg-info\top_level.txt
+reading manifest file 'src\tark_mrc_chiller.egg-info\SOURCES.txt'
+reading manifest template 'MANIFEST.in'
+writing manifest file 'src\tark_mrc_chiller.egg-info\SOURCES.txt'
+* Building sdist...
+running sdist
+running egg_info
+writing src\tark_mrc_chiller.egg-info\PKG-INFO
+writing dependency_links to src\tark_mrc_chiller.egg-info\dependency_links.txt
+writing entry points to src\tark_mrc_chiller.egg-info\entry_points.txt
+writing requirements to src\tark_mrc_chiller.egg-info\requires.txt
+writing top-level names to src\tark_mrc_chiller.egg-info\top_level.txt
+reading manifest file 'src\tark_mrc_chiller.egg-info\SOURCES.txt'
+reading manifest template 'MANIFEST.in'
+writing manifest file 'src\tark_mrc_chiller.egg-info\SOURCES.txt'
+running check
+creating tark_mrc_chiller-0.2.2
+creating tark_mrc_chiller-0.2.2\development
+creating tark_mrc_chiller-0.2.2\docs
+creating tark_mrc_chiller-0.2.2\docs\assets
+creating tark_mrc_chiller-0.2.2\examples
+creating tark_mrc_chiller-0.2.2\outputs
+creating tark_mrc_chiller-0.2.2\records
+creating tark_mrc_chiller-0.2.2\src\tark_chiller
+creating tark_mrc_chiller-0.2.2\src\tark_chiller\assets
+creating tark_mrc_chiller-0.2.2\src\tark_mrc_chiller.egg-info
+creating tark_mrc_chiller-0.2.2\tests
+copying files to tark_mrc_chiller-0.2.2...
+copying AGENTS.md -> tark_mrc_chiller-0.2.2
+copying MANIFEST.in -> tark_mrc_chiller-0.2.2
+copying PROJECT.md -> tark_mrc_chiller-0.2.2
+copying README.md -> tark_mrc_chiller-0.2.2
+copying STATE.md -> tark_mrc_chiller-0.2.2
+copying prompt log.md -> tark_mrc_chiller-0.2.2
+copying pyproject.toml -> tark_mrc_chiller-0.2.2
+copying requirements-tested.txt -> tark_mrc_chiller-0.2.2
+copying development\README.md -> tark_mrc_chiller-0.2.2\development
+copying development\architecture.md -> tark_mrc_chiller-0.2.2\development
+copying docs\api.md -> tark_mrc_chiller-0.2.2\docs
+copying docs\hardware.md -> tark_mrc_chiller-0.2.2\docs
+copying docs\quickstart.md -> tark_mrc_chiller-0.2.2\docs
+copying docs\troubleshooting.md -> tark_mrc_chiller-0.2.2\docs
+copying docs\usage.md -> tark_mrc_chiller-0.2.2\docs
+copying docs\assets\dashboard.jpg -> tark_mrc_chiller-0.2.2\docs\assets
+copying docs\assets\data-flow.svg -> tark_mrc_chiller-0.2.2\docs\assets
+copying docs\assets\hardware-setup.svg -> tark_mrc_chiller-0.2.2\docs\assets
+copying docs\assets\modes.svg -> tark_mrc_chiller-0.2.2\docs\assets
+copying docs\assets\quickstart.svg -> tark_mrc_chiller-0.2.2\docs\assets
+copying docs\assets\system.svg -> tark_mrc_chiller-0.2.2\docs\assets
+copying examples\01_read_temperature.py -> tark_mrc_chiller-0.2.2\examples
+copying examples\02_set_temperature.py -> tark_mrc_chiller-0.2.2\examples
+copying examples\03_log_temperature.py -> tark_mrc_chiller-0.2.2\examples
+copying examples\04_monitor_experiment.py -> tark_mrc_chiller-0.2.2\examples
+copying examples\05_launch_dashboard.py -> tark_mrc_chiller-0.2.2\examples
+copying examples\connection.py -> tark_mrc_chiller-0.2.2\examples
+copying outputs\REPORT.md -> tark_mrc_chiller-0.2.2\outputs
+copying outputs\deadline-diagnostic.json -> tark_mrc_chiller-0.2.2\outputs
+copying outputs\documentation-v1.jpg -> tark_mrc_chiller-0.2.2\outputs
+copying outputs\driver-audit.json -> tark_mrc_chiller-0.2.2\outputs
+copying outputs\driver-build.txt -> tark_mrc_chiller-0.2.2\outputs
+copying outputs\driver-soak.txt -> tark_mrc_chiller-0.2.2\outputs
+copying outputs\driver-source-manifest.sha256 -> tark_mrc_chiller-0.2.2\outputs
+copying outputs\driver-tests.xml -> tark_mrc_chiller-0.2.2\outputs
+copying outputs\holistic-archive-tests.xml -> tark_mrc_chiller-0.2.2\outputs
+copying outputs\holistic-build.txt -> tark_mrc_chiller-0.2.2\outputs
+copying outputs\holistic-review.json -> tark_mrc_chiller-0.2.2\outputs
+copying outputs\holistic-soak.txt -> tark_mrc_chiller-0.2.2\outputs
+copying outputs\holistic-tests.xml -> tark_mrc_chiller-0.2.2\outputs
+copying outputs\human-archive-tests.xml -> tark_mrc_chiller-0.2.2\outputs
+copying outputs\human-build.txt -> tark_mrc_chiller-0.2.2\outputs
+copying outputs\human-installed-tests.xml -> tark_mrc_chiller-0.2.2\outputs
+copying outputs\human-review.json -> tark_mrc_chiller-0.2.2\outputs
+copying outputs\human-soak.txt -> tark_mrc_chiller-0.2.2\outputs
+copying outputs\initial-source-manifest.sha256 -> tark_mrc_chiller-0.2.2\outputs
+copying outputs\precommit-source-manifest.sha256 -> tark_mrc_chiller-0.2.2\outputs
+copying outputs\refactor-build.txt -> tark_mrc_chiller-0.2.2\outputs
+copying outputs\refactor-soak.json -> tark_mrc_chiller-0.2.2\outputs
+copying outputs\refactor-source-manifest.sha256 -> tark_mrc_chiller-0.2.2\outputs
+copying outputs\refactor-tests.xml -> tark_mrc_chiller-0.2.2\outputs
+copying outputs\release-build.txt -> tark_mrc_chiller-0.2.2\outputs
+copying outputs\release-operations.json -> tark_mrc_chiller-0.2.2\outputs
+copying outputs\release-package.json -> tark_mrc_chiller-0.2.2\outputs
+copying outputs\release-soak.json -> tark_mrc_chiller-0.2.2\outputs
+copying outputs\release-source-manifest.sha256 -> tark_mrc_chiller-0.2.2\outputs
+copying outputs\release-tests.xml -> tark_mrc_chiller-0.2.2\outputs
+copying outputs\review-build.txt -> tark_mrc_chiller-0.2.2\outputs
+copying outputs\review-soak.json -> tark_mrc_chiller-0.2.2\outputs
+copying outputs\review-tests.xml -> tark_mrc_chiller-0.2.2\outputs
+copying outputs\soak-600s.json -> tark_mrc_chiller-0.2.2\outputs
+copying outputs\software-source-manifest.sha256 -> tark_mrc_chiller-0.2.2\outputs
+copying outputs\source-manifest.sha256 -> tark_mrc_chiller-0.2.2\outputs
+copying records\RECORDS.md -> tark_mrc_chiller-0.2.2\records
+copying src\tark_chiller\__init__.py -> tark_mrc_chiller-0.2.2\src\tark_chiller
+copying src\tark_chiller\__main__.py -> tark_mrc_chiller-0.2.2\src\tark_chiller
+copying src\tark_chiller\controller.py -> tark_mrc_chiller-0.2.2\src\tark_chiller
+copying src\tark_chiller\errors.py -> tark_mrc_chiller-0.2.2\src\tark_chiller
+copying src\tark_chiller\gui.py -> tark_mrc_chiller-0.2.2\src\tark_chiller
+copying src\tark_chiller\monitor.py -> tark_mrc_chiller-0.2.2\src\tark_chiller
+copying src\tark_chiller\py.typed -> tark_mrc_chiller-0.2.2\src\tark_chiller
+copying src\tark_chiller\serial.py -> tark_mrc_chiller-0.2.2\src\tark_chiller
+copying src\tark_chiller\simulator.py -> tark_mrc_chiller-0.2.2\src\tark_chiller
+copying src\tark_chiller\assets\00-bootstrap.min.css -> tark_mrc_chiller-0.2.2\src\tark_chiller\assets
+copying src\tark_chiller\assets\bootstrap-LICENSE.txt -> tark_mrc_chiller-0.2.2\src\tark_chiller\assets
+copying src\tark_chiller\assets\instrument.css -> tark_mrc_chiller-0.2.2\src\tark_chiller\assets
+copying src\tark_mrc_chiller.egg-info\PKG-INFO -> tark_mrc_chiller-0.2.2\src\tark_mrc_chiller.egg-info
+copying src\tark_mrc_chiller.egg-info\SOURCES.txt -> tark_mrc_chiller-0.2.2\src\tark_mrc_chiller.egg-info
+copying src\tark_mrc_chiller.egg-info\dependency_links.txt -> tark_mrc_chiller-0.2.2\src\tark_mrc_chiller.egg-info
+copying src\tark_mrc_chiller.egg-info\entry_points.txt -> tark_mrc_chiller-0.2.2\src\tark_mrc_chiller.egg-info
+copying src\tark_mrc_chiller.egg-info\requires.txt -> tark_mrc_chiller-0.2.2\src\tark_mrc_chiller.egg-info
+copying src\tark_mrc_chiller.egg-info\top_level.txt -> tark_mrc_chiller-0.2.2\src\tark_mrc_chiller.egg-info
+copying tests\fakes.py -> tark_mrc_chiller-0.2.2\tests
+copying tests\test_cli.py -> tark_mrc_chiller-0.2.2\tests
+copying tests\test_controller.py -> tark_mrc_chiller-0.2.2\tests
+copying tests\test_end_to_end.py -> tark_mrc_chiller-0.2.2\tests
+copying tests\test_examples.py -> tark_mrc_chiller-0.2.2\tests
+copying tests\test_gui.py -> tark_mrc_chiller-0.2.2\tests
+copying tests\test_monitor.py -> tark_mrc_chiller-0.2.2\tests
+copying tests\test_serial.py -> tark_mrc_chiller-0.2.2\tests
+Writing tark_mrc_chiller-0.2.2\setup.cfg
+Creating tar archive
+removing 'tark_mrc_chiller-0.2.2' (and everything under it)
+Successfully built tark_mrc_chiller-0.2.2.tar.gz

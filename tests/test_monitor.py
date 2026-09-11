@@ -88,6 +88,45 @@ def test_invalid_monitor_settings_do_not_create_files_or_workers(config, tmp_pat
     assert not path.exists()
 
 
+def test_running_monitor_interval_is_read_only_and_worker_stays_paced(monkeypatch):
+    reading, release, pacing = Event(), Event(), Event()
+    backend = Simulator()
+    original_read = backend._read_temperature
+
+    def paused_read():
+        reading.set()
+        assert release.wait(2)
+        return original_read()
+
+    monkeypatch.setattr(backend, "_read_temperature", paused_read)
+    with Chiller(backend) as chiller:
+        monitor = chiller.start_monitoring(interval_s=10)
+        waits = []
+        original_wait = monitor._stop.wait
+
+        def observed_wait(timeout=None):
+            waits.append(timeout)
+            pacing.set()
+            return original_wait(timeout)
+
+        try:
+            assert reading.wait(1)
+            monkeypatch.setattr(monitor._stop, "wait", observed_wait)
+            for value in (math.nan, math.inf, 0, -1, "1", 0.001):
+                with pytest.raises(AttributeError):
+                    monitor.interval_s = value
+            assert monitor.interval_s == 10
+        finally:
+            release.set()
+
+        assert pacing.wait(1)
+        chiller.stop_monitoring()
+        snapshot = monitor.snapshot()
+        assert len(waits) == 1 and 0 < waits[0] <= 10
+        assert snapshot.sample_count == 1 and snapshot.failed_samples == 0
+        assert not snapshot.running
+
+
 def test_disk_full_stops_recording_but_keeps_sampling(tmp_path, monkeypatch):
     original_open = Path.open
     streams = []

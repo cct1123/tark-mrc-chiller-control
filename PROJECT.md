@@ -37,6 +37,13 @@ remain historical evidence only. Decision D006 records the tradeoff.
 [Prompt 13](prompt%20log.md#prompt-13) requests a holistic review, corrections,
 updated evidence, commit and push without changing the compact-driver scope.
 
+[Prompt 14](prompt%20log.md#prompt-14) makes the researcher examples hardware-only
+and requests readable, idiomatic Python. One editable lab connection file supplies
+explicit serial settings and a documented codec; it opens nothing on import.
+No example falls back to a simulator or selects an automatic hardware target.
+The simulator remains a development/test backend. This changes the user workflow
+in REQ-020/021/022; it does not supply the missing protocol or authorize device use.
+
 ## Requirements / acceptance criteria
 
 All requirements are mandatory for the eventual system. Numeric software defaults
@@ -65,9 +72,9 @@ belong in [records/RECORDS.md](records/RECORDS.md).
 | REQ-017 | Configured read recovery has finite reconnect budget and delay, recovers transient transport faults and reports exhaustion. Explicit disconnect cancels recovery intent; invalid writes and unknown/malformed protocol errors are never retried as writes. No write replay. | TEST-014 recovery/fault tests |
 | REQ-018 | Each monitoring run creates a new CSV exclusively. Existing files are refused unchanged, including files owned by another controller. No append/resume or independent logger lifecycle is exposed. | TEST-015 new-file and writer-exclusion tests |
 | REQ-019 | A reproducible simulator → acquisition → CSV → Dash/state demonstration produces a cooling trajectory and survives browser refresh/absence. Sustained concurrent callbacks, injected faults, bounded history and clean shutdown pass; lint/type/build checks pass. | TEST-016 sustained end-to-end validation |
-| REQ-020 | A new lab user can install, launch the simulator/Dash, safely request a setpoint, record CSV and use the Python API from concise guides. Every documented command/example runs; screenshot is an actual simulator session; three diagrams and local links render; simulator, fake-serial and physical evidence are distinguished. | TEST-017 documentation examples, links and visual review |
+| REQ-020 | Concise guides teach installation, explicit hardware configuration, reads, operator-selected setpoint changes, CSV and Dash. Hardware examples use the production serial path with no simulator fallback and clearly refuse incomplete configuration. Their software behavior is exercised with fake serial I/O; physical execution stays blocked pending protocol and equipment. Screenshots and validation scopes are labeled accurately; local links and diagrams render. | TEST-017 documentation examples, links and visual review |
 | REQ-021 | A responsive dash-bootstrap-components dashboard shows separate temperature/setpoint, connection/fault/recording status and live history. Styling works offline after installation. Five numbered examples run through the common API and optional monitoring; API reference and illustrated hardware tutorial identify every unsupported step. Developer test fixtures and records stay outside the main researcher path. Simplification preserves safety/recovery coverage. | TEST-018 example subprocesses, packaged assets, browser layout, source review and full regression |
-| REQ-022 | Normal non-editable source/wheel installation passes in a fresh environment. Module/console launchers run the simulator GUI or continuous/timed headless CSV. Ctrl-C/cooperative termination releases workers, device and CSV. Interrupted startup/transactions/writes preserve ownership or refuse uncertain reuse. A hardware template uses real types, no guessed settings and blocks connection. Current guides give exact operation and staged hardware resumption. | TEST-019 release audit, signals, package/install and template tests |
+| REQ-022 | Normal non-editable source/wheel installation passes in a fresh environment. Hardware examples provide read-only recording, continuous monitoring and a direct Dash client with Ctrl-C cleanup. Module/console launchers remain explicitly labeled simulator development tools. Interrupted startup/transactions/writes preserve ownership or refuse uncertain reuse. One lab configuration file uses real types, no guessed settings and blocks incomplete setup. Guides give exact operation and staged hardware resumption. | TEST-019 release audit, signals, package/install and template tests |
 
 | REQ-023 | The package has roughly 5–7 functional modules, plus entry files; no compatibility shims, global registries or implicit workers. A few lines of synchronous Python create/use/close a controller with no GUI, serial package or service dependency. Monitoring/CSV are optional and connection ownership is explicit. | TEST-020 module inventory, import isolation, multi-controller and public API tests |
 

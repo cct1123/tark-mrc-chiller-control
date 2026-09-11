@@ -1,17 +1,15 @@
-"""Monitor ten seconds of simulated cooling; report progress and save CSV."""
+"""Monitor the physical chiller until Ctrl+C; print readings and save CSV."""
 
-from time import monotonic, sleep
+from time import sleep
 
-from tark_chiller import Chiller, Simulator
+from connection import create_chiller
 
 
 def main() -> None:
-    with Chiller(Simulator()) as chiller:
-        chiller.set_setpoint(18.0)
-        monitor = chiller.start_monitoring(interval_s=0.5, csv_path="outputs/04_experiment.csv")
+    with create_chiller() as chiller:
+        monitor = chiller.start_monitoring(csv_path="outputs/04_experiment.csv")
         try:
-            deadline = monotonic() + 10
-            while monotonic() < deadline:
+            while True:
                 snapshot = monitor.snapshot()
                 if snapshot.service_error or snapshot.logging_error or not snapshot.running:
                     raise RuntimeError(
@@ -19,9 +17,10 @@ def main() -> None:
                     )
                 if snapshot.latest:
                     sample = snapshot.latest
-                    print(f"Samples: {snapshot.sample_count}; Celsius: {sample.temperature_c}")
                     if sample.error:
-                        print(sample.error)
+                        print(f"Read failed: {sample.error}")
+                    elif sample.temperature_c is not None:
+                        print(f"Temperature: {sample.temperature_c:.2f} Celsius")
                 sleep(1)
         except KeyboardInterrupt:
             print("Stopping experiment.")
@@ -32,4 +31,7 @@ def main() -> None:
 
 
 if __name__ == "__main__":
-    main()
+    try:
+        main()
+    except (OSError, RuntimeError) as error:
+        raise SystemExit(str(error)) from error

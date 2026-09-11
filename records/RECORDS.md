@@ -1220,3 +1220,105 @@ core dependency, hardware command or protocol assumption was added. All applicab
 hardware-independent criteria PASS; physical criteria remain BLOCKED solely by
 EXT-001/003. The next engineering action remains obtaining and implementing the
 matching documented codec, followed by reviewed physical validation.
+
+## D007
+
+Date: 2026-09-10. Source: prompt 14. The researcher examples target physical serial
+I/O only; simulator support remains in development tools and tests. Examples 01–05
+share one explicit editable connection.py, replacing the non-operational example 06
+wrapper. The helper is checkout-only, not a new package API or configuration system.
+Applications can use Chiller(SerialDevice(...)) directly. No compatibility shim,
+registry, global device or additional core module is introduced.
+
+SERIAL_SETTINGS and optional RS485_MODE are immutable configuration objects.
+CODEC_CLASS names the documented implementation once available; each controller
+gets a fresh instance. Unset required values fail before creating a port. No
+commands or settings are supplied without sources. The codec class cannot be
+chosen until the external manual is obtained and its behavior implemented.
+
+Examples 01/03/04 are read-only; 02 requires an operator-selected Celsius target,
+reads the original, sends once and checks readback. Example 05 creates the real Dash
+client from the same Chiller/monitor and writes only when the operator applies a
+target. REQ-020/022 now describe this hardware-oriented workflow. Their software
+behavior is tested with production serial code and synthetic endpoints; actual
+physical execution remains blocked. The public synchronous API and six functional
+modules remain unchanged. Readability takes precedence over compressed line count.
+
+## E033
+
+Date: 2026-09-10. Baseline: 5274edc. Methods: coordinator and independent code/style,
+serial/monitor, example/GUI and user-documentation review; hardware-free regression.
+
+Unrelated packed assignments, cryptic retry/counter names, positional data fields
+and nested GUI condition expressions were expanded into readable Python. Python
+3.12 local type parameters replace a global TypeVar. Existing serialization,
+cancellation, cleanup ownership and no-replay behavior were retained; these guards
+have externally meaningful race/fault tests and are not redundant scaffolding.
+
+Review reproduced mutable monitor interval bypass: assigning NaN after startup
+produced 2,306 samples in 30 ms despite a configured 20 ms interval. The interval
+is now read-only. An event-controlled worker test rejects invalid and valid
+reassignment, observes one positive scheduled wait and one successful sample,
+then shuts down. Changing rate requires stop/start through the public API.
+
+During hardware-example development, independent review reproduced a false
+confirmation: a 19.5 Celsius request with valid acknowledgement but 19.0 readback
+still printed confirmation. Example 02 now reports an unconfirmed target and makes
+no second write; no undocumented tolerance is assumed. A separate lost/invalid
+acknowledgement test also proves no replay after an applied write.
+
+Coordinator review eliminated shared codec instance configuration: a class is
+configured instead, and every Chiller gets its own parser/request state. Two
+concurrent controllers with interleaved fake responses now pass through separate
+production serial backends. The lab helper starts no device or worker at import.
+The RS485 option is described as native direction configuration, not electrical
+interface selection. The cached official manual matches E002's SHA-256; no matching
+communication manual appeared in the available project inputs. No physical action.
+
+## E034
+
+Date: 2026-09-10. Version: 0.2.2. Scope: final hardware-independent acceptance.
+[human-review.json](../outputs/human-review.json) records source hashes, package
+integrity, dependencies and documentation checks.
+
+A fresh Python 3.12.14 environment installed all 43 pinned dependencies and the
+current package normally (non-editable, no shared site-packages). **209 tests PASS
+in 20.42 s**; [JUnit](../outputs/human-installed-tests.xml). The extracted source
+archive also passes **209 tests in 20.56 s** against that installed package;
+[archive JUnit](../outputs/human-archive-tests.xml). An initial test invocation
+needed its missing temporary parent directory created; this was a harness setup
+error, not a product failure. Ruff lint/format, mypy eight files and pip check PASS.
+
+The 26 example/documentation cases exercise production SerialDevice with memory
+endpoints and explicitly synthetic test bytes: configured RS232/native RS485,
+independent codec state, incomplete configuration, read-only operation, explicit
+safe write, rejected targets, different/uncertain readback with no retry, CSV
+non-overwrite/disk errors, Ctrl-C cleanup, actual Dash HTTP and README/API blocks.
+Default scripts exit nonzero with a concise configuration message and no port or
+CSV creation. No successful test is represented as physical validation.
+
+A current installed 60-second simulator/monitor/CSV/Dash regression produced
+1,763 rows, 1,527 concurrent callbacks, history capped at 25 and a final modeled
+temperature of 18.000000000000007 Celsius at an 18 Celsius target; clean shutdown.
+[Run](../outputs/human-soak.txt). This is software behavior only. The full suites
+emitted one upstream Plotly scattermapbox deprecation warning each; this GUI uses
+ordinary scatter traces and no check failed.
+
+The package remains eight Python files (six functional plus two entries), 1,311
+lines and zero core dependencies. Source/wheel packaging preserves all examples,
+connection.py and shared test fixtures; obsolete example 06 is absent. Package
+source and installed files match. [Build](../outputs/human-build.txt).
+
+User documentation is hardware-oriented, with operator-chosen targets and exact
+configuration/shutdown instructions. Local links/anchors and five SVGs were
+checked. The revised quick-start SVG was rendered in a browser with legible,
+unclipped labels. The existing actual simulator screenshot is retained and
+explicitly labeled as an interface illustration, not hardware evidence.
+Only equivalent GUI presentation expressions changed; callback tests revalidate
+behavior. No new hardware screenshot or physical result is claimed.
+
+All current hardware-independent criteria PASS. Physical portions of
+REQ-002/006/020 and REQ-015 remain BLOCKED by EXT-001/003. Next: obtain the matching
+controller manual, implement page-cited codec commands and byte fixtures in
+serial.py, configure the identified setup, rerun software acceptance and present
+the concrete candidate for physical review. Prompt 14 is recorded verbatim.

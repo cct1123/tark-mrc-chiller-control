@@ -1,75 +1,91 @@
-# Tark MRC150/300 Python controller
+# Tark MRC150/300 laboratory controller
 
-A small driver for laboratory scripts: connect, read temperature, set a target,
-and optionally monitor to CSV. Use the simulator now; add the dashboard when you
-need a live display.
+A small Python driver for reading temperature, changing an approved target, and
+recording measurements from a Tark MRC150/300. The optional Dash interface shows
+live readings and recording status.
 
-**Real MRC control is not available yet.** The matching controller communication
-manual is missing. No physical chiller has been validated. [Hardware guide](docs/hardware.md).
+**The hardware protocol is not implemented yet.** The MRC user manual refers to
+a separate controller communication manual, which is still missing. The examples
+use the serial backend and stop with a configuration error until verified settings
+and a documented codec are supplied. They never substitute a simulator.
 
-## Use it in a script
+## Install and configure
 
-```python
-from tark_chiller import Chiller, Simulator
-
-with Chiller(Simulator()) as chiller:
-    print(chiller.read_temperature())  # Celsius
-    chiller.set_setpoint(18.0)
-    print(chiller.read_setpoint())
-```
-
-The context manager connects on entry and disconnects on exit. Import and
-construction do not open devices or start threads. Keep one Chiller instance for
-your experiment. [Function-by-function API](docs/api.md).
-
-## Install and run
-
-Use Python **3.12 or newer**. From the downloaded project folder in Windows
-PowerShell, check `python --version`, then install the driver:
+Use Python **3.12 or newer**. In Windows PowerShell, open the project folder and
+check `python --version`, then:
 
 ```powershell
 python -m venv .venv
-.\.venv\Scripts\python -m pip install .
+.\.venv\Scripts\python -m pip install -c requirements-tested.txt ".[serial]"
+```
+
+Configure [examples/connection.py](examples/connection.py) once for the lab.
+It has three entries: `SERIAL_SETTINGS`, `CODEC_CLASS` and optional
+`RS485_MODE`. Required entries remain `None` until their values are verified.
+See the [quick start](docs/quickstart.md) and
+[serial settings table](docs/hardware.md#serialsettings-fields).
+
+Installing pySerial does not supply the missing controller commands. Physical
+use also needs the identified unit, suitable coolant/setup and a reviewed test plan.
+
+## Use it in your experiment
+
+After configuration and approved read-only validation, run this from the
+repository root:
+
+```python
+from examples.connection import create_chiller
+
+with create_chiller() as chiller:
+    print(chiller.read_temperature())  # Celsius
+    print(chiller.read_setpoint())
+    print(chiller.read_status())
+```
+
+The helper returns a disconnected `Chiller`. The context manager connects on
+entry and closes the connection on exit. Import and construction start no
+monitoring threads. [Function-by-function API](docs/api.md).
+
+## Numbered hardware examples
+
+Run these from the project folder after configuration. Examples 01, 03 and 04
+read without changing the target. Example 05 writes only when you apply a target
+in the dashboard.
+
+| Example | Purpose |
+| --- | --- |
+| [01 · Read temperature](examples/01_read_temperature.py) | One temperature, setpoint and status read |
+| [02 · Set temperature](examples/02_set_temperature.py) | One operator-selected target change and readback |
+| [03 · Log temperature](examples/03_log_temperature.py) | Five seconds to `outputs/03_temperature.csv` |
+| [04 · Monitor an experiment](examples/04_monitor_experiment.py) | Continuous read-only monitoring to `outputs/04_experiment.csv`; Ctrl+C stops |
+| [05 · Launch dashboard](examples/05_launch_dashboard.py) | Physical-device display and `outputs/05_dashboard.csv`; Ctrl+C stops |
+
+Start with:
+
+```powershell
 .\.venv\Scripts\python examples/01_read_temperature.py
 ```
 
-Expect **Temperature: 20.00 Celsius** and simulator status.
-The base driver has no external dependencies.
+With the shipped configuration, expect **Hardware not configured** and no port
+opening. With a reviewed configuration, compare the reported Celsius readings
+against the front panel and approved reference.
 
-For the optional dashboard:
+For an authorized target change, supply your approved value rather than copying
+a fixed temperature:
 
 ```powershell
-.\.venv\Scripts\python -m pip install -c requirements-tested.txt ".[gui]"
-.\.venv\Scripts\python -m tark_chiller --csv outputs/session.csv
+$targetC = Read-Host "Approved target in Celsius"
+.\.venv\Scripts\python examples/02_set_temperature.py $targetC
 ```
 
-Open **[127.0.0.1:8050](http://127.0.0.1:8050)**. Request an **18 °C** target
-and watch the simulator cool from 20 °C. Press **Ctrl+C in the terminal** to stop
-monitoring and close CSV. Choose a new filename for each run.
-
-![Actual simulator dashboard with live temperature, target and recording status](docs/assets/dashboard.jpg)
-
-[Quick start](docs/quickstart.md) · [Dashboard tour](docs/usage.md#dashboard-tour)
-
-## What it provides
-
-- One explicit API for the simulator and the future serial device.
-- Celsius setpoint validation; default distilled-water limits **2–40 °C**.
-- Optional background monitoring, bounded history and flushed CSV rows.
-- Clear connection/recording errors and bounded optional read recovery.
-- A Dash/Bootstrap display that reads snapshots independently of acquisition.
-
-Software cannot establish installed coolant, flow, leaks or fluid level.
-Connection is not proof of physical safety. Writes are never retried or replayed.
-
-## Monitor an experiment
+## Monitoring and dashboard
 
 ```python
 from time import sleep
-from tark_chiller import Chiller, Simulator
+from examples.connection import create_chiller
 
-with Chiller(Simulator()) as chiller:
-    monitor = chiller.start_monitoring(interval_s=1, csv_path="experiment.csv")
+with create_chiller() as chiller:
+    monitor = chiller.start_monitoring(csv_path="experiment.csv")
     sleep(5)
     chiller.stop_monitoring()
     snapshot = monitor.snapshot()
@@ -78,61 +94,44 @@ with Chiller(Simulator()) as chiller:
     print(snapshot.logged_samples)
 ```
 
-`stop_monitoring()` closes recording and keeps the device connected.
-`disconnect()` also stops monitoring and closes CSV. There is no separate logger
-or live-state object to manage. [Monitoring](docs/api.md#monitoring).
+Monitoring is optional and independent of the browser. Each run creates a new
+CSV; existing files are refused. `stop_monitoring()` closes recording and keeps
+the device connected. `disconnect()` also stops monitoring and closes CSV.
 
-## Numbered examples
-
-Run each with `.\.venv\Scripts\python`. Examples 01–05 use the simulator.
-
-| Example | Result |
-| --- | --- |
-| [01 · Read temperature](examples/01_read_temperature.py) | One temperature, target and status read |
-| [02 · Set temperature](examples/02_set_temperature.py) | Request 18 °C and read the target back |
-| [03 · Log temperature](examples/03_log_temperature.py) | Five seconds in `outputs/03_temperature.csv` |
-| [04 · Monitor an experiment](examples/04_monitor_experiment.py) | Ten seconds of cooling, progress and CSV |
-| [05 · Launch dashboard](examples/05_launch_dashboard.py) | The standard simulator dashboard |
-| [06 · Hardware configuration](examples/06_hardware_configuration.py) | Template; reports the missing protocol |
-
-For continuous recording without a browser:
+Install the GUI extra, then use the hardware dashboard example:
 
 ```powershell
-.\.venv\Scripts\python -m tark_chiller --headless --csv outputs/experiment.csv
+.\.venv\Scripts\python -m pip install -c requirements-tested.txt ".[gui,serial]"
+.\.venv\Scripts\python examples/05_launch_dashboard.py
 ```
 
-Stop with Ctrl+C; add `--duration 60` for a one-minute run.
-CSV files are never overwritten or appended automatically.
-Headless recording stops and reports an error if CSV writing fails.
+Open [127.0.0.1:8050](http://127.0.0.1:8050). Stop with **Ctrl+C in the terminal**.
+Closing the browser leaves recording running.
 
-## Real hardware
+![Dashboard appearance captured with the simulator; not a physical measurement](docs/assets/dashboard.jpg)
 
-The [hardware tutorial](docs/hardware.md) covers connection, port identification,
-read-only validation, recording, target changes, GUI use and shutdown. It is a
-preparation guide until the correct protocol is implemented and reviewed.
+*Actual simulator screenshot for interface illustration. No hardware validation
+is implied. [Dashboard and CSV guide](docs/usage.md).*
 
-The serial backend accepts explicit settings and an optional RS-485 mode.
-It refuses to open a port without a codec. Installing pySerial does not supply
-the controller protocol. No baud rate, pinout or command is guessed.
+## Safety and validation
 
-![Same driver, two device paths](docs/assets/modes.svg)
-
-## Compatibility and validation
+All values are Celsius. Every target is checked before backend access.
+Default distilled-water limits are **2–40 °C**, from the manual's page 7 table;
+the lab must confirm their applicability. Custom coolant limits need a documented
+source. Software cannot detect installed coolant, leaks, flow or fluid level.
+Writes are never retried or replayed automatically.
 
 | Scope | Evidence |
 | --- | --- |
-| Simulator | Script API, validation, monitoring, CSV and GUI tested without hardware |
-| Fake serial | Production serial path tested with memory endpoints and injected failures |
-| Physical MRC150/300 | **Not validated; authoritative communication protocol missing** |
+| Simulator | Driver, monitoring, CSV and GUI tested without hardware |
+| Fake serial | Production serial path and hardware examples tested with memory endpoints |
+| Physical MRC150/300 | **Not validated; matching controller protocol missing** |
 | Windows / Python 3.12 | Development and validation platform |
-| Other systems / Python versions | Python 3.12+ declared; other platforms not exercised here |
+| Other platforms | Not exercised here; Python 3.12+ declared |
 
-Version **0.2** replaces the earlier multi-object API. Update old scripts using
-the [API guide](docs/api.md); old `get_*` names and separate monitor/logger
-constructors are not retained.
-
-[Quick start](docs/quickstart.md) · [API](docs/api.md) ·
-[Dashboard and CSV](docs/usage.md) · [Hardware](docs/hardware.md) ·
+[Quick start](docs/quickstart.md) · [Hardware setup](docs/hardware.md) ·
+[API](docs/api.md) · [Dashboard and CSV](docs/usage.md) ·
 [Troubleshooting](docs/troubleshooting.md)
 
-For contributors: [development and validation](development/README.md).
+[Development notes](development/README.md) contain simulator utilities, tests and
+engineering records.

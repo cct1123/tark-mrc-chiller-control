@@ -6,14 +6,12 @@ from dataclasses import dataclass
 from numbers import Real
 from pathlib import Path
 from threading import Event, Lock, RLock
-from typing import TYPE_CHECKING, Protocol, TypeVar
+from typing import TYPE_CHECKING, Protocol
 
 from .errors import ProtocolError
 
 if TYPE_CHECKING:
     from .monitor import Monitor
-
-T = TypeVar("T")
 
 
 def _finite(value: object, name: str) -> float:
@@ -82,14 +80,18 @@ class Chiller:
         if not 0 < delay <= 60:
             raise ValueError("reconnect_delay_s must be greater than 0 and at most 60")
         self._backend = backend
-        self._setpoint_range, self._coolant = (low, high), coolant
+        self._setpoint_range = (low, high)
+        self._coolant = coolant
         self._coolant_source = coolant_source or "MRC150/300 User Manual Rev 13, p7"
-        self._attempts, self._remaining, self._delay = reconnect_attempts, reconnect_attempts, delay
-        self._lock, self._intent_lock = RLock(), Lock()
+        self._reconnect_attempts = reconnect_attempts
+        self._reconnects_remaining = reconnect_attempts
+        self._reconnect_delay_s = delay
+        self._lock = RLock()
+        self._intent_lock = Lock()
         self._cancel = Event()
         self._cancel.set()
         self._fault = ""
-        self._status = Status(False, "unknown", "not connected")
+        self._status = Status(connected=False, backend="unknown", detail="not connected")
         self._monitor_lock = Lock()
         self._monitor: Monitor | None = None
 
@@ -106,6 +108,7 @@ class Chiller:
         return self._coolant_source
 
     def _intent(self, connected: bool) -> Event:
+        """Cancel older requests before waiting for device I/O."""
         with self._intent_lock:
             self._cancel.set()
             self._cancel = Event()
@@ -126,10 +129,11 @@ class Chiller:
             raise ConnectionError("Chiller is disconnected")
 
     def connect(self) -> None:
-        token = self._intent(True)
+        token = self._intent(connected=True)
         with self._lock:
             self._check_cancel(token)
-            self._remaining, self._fault = self._attempts, ""
+            self._reconnects_remaining = self._reconnect_attempts
+            self._fault = ""
             self._read(self._open, token, connecting=True)
 
     def _open(self) -> None:
@@ -139,7 +143,7 @@ class Chiller:
 
     def disconnect(self) -> None:
         """Cancel recovery, close the connection, join polling and close its CSV."""
-        token = self._intent(False)
+        token = self._intent(connected=False)
         with self._monitor_lock:
             if self._monitor is not None:
                 self._monitor._request_stop()
@@ -163,7 +167,8 @@ class Chiller:
         except OSError as cleanup:
             error.add_note(str(cleanup))
 
-    def _read(self, operation: Callable[[], T], token: Event, *, connecting: bool = False) -> T:
+    def _read[T](self, operation: Callable[[], T], token: Event, *, connecting: bool = False) -> T:
+        """Recover reads and connection attempts; writes never enter this loop."""
         retry = False
         while True:
             try:
@@ -172,7 +177,7 @@ class Chiller:
                     raise ConnectionError(self._fault)
                 if retry:
                     self._backend.disconnect()
-                    token.wait(self._delay)
+                    token.wait(self._reconnect_delay_s)
                     self._check_cancel(token)
                     if not connecting:
                         self._open()
@@ -182,17 +187,17 @@ class Chiller:
                 result = operation()
                 self._check_cancel(token)
                 if not connecting:
-                    self._remaining = self._attempts
+                    self._reconnects_remaining = self._reconnect_attempts
                 return result
             except ProtocolError as exc:
                 self._suspend(f"Protocol failure; recovery suspended: {exc}", exc)
                 raise
             except OSError as exc:
                 self._check_cancel(token)
-                if self._fault or self._attempts == 0:
+                if self._fault or self._reconnect_attempts == 0:
                     raise
-                if self._remaining:
-                    self._remaining -= 1
+                if self._reconnects_remaining:
+                    self._reconnects_remaining -= 1
                     retry = True
                     continue
                 self._suspend(f"Recovery exhausted: {exc}; call connect() explicitly", exc)
@@ -236,7 +241,11 @@ class Chiller:
     def read_status(self) -> Status:
         with self._lock:
             if self._cancel.is_set() or self._fault:
-                return Status(False, self._status.backend, self._fault or "disconnected")
+                return Status(
+                    connected=False,
+                    backend=self._status.backend,
+                    detail=self._fault or "disconnected",
+                )
 
             def read() -> Status:
                 status = self._backend._read_status()

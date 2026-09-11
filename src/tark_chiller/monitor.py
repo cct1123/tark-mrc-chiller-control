@@ -58,7 +58,7 @@ class Monitor:
         csv_path: str | Path | None,
         history_size: int,
     ) -> None:
-        self.interval_s = _seconds(interval_s, "Sampling interval")
+        self._interval_s = _seconds(interval_s, "Sampling interval")
         if type(history_size) is not int or history_size <= 0:
             raise ValueError("history_size must be a positive integer")
         self._chiller = chiller
@@ -67,8 +67,11 @@ class Monitor:
         self._stop = Event()
         self._thread: Thread | None = None
         self._running = False
-        self._service_error = self._logging_error = ""
-        self._logged = self._count = self._failed = 0
+        self._service_error = ""
+        self._logging_error = ""
+        self._logged_samples = 0
+        self._sample_count = 0
+        self._failed_samples = 0
         self._file: TextIO | None = None
         self._writer = None
         if csv_path is not None:
@@ -96,20 +99,24 @@ class Monitor:
                 raise
 
     @property
+    def interval_s(self) -> float:
+        return self._interval_s
+
+    @property
     def running(self) -> bool:
         return self._thread is not None and self._thread.is_alive()
 
     def snapshot(self) -> Snapshot:
         with self._lock:
             return Snapshot(
-                tuple(self._history),
-                self._running,
-                self._service_error,
-                self._logging_error,
-                self._file is not None,
-                self._logged,
-                self._count,
-                self._failed,
+                history=tuple(self._history),
+                running=self._running,
+                service_error=self._service_error,
+                logging_error=self._logging_error,
+                logging_enabled=self._file is not None,
+                logged_samples=self._logged_samples,
+                sample_count=self._sample_count,
+                failed_samples=self._failed_samples,
             )
 
     def _close_csv(self) -> None:
@@ -160,26 +167,34 @@ class Monitor:
                 raise TimeoutError(self._service_error)
 
     def _poll(self, started: float) -> Sample:
-        now, utc = time.monotonic(), datetime.now(UTC)
-        status = Status(False, "unknown", "unavailable")
+        sampled_monotonic = time.monotonic()
+        timestamp_utc = datetime.now(UTC)
+        status = Status(connected=False, backend="unknown", detail="unavailable")
         try:
             status = self._chiller.read_status()
             temperature = self._chiller.read_temperature()
             setpoint = self._chiller.read_setpoint()
-            return Sample(utc, now - started, temperature, setpoint, status, sampled_monotonic=now)
+            return Sample(
+                timestamp_utc=timestamp_utc,
+                elapsed_s=sampled_monotonic - started,
+                temperature_c=temperature,
+                setpoint_c=setpoint,
+                status=status,
+                sampled_monotonic=sampled_monotonic,
+            )
         except (OSError, ProtocolError) as exc:
             return Sample(
-                utc,
-                now - started,
-                None,
-                None,
-                Status(False, status.backend, "poll failed"),
-                str(exc) or type(exc).__name__,
-                now,
+                timestamp_utc=timestamp_utc,
+                elapsed_s=sampled_monotonic - started,
+                temperature_c=None,
+                setpoint_c=None,
+                status=Status(connected=False, backend=status.backend, detail="poll failed"),
+                error=str(exc) or type(exc).__name__,
+                sampled_monotonic=sampled_monotonic,
             )
 
     def _publish(self, sample: Sample) -> None:
-        written = False
+        row_written = False
         if self._writer is not None and self._file is not None:
             try:
                 self._writer.writerow(
@@ -195,16 +210,18 @@ class Monitor:
                     ]
                 )
                 self._file.flush()
-                written = True
+                row_written = True
             except (OSError, ValueError) as exc:
                 with self._lock:
                     self._logging_error = f"CSV recording stopped: {exc}"
                 self._close_csv()
         with self._lock:
             self._history.append(sample)
-            self._count += 1
-            self._failed += bool(sample.error)
-            self._logged += written
+            self._sample_count += 1
+            if sample.error:
+                self._failed_samples += 1
+            if row_written:
+                self._logged_samples += 1
 
     def _run(self, ready: Event) -> None:
         ready.wait()
@@ -213,7 +230,9 @@ class Monitor:
             while not self._stop.is_set():
                 poll_started = time.monotonic()
                 self._publish(self._poll(started))
-                self._stop.wait(max(0, self.interval_s - (time.monotonic() - poll_started)))
+                poll_duration_s = time.monotonic() - poll_started
+                remaining_interval_s = max(0, self.interval_s - poll_duration_s)
+                self._stop.wait(remaining_interval_s)
         except BaseException as exc:
             with self._lock:
                 self._service_error = f"Monitoring stopped: {type(exc).__name__}: {exc}"

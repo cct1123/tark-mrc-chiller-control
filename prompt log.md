@@ -707,3 +707,7 @@ Success criterion: the repository becomes a compact, reusable hardware driver th
 ## Prompt 13
 
 holistic review update commit push
+
+## Prompt 14
+
+example use real hardware. no simulation. mean to be used by humans. pythonic coding. easy for human reading. no old-school C like coding styling. modern. review coding style. avoid confusion scaffolding. update commit push

@@ -1,130 +1,149 @@
-# Real hardware: preparation and validation
+# Hardware connection and validation
 
-[Home](../README.md) · [Simulator quick start](quickstart.md) · [API](api.md)
+[Home](../README.md) · [Quick start](quickstart.md) · [API](api.md)
 
-**Hardware control remains unavailable.** The controller communication manual is
-missing; no physical chiller has been validated. The following sequence prepares a
-future documented, reviewed setup. Examples 01–05 use the simulator. Example 06
-is a configuration template that refuses connection without a codec.
+The examples target the physical serial backend. They currently stop before port
+creation because the controller communication manual and its codec are missing.
+This guide separates the required configuration from the later physical tests.
 
-## 1. Confirm the hardware and connection
+## 1. Identify the unit and connection
 
 Record the chiller model/suffix, controller model, firmware and installed coolant.
-Obtain the communication manual matching that controller. Confirm the interface,
-adapter and wiring before choosing a cable; connector shape is not a pinout.
-Use the unit's installation manual and lab procedure for plumbing and power.
+Obtain the matching communication manual. Confirm interface, adapter and wiring
+before choosing a cable; connector shape does not establish a pinout.
+Follow the equipment manual and lab procedure for plumbing and power.
 
 Verified source: Tark's public [MRC150/300 User Manual, Rev 13](https://tark-solutions.com/sites/default/files/fields/media.file.field_media_file/2024-03/MRC150-300-User-Manual.pdf).
-The originally mentioned attachment was unavailable; compare its revision if supplied.
+The original attachment was unavailable; compare its revision when supplied.
 
 - Page 12 mentions RS-232/RS-485 and delegates communication details to a separate controller manual.
-- Page 4 removes the DH4 RS-485 option; page 7 lists DH2 RS-232. Check the actual unit.
-- Page 7 lists a distilled-water range of 2–40 °C. That software default is not approval for every physical setup.
+- Page 4 removes the DH4 RS-485 option; page 7 lists DH2 RS-232. Confirm the actual unit's interface.
+- Page 7 lists distilled water at 2–40 °C. This is the software default, not approval for every setup.
 
-The software has no verified serial signals for coolant presence, leaks, flow or
-fluid level. Those conditions require the lab's physical checks.
+No verified serial signals establish coolant presence, leaks, flow or fluid level.
+Those conditions need physical checks under the lab's procedure.
 
-![Documented computer, adapter and chiller connection plan](assets/hardware-setup.svg)
+![Computer, verified adapter and identified chiller connection plan](assets/hardware-setup.svg)
 
-## 2. Identify the serial port and settings
+## 2. Configure the lab connection
 
-For a future approved setup, identify the adapter in the operating system.
-On Windows, Device Manager's **Ports (COM & LPT)** list shows COM names.
-A COM name does not establish device identity or safe commands. No discovery or
-physical port-open test has been performed in this project.
+Edit [examples/connection.py](../examples/connection.py). Its three entries remain
+unset until supported by documentation:
 
-Obtain every required value from the controller/adapter documentation:
-
-| Information | Required detail |
+| Entry | Required value |
 | --- | --- |
-| Serial format | Baud rate, parity, data bits, stop bits, flow control |
-| Adapter lines | RTS/DTR levels; RS-485 address/direction settings if applicable |
-| Wire protocol | Commands/registers, framing and terminators |
-| Reads and write | Temperature read, setpoint read, setpoint write |
-| Reply checks | Acknowledgements, errors, response identity, checksum/CRC if used |
-| Interpretation | Units/scaling, timing limits and read/startup side effects |
+| `SERIAL_SETTINGS` | `SerialSettings` constructed with all ten fields below |
+| `CODEC_CLASS` | The tested codec class for the controller's documented wire protocol |
+| `RS485_MODE` | Native RS-485 direction settings if required by the verified adapter; otherwise `None` |
 
-The generic backend is `tark_chiller.serial.SerialDevice`.
-Its `SerialSettings` has ten explicit fields:
-`port`, `baudrate`, `bytesize`, `parity`, `stopbits`,
-`xonxoff`, `rtscts`, `dsrdtr`, `rts`, `dtr`.
-An optional `RS485Mode` supplies `rts_level_for_tx`, `rts_level_for_rx`,
-`loopback`, `delay_before_tx` and `delay_before_rx`.
-SerialDevice configuration is read-only after construction, including its timeout
-and response-size limit. Close it and create a new backend to change settings.
+`Codec` is an interface, not an implemented Tark protocol. There is no concrete
+Tark codec to import yet. Leave `CODEC_CLASS = None` until the matching
+protocol is implemented and tested. The helper returns a disconnected
+`Chiller(SerialDevice(...))` only when required configuration is present.
+It creates a fresh codec for each controller and never substitutes a simulator.
 
-[Example 06](../examples/06_hardware_configuration.py) accepts those documented
-objects and returns a disconnected Chiller. It supplies no guessed values or
-codec. Running it directly reports the dependency and exits without opening a port:
+### SerialSettings fields
 
-```powershell
-.\.venv\Scripts\python examples/06_hardware_configuration.py
-```
+Identify the operating-system port for the verified adapter. On Windows,
+Device Manager's **Ports (COM & LPT)** list shows COM names.
+The name alone does not establish the attached device or safe commands.
 
-Expected: **Hardware unavailable: Controller communication manual is required**,
-exit code 1. This intentional failure is not a hardware test.
+Construct `SerialSettings` using these keyword names; do not copy arbitrary
+values from tests.
 
-The serial device's 1 s timeout and 4096-byte response limit are software budgets,
-not Tark settings. Native RS-485 support depends on the OS/adapter. Opening a
-physical port can affect RTS/DTR and requires review even before transmission.
-Installing the serial extra supplies pySerial only:
+| Keyword | Meaning / source |
+| --- | --- |
+| `port` | OS port name for the identified adapter |
+| `baudrate` | Baud rate specified by the controller manual |
+| `bytesize` | Number of data bits specified by the controller |
+| `parity` | Documented parity setting |
+| `stopbits` | Documented stop-bit setting |
+| `xonxoff` | Explicit software flow-control setting |
+| `rtscts` | Explicit RTS/CTS flow-control setting |
+| `dsrdtr` | Explicit DSR/DTR flow-control setting |
+| `rts` | Required initial RTS level for the controller/adapter |
+| `dtr` | Required initial DTR level for the controller/adapter |
 
-```powershell
-.\.venv\Scripts\python -m pip install -c requirements-tested.txt ".[serial]"
-```
+The final five fields require explicit booleans derived from applicable
+controller/adapter documentation. No default electrical behavior is assumed.
+SerialDevice settings are read-only after construction; close it and construct
+a new backend to change them.
+
+### Optional RS-485 configuration
+
+For a verified RS-485 unit, `RS485Mode` requires:
+
+| Keyword | Meaning |
+| --- | --- |
+| `rts_level_for_tx` | Direction-control level during transmission |
+| `rts_level_for_rx` | Direction-control level during reception |
+| `loopback` | Adapter loopback setting |
+| `delay_before_tx` | Documented delay before transmission, or `None` |
+| `delay_before_rx` | Documented delay before reception, or `None` |
+
+Native RS-485 support depends on the OS and adapter. These fields do not define
+the controller's device address; any addressing belongs in its documented codec.
+
+### Missing protocol information
+
+Before physical use, establish baud/parity/data/stop bits, flow control,
+addressing, command/register syntax, framing/terminators, temperature and
+setpoint reads, setpoint write, acknowledgements/errors, checksum/CRC if used,
+units/scaling, response matching, timing and read/startup side effects.
+
+Implement that protocol behind the `Codec` interface in `serial.py`, cite the
+source for each command and test exact request/reply bytes using memory endpoints.
+The backend's 1 s timeout and 4096-byte response cap are software budgets,
+not manufacturer settings. Opening a port can affect RTS/DTR even before a request.
 
 ## 3. Validate reads first
 
-**Blocked until a documented codec and physical test plan are approved.**
-Implement documented commands behind the `Codec` interface in `serial.py`,
-preserving the public Chiller API. Test exact source-derived request/reply bytes
-with memory endpoints before physical work.
+Physical tests require the documented codec, identified setup and reviewed
+candidate. For that approved configuration, run
+[example 01](../examples/01_read_temperature.py). It connects, reads temperature,
+setpoint and status, and disconnects without changing the target.
 
-For the reviewed physical candidate:
+Compare repeated Celsius readings with the front panel and approved reference.
+Record exact configuration, request/reply bytes and comparisons. Connection
+status is not device identification. Even nominal reads can have side effects;
+stop on unexpected replies rather than discovering commands by trial.
 
-1. Confirm the recorded unit, port and settings, then call `connect()`.
-2. Use `read_status()` only with documented semantics. Connection status alone is not device identification.
-3. Compare repeated `read_temperature()` values with the front panel and approved reference, using matching units.
-4. Read `read_setpoint()` without changing it and record the original target.
+## 4. Record readings
 
-Record exact settings, replies and comparisons. Even nominal reads can have side
-effects. Stop on unexpected replies; do not discover commands by trial.
+After reads pass, [example 03](../examples/03_log_temperature.py) records five
+seconds and [example 04](../examples/04_monitor_experiment.py) records until Ctrl+C.
+Neither changes the target. Inspect CSV timestamps, units, hardware labels and
+error rows. Check both acquisition and recording errors; a saved row can describe
+a failed poll.
 
-## 4. Record validated readings
+## 5. Change one approved setpoint
 
-Once reads pass, call `chiller.start_monitoring(csv_path="hardware-run.csv")`
-on the reviewed physical Chiller. Inspect its snapshot and CSV for hardware
-labels, UTC timestamps, units and blank/error rows. Check both `service_error`
-and `logging_error`. Do not label simulator or fake-serial data as physical results.
+[Example 02](../examples/02_set_temperature.py) takes a required Celsius argument.
+Choose it under the approved coolant/setup limits, after read validation and
+authorization for writes. The script reads the original target, sends one
+validated request and reads back the reported target.
 
-## 5. Make one safe target change
+Observe temperature independently. Restore the original target only within the
+approved scope. If confirmation is lost, resolve it through documented readback
+before deciding on a new write. Controller acceptance is not proof of coolant safety.
 
-After read validation and authorization for writes, choose a small change within
-the approved coolant/setup limits. Call `set_setpoint(value_c)` once, read
-`read_setpoint()`, and observe temperature independently. Restore the original
-target only within the approved scope.
+## 6. Use the GUI
 
-If confirmation is lost, resolve the uncertainty by documented readback.
-Never resend automatically. Accepted controller values do not prove coolant safety.
-
-## 6. Use the optional GUI
-
-After API and recording validation, pass the approved Chiller and monitoring
-handle to `create_app(chiller, monitor)`. The host owns connection and acquisition.
-Check backend, target, sample age, errors and recording status before relying on
-the display. The supplied CLI/dashboard example always creates a simulator;
-there is no hardware selector.
+[Example 05](../examples/05_launch_dashboard.py) uses the configured physical
+Chiller and monitoring handle, with CSV recording. Check the backend, target,
+sample age, faults and recording status. Apply only approved targets.
+There are no GUI connection buttons; the script owns startup and shutdown.
 
 ## 7. Shut down
 
-Call `chiller.disconnect()` or leave its context manager. The driver cancels
-recovery, stops monitoring and closes CSV. A timeout means cleanup is incomplete;
-resolve it before treating the recording or port as closed.
+End the script or press Ctrl+C for continuous examples. Leaving the Chiller
+context cancels recovery, stops monitoring and closes CSV and the connection.
+A timeout means cleanup is incomplete; resolve it before treating the file or
+port as closed.
 
-Follow the approved equipment shutdown procedure separately. Disconnecting
-software does not switch off the physical chiller, pump or cooling. No serial
-stop command is documented.
+Follow the equipment shutdown procedure separately. Disconnecting software does
+not switch off the physical chiller, pump or cooling. No serial stop command is
+documented.
 
-**Next dependency:** the matching controller communication manual and unit identity.
-Only after protocol implementation, software tests and candidate review can
-physical validation begin. [Development status](../STATE.md).
+The next dependency is the matching controller communication manual and unit
+identity. No physical operation has been validated. [Current state](../STATE.md).
