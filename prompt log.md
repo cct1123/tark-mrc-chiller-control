@@ -711,3 +711,25 @@ holistic review update commit push
 ## Prompt 14
 
 example use real hardware. no simulation. mean to be used by humans. pythonic coding. easy for human reading. no old-school C like coding styling. modern. review coding style. avoid confusion scaffolding. update commit push
+
+## Prompt 15
+
+Perform another aggressive, holistic simplification pass over the entire codebase.
+
+Prioritize:
+
+- Ruthlessly prune unnecessary code, abstractions, wrappers, helpers, configuration, and scaffolding.
+- Reduce the number of modules, files, classes, and custom data structures.
+- Prefer direct, explicit, readable code over extensible architecture.
+- Collapse thin modules and remove indirection that does not provide clear value.
+- Eliminate duplicated logic, dead code, obsolete compatibility layers, and unused dependencies.
+- Simplify APIs and internal state/data flow while preserving required behavior.
+- Perform a clean migration so no stale interfaces, imports, files, or documentation remain.
+- Review the repository holistically and fix inconsistencies revealed by the simplification.
+- Update tests as needed to reflect the simpler architecture without weakening meaningful coverage.
+- Update README, documentation, examples, diagrams, and usage instructions to match the final codebase.
+- Ensure examples demonstrate the simplest intended integration and normal user workflow.
+
+Treat lower code/module/data-structure count as an explicit objective, provided functionality, safety, and maintainability are preserved.
+
+When complete, run the full validation suite, inspect the final repository for additional pruning opportunities, remove remaining unnecessary scaffolding, then commit and push the cleaned implementation.

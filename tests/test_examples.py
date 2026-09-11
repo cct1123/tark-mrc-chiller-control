@@ -3,7 +3,6 @@
 import csv
 import importlib.util
 import re
-import runpy
 import subprocess
 import sys
 from concurrent.futures import ThreadPoolExecutor
@@ -14,7 +13,7 @@ from time import monotonic, sleep
 import pytest
 from fakes import FakeCodec, FakeSerial, fake_settings
 
-from tark_chiller import ProtocolError, ProtocolUnavailableError
+from tark_chiller import ProtocolError
 from tark_chiller.serial import RS485Mode
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -22,28 +21,24 @@ EXAMPLES = ROOT / "examples"
 
 
 @pytest.fixture
-def connection(monkeypatch):
-    spec = importlib.util.spec_from_file_location("connection", EXAMPLES / "connection.py")
+def lab(monkeypatch):
+    spec = importlib.util.spec_from_file_location("lab", EXAMPLES / "lab.py")
     module = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(module)
-    monkeypatch.setitem(sys.modules, "connection", module)
-    monkeypatch.setitem(sys.modules, "examples.connection", module)
+    monkeypatch.setitem(sys.modules, "lab", module)
+    monkeypatch.setitem(sys.modules, "examples.lab", module)
     monkeypatch.syspath_prepend(str(ROOT))
     return module
 
 
 @pytest.fixture
-def hardware(connection, monkeypatch):
+def hardware(lab, monkeypatch):
     """Replace only documented configuration and the OS endpoint, not the driver."""
     endpoint = FakeSerial()
     monkeypatch.setattr("tark_chiller.serial._serial_factory", endpoint.factory)
-    monkeypatch.setattr(connection, "SERIAL_SETTINGS", fake_settings())
-    monkeypatch.setattr(connection, "CODEC_CLASS", FakeCodec)
+    monkeypatch.setattr(lab, "SERIAL_SETTINGS", fake_settings())
+    monkeypatch.setattr(lab, "CODEC_CLASS", FakeCodec)
     return endpoint
-
-
-def load_example(name):
-    return runpy.run_path(str(EXAMPLES / name))["main"]
 
 
 def wait_for_rows(path, minimum=1):
@@ -58,10 +53,10 @@ def wait_for_rows(path, minimum=1):
 
 
 @pytest.mark.parametrize("rs485", [False, True])
-def test_configured_connection_uses_serial_backend(connection, hardware, monkeypatch, rs485):
+def test_configured_lab_uses_serial_backend(lab, hardware, monkeypatch, rs485):
     mode = RS485Mode(True, False, False, None, None) if rs485 else None
-    monkeypatch.setattr(connection, "RS485_MODE", mode)
-    chiller = connection.create_chiller()
+    monkeypatch.setattr(lab, "RS485_MODE", mode)
+    chiller = lab.create_chiller()
     assert not hardware.factory_arguments  # Construction has no I/O.
     with chiller:
         assert chiller.read_status().backend == "hardware"
@@ -72,16 +67,14 @@ def test_configured_connection_uses_serial_backend(connection, hardware, monkeyp
 
 
 @pytest.mark.parametrize("missing", ["SERIAL_SETTINGS", "CODEC_CLASS"])
-def test_incomplete_configuration_never_creates_port(connection, hardware, monkeypatch, missing):
-    monkeypatch.setattr(connection, missing, None)
-    with pytest.raises(ProtocolUnavailableError, match="communication manual"):
-        connection.create_chiller()
+def test_incomplete_configuration_never_creates_port(lab, hardware, monkeypatch, missing):
+    monkeypatch.setattr(lab, missing, None)
+    with pytest.raises(ProtocolError, match="communication manual"):
+        lab.create_chiller()
     assert not hardware.factory_arguments
 
 
-def test_separate_example_controllers_do_not_share_protocol_state(
-    connection, hardware, monkeypatch
-):
+def test_separate_example_controllers_do_not_share_protocol_state(lab, hardware, monkeypatch):
     second_endpoint = FakeSerial()
     endpoints = iter([hardware, second_endpoint])
     monkeypatch.setattr(
@@ -97,7 +90,7 @@ def test_separate_example_controllers_do_not_share_protocol_state(
         return original_read(size)
 
     monkeypatch.setattr(hardware, "read", delayed_read)
-    with connection.create_chiller() as first, connection.create_chiller() as second:
+    with lab.create_chiller() as first, lab.create_chiller() as second:
         with ThreadPoolExecutor(max_workers=1) as pool:
             pending = pool.submit(first.read_temperature)
             try:
@@ -109,11 +102,15 @@ def test_separate_example_controllers_do_not_share_protocol_state(
     assert not hardware.is_open and not second_endpoint.is_open
 
 
-@pytest.mark.parametrize("script", sorted(path.name for path in EXAMPLES.glob("0*.py")))
-def test_unconfigured_scripts_explain_dependency_without_simulator_or_traceback(script, tmp_path):
-    args = ["18"] if script.startswith("02") else []
+@pytest.mark.parametrize("command", ["read", "set", "log", "monitor", "gui"])
+def test_unconfigured_commands_explain_dependency_without_simulator_or_traceback(command, tmp_path):
+    args = [command]
+    if command == "set":
+        args.append("18")
+    elif command == "log":
+        args.extend(["--csv", "run.csv"])
     result = subprocess.run(
-        [sys.executable, str(EXAMPLES / script), *args],
+        [sys.executable, str(EXAMPLES / "lab.py"), *args],
         cwd=tmp_path,
         text=True,
         capture_output=True,
@@ -127,8 +124,8 @@ def test_unconfigured_scripts_explain_dependency_without_simulator_or_traceback(
     assert list(tmp_path.iterdir()) == []
 
 
-def test_read_example_is_read_only(connection, hardware, capsys):
-    load_example("01_read_temperature.py")()
+def test_read_example_is_read_only(lab, hardware, capsys):
+    lab.main(["read"])
     output = capsys.readouterr().out
     assert "Temperature: 20.00 Celsius" in output
     assert "hardware" in output
@@ -136,8 +133,8 @@ def test_read_example_is_read_only(connection, hardware, capsys):
     assert not hardware.is_open
 
 
-def test_setpoint_example_sends_one_explicit_target(connection, hardware, capsys):
-    load_example("02_set_temperature.py")(["19.5"])
+def test_setpoint_example_sends_one_explicit_target(lab, hardware, capsys):
+    lab.main(["set", "19.5"])
     output = capsys.readouterr().out
     assert "Original setpoint: 20.00 Celsius" in output
     assert "Reported setpoint: 19.50 Celsius" in output
@@ -146,21 +143,29 @@ def test_setpoint_example_sends_one_explicit_target(connection, hardware, capsys
 
 
 @pytest.mark.parametrize("target", ["nan", "inf", "1", "41", "68"])
-def test_setpoint_example_uses_public_safety_check(connection, hardware, target):
+def test_setpoint_example_uses_public_safety_check(lab, hardware, target):
     with pytest.raises(ValueError):
-        load_example("02_set_temperature.py")([target])
+        lab.main(["set", target])
     assert hardware.applied_writes == 0
     assert not hardware.is_open
 
 
-def test_setpoint_example_requires_operator_input(connection, hardware):
+def test_setpoint_example_requires_operator_input(lab, hardware):
     with pytest.raises(SystemExit) as error:
-        load_example("02_set_temperature.py")([])
+        lab.main(["set"])
     assert error.value.code == 2
     assert hardware.factory_arguments == []
 
 
-def test_setpoint_example_reports_different_readback_without_retry(connection, hardware, capsys):
+@pytest.mark.parametrize("args", [["log"], ["read", "20"], ["set", "20", "--csv", "run.csv"]])
+def test_invalid_lab_commands_do_not_open_hardware(lab, hardware, args):
+    with pytest.raises(SystemExit) as error:
+        lab.main(args)
+    assert error.value.code == 2
+    assert hardware.factory_arguments == []
+
+
+def test_setpoint_example_reports_different_readback_without_retry(lab, hardware, capsys):
     original_write = hardware.write
 
     def write(request):
@@ -171,13 +176,13 @@ def test_setpoint_example_reports_different_readback_without_retry(connection, h
 
     hardware.write = write
     with pytest.raises(RuntimeError, match="Target not confirmed"):
-        load_example("02_set_temperature.py")(["19.5"])
+        lab.main(["set", "19.5"])
     assert "Readback matches" not in capsys.readouterr().out
     assert hardware.applied_writes == 1
     assert not hardware.is_open
 
 
-def test_setpoint_example_does_not_replay_uncertain_write(connection, hardware):
+def test_setpoint_example_does_not_replay_uncertain_write(lab, hardware):
     # Permit the initial setpoint read, then corrupt the write acknowledgement.
     original_write = hardware.write
 
@@ -187,53 +192,58 @@ def test_setpoint_example_does_not_replay_uncertain_write(connection, hardware):
 
     hardware.write = write
     with pytest.raises(ProtocolError, match="response identity"):
-        load_example("02_set_temperature.py")(["19.5"])
+        lab.main(["set", "19.5"])
     assert hardware.applied_writes == 1
     assert not hardware.is_open
 
 
 def test_csv_example_records_physical_path_and_refuses_overwrite(
-    connection, hardware, tmp_path, monkeypatch, capsys
+    lab, hardware, tmp_path, monkeypatch, capsys
 ):
     monkeypatch.chdir(tmp_path)
-    main = load_example("03_log_temperature.py")
-    main()
-    path = tmp_path / "outputs" / "03_temperature.csv"
+    main = lab.main
+    main(["log", "--csv", "outputs/temperature.csv"])
+    path = tmp_path / "outputs" / "temperature.csv"
     rows = wait_for_rows(path, 4)
     assert all(row["backend"] == "hardware" and not row["error"] for row in rows)
-    assert "Saved" in capsys.readouterr().out
+    assert "saved rows:" in capsys.readouterr().out
     before = path.read_bytes()
     with pytest.raises(FileExistsError):
-        main()
+        main(["log", "--csv", "outputs/temperature.csv"])
     assert path.read_bytes() == before
     assert hardware.applied_writes == 0
     assert not hardware.is_open
 
 
-def test_continuous_example_stops_on_ctrl_c(connection, hardware, tmp_path, monkeypatch):
+@pytest.mark.parametrize("record", [False, True])
+def test_continuous_example_stops_on_ctrl_c(lab, hardware, tmp_path, monkeypatch, record):
     monkeypatch.chdir(tmp_path)
-    main = load_example("04_monitor_experiment.py")
-    path = tmp_path / "outputs" / "04_experiment.csv"
+    main = lab.main
+    path = tmp_path / "outputs" / "experiment.csv"
 
     def interrupt(_seconds):
-        wait_for_rows(path, 2)
+        if record:
+            wait_for_rows(path, 2)
+        else:
+            assert hardware.read_pending.wait(2)
         raise KeyboardInterrupt
 
     monkeypatch.setitem(main.__globals__, "sleep", interrupt)
-    main()
+    main(["monitor", "--csv", "outputs/experiment.csv"] if record else ["monitor"])
     assert hardware.applied_writes == 0
     assert not hardware.is_open
-    assert all(row["backend"] == "hardware" for row in wait_for_rows(path, 2))
-    path.unlink()  # Windows permits this only after the file is closed.
+    if record:
+        assert all(row["backend"] == "hardware" for row in wait_for_rows(path, 2))
+        path.unlink()  # Windows permits this only after the file is closed.
+    else:
+        assert list(tmp_path.iterdir()) == []
 
 
-def test_dashboard_example_uses_real_app_and_owns_shutdown(
-    connection, hardware, tmp_path, monkeypatch
-):
+def test_dashboard_example_uses_real_app_and_owns_shutdown(lab, hardware, tmp_path, monkeypatch):
     from dash import Dash
 
     monkeypatch.chdir(tmp_path)
-    path = tmp_path / "outputs" / "05_dashboard.csv"
+    path = tmp_path / "outputs" / "dashboard.csv"
 
     def run(app, **kwargs):
         assert kwargs == dict(host="127.0.0.1", port=8050, debug=False, use_reloader=False)
@@ -246,13 +256,13 @@ def test_dashboard_example_uses_real_app_and_owns_shutdown(
         raise KeyboardInterrupt
 
     monkeypatch.setattr(Dash, "run", run)
-    load_example("05_launch_dashboard.py")()
+    lab.main(["gui", "--csv", "outputs/dashboard.csv"])
     assert not hardware.is_open
     assert hardware.applied_writes == 0
     path.unlink()
 
 
-def test_csv_example_reports_disk_failure(connection, hardware, tmp_path, monkeypatch):
+def test_csv_example_reports_disk_failure(lab, hardware, tmp_path, monkeypatch):
     original_open = Path.open
     failed = Event()
     opened = []
@@ -277,7 +287,7 @@ def test_csv_example_reports_disk_failure(connection, hardware, tmp_path, monkey
 
     def open_file(path, *args, **kwargs):
         stream = original_open(path, *args, **kwargs)
-        if path.name == "03_temperature.csv" and args and args[0] == "x":
+        if path.name == "temperature.csv" and args and args[0] == "x":
             opened.append(stream)
             return FullDisk(stream)
         return stream
@@ -287,18 +297,16 @@ def test_csv_example_reports_disk_failure(connection, hardware, tmp_path, monkey
 
     monkeypatch.chdir(tmp_path)
     monkeypatch.setattr(Path, "open", open_file)
-    main = load_example("03_log_temperature.py")
+    main = lab.main
     monkeypatch.setitem(main.__globals__, "sleep", wait_for_failure)
     with pytest.raises(RuntimeError, match="test disk full"):
-        main()
+        main(["log", "--csv", "outputs/temperature.csv"])
     assert opened[0].closed
     assert not hardware.is_open
 
 
 @pytest.mark.parametrize("document", ["README.md", "docs/api.md"])
-def test_documented_python_blocks_use_serial_driver(
-    connection, hardware, document, tmp_path, monkeypatch
-):
+def test_documented_python_blocks_use_serial_driver(lab, hardware, document, tmp_path, monkeypatch):
     blocks = re.findall(r"```python\n(.*?)```", (ROOT / document).read_text(encoding="utf-8"), re.S)
     assert blocks
     for index, source in enumerate(blocks):

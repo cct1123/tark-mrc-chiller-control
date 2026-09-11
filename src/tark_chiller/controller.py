@@ -5,13 +5,17 @@ from collections.abc import Callable
 from dataclasses import dataclass
 from numbers import Real
 from pathlib import Path
-from threading import Event, Lock, RLock
-from typing import TYPE_CHECKING, Protocol
-
-from .errors import ProtocolError
+from threading import TIMEOUT_MAX, Event, Lock, RLock
+from time import monotonic
+from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
     from .monitor import Monitor
+    from .serial import SerialDevice
+
+
+class ProtocolError(RuntimeError):
+    """Missing or invalid protocol; automatic read recovery is suspended."""
 
 
 def _finite(value: object, name: str) -> float:
@@ -26,24 +30,27 @@ def _finite(value: object, name: str) -> float:
     return number
 
 
+def _seconds(value: object, name: str, *, allow_zero: bool = False) -> float:
+    seconds = _finite(value, name)
+    minimum_ok = seconds >= 0 if allow_zero else seconds > 0
+    if not minimum_ok or seconds > TIMEOUT_MAX:
+        limit = "nonnegative" if allow_zero else "positive"
+        raise ValueError(f"{name} must be {limit} and at most {TIMEOUT_MAX:g} seconds")
+    return seconds
+
+
+def _reading(value: object) -> float:
+    try:
+        return _finite(value, "Celsius reading")
+    except ValueError as exc:
+        raise ProtocolError(f"Invalid device reading: {value!r}") from exc
+
+
 @dataclass(frozen=True)
 class Status:
     connected: bool
     backend: str
     detail: str = ""
-
-
-class _Backend(Protocol):
-    """Internal I/O hooks. Applications use Chiller for every control operation."""
-
-    def connect(self) -> None: ...
-    def disconnect(self) -> None: ...
-    @property
-    def is_connected(self) -> bool: ...
-    def _read_temperature(self) -> float: ...
-    def _read_setpoint(self) -> float: ...
-    def _write_setpoint(self, value: float) -> None: ...
-    def _read_status(self) -> Status: ...
 
 
 class Chiller:
@@ -55,7 +62,7 @@ class Chiller:
 
     def __init__(
         self,
-        backend: _Backend,
+        backend: "SerialDevice | Simulator",
         *,
         setpoint_range: tuple[float, float] = (2.0, 40.0),
         coolant: str = "distilled water",
@@ -91,7 +98,7 @@ class Chiller:
         self._cancel = Event()
         self._cancel.set()
         self._fault = ""
-        self._status = Status(connected=False, backend="unknown", detail="not connected")
+        self._backend_name = "unknown"
         self._monitor_lock = Lock()
         self._monitor: Monitor | None = None
 
@@ -146,7 +153,7 @@ class Chiller:
         token = self._intent(connected=False)
         with self._monitor_lock:
             if self._monitor is not None:
-                self._monitor._request_stop()
+                self._monitor._stop.set()
             try:
                 with self._lock:
                     if token is self._cancel:
@@ -203,22 +210,13 @@ class Chiller:
                 self._suspend(f"Recovery exhausted: {exc}; call connect() explicitly", exc)
                 raise ConnectionError(self._fault) from exc
 
-    @staticmethod
-    def _reading(value: object) -> float:
-        try:
-            return _finite(value, "Celsius reading")
-        except ValueError as exc:
-            raise ProtocolError(f"Invalid device reading: {value!r}") from exc
-
     def read_temperature(self) -> float:
         with self._lock:
-            return self._read(
-                lambda: self._reading(self._backend._read_temperature()), self._cancel
-            )
+            return self._read(lambda: _reading(self._backend._read_temperature()), self._cancel)
 
     def read_setpoint(self) -> float:
         with self._lock:
-            return self._read(lambda: self._reading(self._backend._read_setpoint()), self._cancel)
+            return self._read(lambda: _reading(self._backend._read_setpoint()), self._cancel)
 
     def set_setpoint(self, value_c: object) -> None:
         value = _finite(value_c, "Setpoint (Celsius)")
@@ -243,7 +241,7 @@ class Chiller:
             if self._cancel.is_set() or self._fault:
                 return Status(
                     connected=False,
-                    backend=self._status.backend,
+                    backend=self._backend_name,
                     detail=self._fault or "disconnected",
                 )
 
@@ -256,7 +254,7 @@ class Chiller:
                     or not isinstance(status.detail, str)
                 ):
                     raise ProtocolError("Backend returned an invalid status")
-                self._status = status
+                self._backend_name = status.backend
                 return status
 
             return self._read(read, self._cancel)
@@ -295,3 +293,62 @@ class Chiller:
 
     def __exit__(self, *_exc: object) -> None:
         self.disconnect()
+
+
+class Simulator:
+    """Use through Chiller, which owns access and setpoint validation.
+
+    This uncalibrated model starts at 20 Celsius. It has no worker, GUI dependency
+    or physical coolant/flow model. An injected clock makes tests repeatable.
+    """
+
+    def __init__(
+        self, *, time_constant_s: float = 30.0, clock: Callable[[], float] = monotonic
+    ) -> None:
+        self._tau = _finite(time_constant_s, "time_constant_s")
+        if self._tau <= 0:
+            raise ValueError("time_constant_s must be positive")
+        self._clock = clock
+        self._connected = False
+        self._updated = 0.0
+        self._temperature = self._setpoint = 20.0
+
+    def connect(self) -> None:
+        if not self._connected:
+            self._updated = self._clock()
+            self._connected = True
+
+    def disconnect(self) -> None:
+        if self._connected:
+            self._advance()
+            self._connected = False
+
+    @property
+    def is_connected(self) -> bool:
+        return self._connected
+
+    def _advance(self) -> None:
+        if not self._connected:
+            raise ConnectionError("Simulator is disconnected")
+        now = self._clock()
+        elapsed = max(0.0, now - self._updated)
+        self._temperature = self._setpoint + (self._temperature - self._setpoint) * math.exp(
+            -elapsed / self._tau
+        )
+        self._updated = now
+
+    def _read_temperature(self) -> float:
+        self._advance()
+        return self._temperature
+
+    def _read_setpoint(self) -> float:
+        if not self._connected:
+            raise ConnectionError("Simulator is disconnected")
+        return self._setpoint
+
+    def _write_setpoint(self, value: float) -> None:
+        self._advance()
+        self._setpoint = value
+
+    def _read_status(self) -> Status:
+        return Status(self._connected, "simulator", "Simulation; no physical safety telemetry")

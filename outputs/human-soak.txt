@@ -1,3 +1,0 @@
-{"duration_s": 60.0, "samples": 1763, "csv_rows": 1763, "concurrent_callbacks": 1527, "final_temperature_c": 18.000000000000007, "history_size": 25, "clean_shutdown": true}
-.
-1 passed in 60.51s (0:01:00)

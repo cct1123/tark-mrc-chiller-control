@@ -1,7 +1,5 @@
-"""Reusable driver; importing does not start threads or open devices."""
+"""Reusable driver; importing starts no threads and opens no devices."""
 
-from .controller import Chiller, Status
-from .errors import ProtocolError, ProtocolUnavailableError
-from .simulator import Simulator
+from .controller import Chiller, ProtocolError, Simulator, Status
 
-__all__ = ["Chiller", "Simulator", "Status", "ProtocolError", "ProtocolUnavailableError"]
+__all__ = ["Chiller", "Simulator", "Status", "ProtocolError"]

@@ -7,7 +7,7 @@ from threading import current_thread, main_thread
 from types import FrameType
 
 from . import Chiller, Simulator
-from .monitor import _seconds
+from .controller import _seconds
 
 
 def _interrupt(signum: int, frame: FrameType | None) -> None:
@@ -21,12 +21,6 @@ def main(argv: list[str] | None = None) -> None:
     parser.add_argument("--interval", type=float, default=1.0, help="Sampling interval in seconds")
     parser.add_argument("--csv", help="New output CSV path; existing files are never overwritten")
     parser.add_argument("--history", type=int, default=3600, help="Maximum retained samples")
-    parser.add_argument(
-        "--reconnect-attempts",
-        type=int,
-        default=0,
-        help="Read reconnect attempts per outage (0–10); never retries writes",
-    )
     args = parser.parse_args(argv)
     try:
         _seconds(args.interval, "interval")
@@ -34,7 +28,7 @@ def main(argv: list[str] | None = None) -> None:
             _seconds(args.duration, "duration")
             if not args.headless:
                 raise ValueError("--duration requires --headless")
-        chiller = Chiller(Simulator(), reconnect_attempts=args.reconnect_attempts)
+        chiller = Chiller(Simulator())
     except ValueError as exc:
         parser.error(str(exc))
     if not args.headless:

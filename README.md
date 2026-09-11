@@ -1,40 +1,70 @@
 # Tark MRC150/300 laboratory controller
 
-A small Python driver for reading temperature, changing an approved target, and
-recording measurements from a Tark MRC150/300. The optional Dash interface shows
-live readings and recording status.
+A small Python driver for temperature reads, approved target changes and CSV
+recording. An optional Dash interface displays live readings and faults.
 
-**The hardware protocol is not implemented yet.** The MRC user manual refers to
-a separate controller communication manual, which is still missing. The examples
-use the serial backend and stop with a configuration error until verified settings
-and a documented codec are supplied. They never substitute a simulator.
+**Hardware control is blocked by the missing controller communication manual.**
+The lab script uses the real serial backend and refuses to create a port until
+verified settings and a documented codec are supplied. It never substitutes a
+simulator. No physical MRC150/300 has been validated.
 
-## Install and configure
+## Hardware quick start
 
-Use Python **3.12 or newer**. In Windows PowerShell, open the project folder and
-check `python --version`, then:
+Use Python **3.12 or newer**. Open Windows PowerShell in the project folder and
+check `python --version`. If it is older than 3.12, select a supported installation
+before continuing.
 
 ```powershell
 python -m venv .venv
 .\.venv\Scripts\python -m pip install -c requirements-tested.txt ".[serial]"
 ```
 
-Configure [examples/connection.py](examples/connection.py) once for the lab.
-It has three entries: `SERIAL_SETTINGS`, `CODEC_CLASS` and optional
-`RS485_MODE`. Required entries remain `None` until their values are verified.
-See the [quick start](docs/quickstart.md) and
-[serial settings table](docs/hardware.md#serialsettings-fields).
+Configure the three entries at the top of [examples/lab.py](examples/lab.py):
+`SERIAL_SETTINGS`, `CODEC_CLASS` and optional `RS485_MODE`.
+Leave required entries unset while the controller information is missing.
+The [hardware guide](docs/hardware.md) explains every field and the review sequence.
+Installing pySerial does not supply the missing commands.
 
-Installing pySerial does not supply the missing controller commands. Physical
-use also needs the identified unit, suitable coolant/setup and a reviewed test plan.
+After configuration and approval of the physical setup, start with a read:
 
-## Use it in your experiment
+```powershell
+.\.venv\Scripts\python examples/lab.py read
+```
 
-After configuration and approved read-only validation, run this from the
-repository root:
+It prints temperature, setpoint and status without changing the target.
+Compare Celsius readings with the front panel and approved reference.
+With the shipped configuration, expect **Hardware not configured**, a nonzero
+exit and no port opening.
+
+The same script covers the remaining tasks:
+
+| Command after `python examples/lab.py` | Behavior |
+| --- | --- |
+| `read` | Read temperature, setpoint and status once |
+| `set TARGET_C` | One operator-selected target change and readback |
+| `log --csv outputs/run.csv` | Record five seconds without changing the target |
+| `monitor --csv outputs/experiment.csv` | Continuous read-only recording until Ctrl+C |
+| `gui --csv outputs/dashboard.csv` | Dashboard with recording until Ctrl+C |
+
+`log` requires a CSV path. For `monitor` and `gui`, omit `--csv` if recording
+is unnecessary. Existing files are refused unchanged.
+
+For an authorized target change, supply your approved Celsius value:
+
+```powershell
+$targetC = Read-Host "Approved target in Celsius"
+.\.venv\Scripts\python examples/lab.py set $targetC
+```
+
+The script reads the original target, writes once and checks readback. Any numeric
+mismatch is reported as unconfirmed; it does not retry or assume a rounding tolerance.
+
+## Use the driver in an experiment
+
+Run from the repository root after lab configuration and approved read validation:
 
 ```python
-from examples.connection import create_chiller
+from examples.lab import create_chiller
 
 with create_chiller() as chiller:
     print(chiller.read_temperature())  # Celsius
@@ -42,96 +72,39 @@ with create_chiller() as chiller:
     print(chiller.read_status())
 ```
 
-The helper returns a disconnected `Chiller`. The context manager connects on
-entry and closes the connection on exit. Import and construction start no
-monitoring threads. [Function-by-function API](docs/api.md).
+The helper creates a disconnected driver. The context manager connects on entry
+and cleans up on exit. Import and construction start no monitoring threads.
+[API, monitoring and CSV reference](docs/api.md).
 
-## Numbered hardware examples
-
-Run these from the project folder after configuration. Examples 01, 03 and 04
-read without changing the target. Example 05 writes only when you apply a target
-in the dashboard.
-
-| Example | Purpose |
-| --- | --- |
-| [01 · Read temperature](examples/01_read_temperature.py) | One temperature, setpoint and status read |
-| [02 · Set temperature](examples/02_set_temperature.py) | One operator-selected target change and readback |
-| [03 · Log temperature](examples/03_log_temperature.py) | Five seconds to `outputs/03_temperature.csv` |
-| [04 · Monitor an experiment](examples/04_monitor_experiment.py) | Continuous read-only monitoring to `outputs/04_experiment.csv`; Ctrl+C stops |
-| [05 · Launch dashboard](examples/05_launch_dashboard.py) | Physical-device display and `outputs/05_dashboard.csv`; Ctrl+C stops |
-
-Start with:
-
-```powershell
-.\.venv\Scripts\python examples/01_read_temperature.py
-```
-
-With the shipped configuration, expect **Hardware not configured** and no port
-opening. With a reviewed configuration, compare the reported Celsius readings
-against the front panel and approved reference.
-
-For an authorized target change, supply your approved value rather than copying
-a fixed temperature:
-
-```powershell
-$targetC = Read-Host "Approved target in Celsius"
-.\.venv\Scripts\python examples/02_set_temperature.py $targetC
-```
-
-## Monitoring and dashboard
-
-```python
-from time import sleep
-from examples.connection import create_chiller
-
-with create_chiller() as chiller:
-    monitor = chiller.start_monitoring(csv_path="experiment.csv")
-    sleep(5)
-    chiller.stop_monitoring()
-    snapshot = monitor.snapshot()
-    if snapshot.service_error or snapshot.logging_error:
-        raise RuntimeError(snapshot.service_error or snapshot.logging_error)
-    print(snapshot.logged_samples)
-```
-
-Monitoring is optional and independent of the browser. Each run creates a new
-CSV; existing files are refused. `stop_monitoring()` closes recording and keeps
-the device connected. `disconnect()` also stops monitoring and closes CSV.
-
-Install the GUI extra, then use the hardware dashboard example:
+## Optional dashboard
 
 ```powershell
 .\.venv\Scripts\python -m pip install -c requirements-tested.txt ".[gui,serial]"
-.\.venv\Scripts\python examples/05_launch_dashboard.py
+.\.venv\Scripts\python examples/lab.py gui --csv outputs/dashboard.csv
 ```
 
-Open [127.0.0.1:8050](http://127.0.0.1:8050). Stop with **Ctrl+C in the terminal**.
-Closing the browser leaves recording running.
+Open [127.0.0.1:8050](http://127.0.0.1:8050). Closing the browser leaves acquisition
+running. **Ctrl+C in the terminal** stops monitoring and closes CSV and the software
+connection. Disconnecting software does not switch off the physical chiller.
 
-![Dashboard appearance captured with the simulator; not a physical measurement](docs/assets/dashboard.jpg)
+![Actual simulator screenshot illustrating the dashboard; not a physical measurement](docs/assets/dashboard.jpg)
 
-*Actual simulator screenshot for interface illustration. No hardware validation
-is implied. [Dashboard and CSV guide](docs/usage.md).*
+*Interface illustration captured with the simulator. See [GUI behavior](docs/api.md#gui).*
 
 ## Safety and validation
 
-All values are Celsius. Every target is checked before backend access.
-Default distilled-water limits are **2–40 °C**, from the manual's page 7 table;
-the lab must confirm their applicability. Custom coolant limits need a documented
-source. Software cannot detect installed coolant, leaks, flow or fluid level.
-Writes are never retried or replayed automatically.
+All targets are validated before backend access. Default distilled-water limits
+are **2–40 °C**, from the manual's page 7 table; the lab must confirm applicability.
+Custom coolant limits need a documented source. Software cannot detect coolant,
+leaks, flow or fluid level. Writes are never retried or replayed automatically.
 
 | Scope | Evidence |
 | --- | --- |
 | Simulator | Driver, monitoring, CSV and GUI tested without hardware |
-| Fake serial | Production serial path and hardware examples tested with memory endpoints |
+| Fake serial | Production serial path and lab commands tested with memory endpoints |
 | Physical MRC150/300 | **Not validated; matching controller protocol missing** |
-| Windows / Python 3.12 | Development and validation platform |
-| Other platforms | Not exercised here; Python 3.12+ declared |
+| Windows / Python 3.12 | Development and validation platform; other platforms not exercised |
 
-[Quick start](docs/quickstart.md) · [Hardware setup](docs/hardware.md) ·
-[API](docs/api.md) · [Dashboard and CSV](docs/usage.md) ·
-[Troubleshooting](docs/troubleshooting.md)
-
-[Development notes](development/README.md) contain simulator utilities, tests and
-engineering records.
+[API](docs/api.md) · [Hardware configuration](docs/hardware.md) ·
+[Troubleshooting](docs/troubleshooting.md) ·
+[Development, simulator utilities and records](development/README.md)

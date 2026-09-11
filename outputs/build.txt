@@ -1,0 +1,20 @@
+Version: tark-mrc-chiller 0.3.0
+Runtime: Python 3.12.14, Windows; fresh venv without shared site-packages
+Dependencies: requirements-tested.txt (43 pinned packages)
+
+PASS: python -m pip install . --no-deps --no-build-isolation
+PASS: python -m build --no-isolation --outdir outputs/release-check/artifacts
+Built: tark_mrc_chiller-0.3.0.tar.gz
+Built: tark_mrc_chiller-0.3.0-py3-none-any.whl
+PASS: python -m pip install <wheel> --force-reinstall --no-deps
+PASS: all 218 tests collected from the extracted source archive against installed wheel
+
+PASS: python -m ruff check .
+PASS: python -m ruff format --check src tests examples development
+PASS: python -m mypy (6 source files)
+PASS: python -m pip check
+
+See tests.xml, archive-tests.xml, soak.txt and validation.json for actual results
+and normalized per-file package hashes. The final archives refresh documentation
+and evidence; code, tests and lab examples must match the tested archive exactly.
+No hardware discovery, port opening or device operation was performed.

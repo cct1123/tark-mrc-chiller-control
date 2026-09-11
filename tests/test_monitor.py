@@ -55,10 +55,14 @@ def test_monitor_csv_bounded_history_and_restart(tmp_path):
     path.unlink()  # File handles must be closed on Windows.
 
 
-def test_failure_rows_are_blank_and_recover_on_explicit_connect(tmp_path, monkeypatch):
+@pytest.mark.parametrize("failed_read", ["temperature", "setpoint"])
+def test_failure_rows_are_blank_and_recover_on_explicit_connect(tmp_path, monkeypatch, failed_read):
     backend = Simulator()
-    original = backend._read_temperature
-    backend._read_temperature = lambda: (_ for _ in ()).throw(TimeoutError("cable lost"))
+    read_method = f"_read_{failed_read}"
+    original = getattr(backend, read_method)
+    monkeypatch.setattr(
+        backend, read_method, lambda: (_ for _ in ()).throw(TimeoutError("cable lost"))
+    )
     path = tmp_path / "fault.csv"
     with Chiller(backend) as chiller:
         monitor = chiller.start_monitoring(interval_s=0.01, csv_path=path)
@@ -67,7 +71,7 @@ def test_failure_rows_are_blank_and_recover_on_explicit_connect(tmp_path, monkey
         assert snapshot.latest.temperature_c is None
         assert snapshot.latest.setpoint_c is None
         assert not snapshot.latest.status.connected
-        backend._read_temperature = original
+        monkeypatch.setattr(backend, read_method, original)
         chiller.connect()
         wait_for(lambda: monitor.snapshot().latest.error == "")
     rows = list(csv.DictReader(path.open(newline="")))

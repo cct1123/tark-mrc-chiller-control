@@ -6,30 +6,12 @@ endpoint is created. Native RS485 support depends on the actual adapter/platform
 
 from collections.abc import Callable
 from dataclasses import asdict, dataclass
-from math import isfinite
-from threading import TIMEOUT_MAX
 from time import perf_counter
 from typing import Any, Literal, Protocol, cast
 
-from .controller import Status
-from .errors import ProtocolError, ProtocolUnavailableError
+from .controller import ProtocolError, Status, _reading, _seconds
 
 Operation = Literal["get_temperature", "get_setpoint", "set_setpoint", "get_status"]
-
-
-def _seconds(value: object, name: str, *, allow_zero: bool = False) -> float:
-    if (
-        isinstance(value, bool)
-        or not isinstance(value, (int, float))
-        or value < 0
-        or (not allow_zero and value == 0)
-        or value > TIMEOUT_MAX
-        or not isfinite(value)
-    ):
-        raise ValueError(
-            f"{name} must be finite bounded {'nonnegative' if allow_zero else 'positive'} seconds"
-        )
-    return float(value)
 
 
 @dataclass(frozen=True)
@@ -88,7 +70,7 @@ class Codec(Protocol):
 
     def is_complete(self, response: bytes) -> bool: ...
 
-    def decode(self, operation: Operation, response: bytes) -> float | Status | None: ...
+    def decode(self, operation: Operation, response: bytes) -> float | str | None: ...
 
 
 def _serial_factory(**settings: Any) -> Any:
@@ -144,7 +126,6 @@ class SerialDevice:
         self._factory = serial_factory if serial_factory is not None else _serial_factory
         self._endpoint: Any = None
         self._usable = False
-        self._last_error = "disconnected"
 
     @property
     def settings(self) -> SerialSettings:
@@ -168,8 +149,9 @@ class SerialDevice:
 
     def connect(self) -> None:
         if self._codec is None:
-            self._last_error = "Controller communication manual is required; no codec is configured"
-            raise ProtocolUnavailableError(self._last_error)
+            raise ProtocolError(
+                "Controller communication manual is required; no codec is configured"
+            )
         if self.is_connected:
             return
         self.disconnect()
@@ -192,7 +174,6 @@ class SerialDevice:
             if not self._endpoint.is_open:
                 raise OSError("Serial endpoint did not open")
             self._usable = True
-            self._last_error = ""
         except BaseException as exc:
             self._failed(exc)
             if not isinstance(exc, Exception):
@@ -205,7 +186,6 @@ class SerialDevice:
             try:
                 self._endpoint.close()
             except BaseException as exc:
-                self._last_error = str(exc) or type(exc).__name__
                 if not isinstance(exc, Exception):
                     raise
                 raise _io_error(exc) from exc
@@ -216,8 +196,6 @@ class SerialDevice:
             self.disconnect()
         except Exception as cleanup:
             error.add_note(f"Serial cleanup failed: {cleanup}")
-        finally:
-            self._last_error = str(error) or type(error).__name__
 
     def _exchange(self, operation: Operation, value: float | None = None) -> float | Status | None:
         if not self.is_connected:
@@ -268,26 +246,14 @@ class SerialDevice:
                 raise ProtocolError(f"Codec decoding failed: {exc}") from exc
             remaining()
             if operation in ("get_temperature", "get_setpoint"):
-                if isinstance(result, bool) or not isinstance(result, (int, float)):
-                    raise ProtocolError("Codec returned a nonnumeric Celsius reading")
-                try:
-                    result = float(result)
-                except OverflowError as exc:
-                    raise ProtocolError("Codec returned an invalid Celsius reading") from exc
-                if not isfinite(result):
-                    raise ProtocolError("Codec returned a nonfinite Celsius reading")
-            elif operation == "get_status":
-                if (
-                    not isinstance(result, Status)
-                    or result.connected is not True
-                    or result.backend != "hardware"
-                    or not isinstance(result.detail, str)
-                ):
+                return _reading(result)
+            if operation == "get_status":
+                if not isinstance(result, str):
                     raise ProtocolError("Codec returned invalid hardware status")
-            elif result is not None:
+                return Status(connected=True, backend="hardware", detail=result)
+            if result is not None:
                 raise ProtocolError("Codec did not acknowledge the setpoint write")
-            self._last_error = ""
-            return result
+            return None
         except BaseException as exc:
             self._failed(exc)
             if not isinstance(exc, Exception) or isinstance(exc, ProtocolError):
@@ -304,6 +270,4 @@ class SerialDevice:
         self._exchange("set_setpoint", value)
 
     def _read_status(self) -> Status:
-        if not self.is_connected:
-            return Status(connected=False, backend="hardware", detail=self._last_error)
         return cast(Status, self._exchange("get_status"))

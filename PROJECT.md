@@ -44,6 +44,13 @@ No example falls back to a simulator or selects an automatic hardware target.
 The simulator remains a development/test backend. This changes the user workflow
 in REQ-020/021/022; it does not supply the missing protocol or authorize device use.
 
+[Prompt 15](prompt%20log.md#prompt-15) explicitly prioritizes fewer modules,
+classes, files and duplicated state. Version 0.3 consolidates the five hardware
+workflows into one lab.py script, merges overlapping guides and removes obsolete
+internal interfaces without compatibility shims. Historical generated evidence
+remains accessible at immutable Git revisions instead of accumulating in outputs.
+Safety, serial recovery, monitoring, logging and GUI behavior remain required.
+
 ## Requirements / acceptance criteria
 
 All requirements are mandatory for the eventual system. Numeric software defaults
@@ -73,10 +80,10 @@ belong in [records/RECORDS.md](records/RECORDS.md).
 | REQ-018 | Each monitoring run creates a new CSV exclusively. Existing files are refused unchanged, including files owned by another controller. No append/resume or independent logger lifecycle is exposed. | TEST-015 new-file and writer-exclusion tests |
 | REQ-019 | A reproducible simulator → acquisition → CSV → Dash/state demonstration produces a cooling trajectory and survives browser refresh/absence. Sustained concurrent callbacks, injected faults, bounded history and clean shutdown pass; lint/type/build checks pass. | TEST-016 sustained end-to-end validation |
 | REQ-020 | Concise guides teach installation, explicit hardware configuration, reads, operator-selected setpoint changes, CSV and Dash. Hardware examples use the production serial path with no simulator fallback and clearly refuse incomplete configuration. Their software behavior is exercised with fake serial I/O; physical execution stays blocked pending protocol and equipment. Screenshots and validation scopes are labeled accurately; local links and diagrams render. | TEST-017 documentation examples, links and visual review |
-| REQ-021 | A responsive dash-bootstrap-components dashboard shows separate temperature/setpoint, connection/fault/recording status and live history. Styling works offline after installation. Five numbered examples run through the common API and optional monitoring; API reference and illustrated hardware tutorial identify every unsupported step. Developer test fixtures and records stay outside the main researcher path. Simplification preserves safety/recovery coverage. | TEST-018 example subprocesses, packaged assets, browser layout, source review and full regression |
+| REQ-021 | A responsive dash-bootstrap-components dashboard shows separate temperature/setpoint, connection/fault/recording status and live history. Styling works offline after installation. One lab example provides read, set, log, monitor and gui workflows through the common API; API reference and illustrated hardware guide identify unsupported steps. Developer fixtures and records stay outside the researcher path. Simplification preserves safety/recovery coverage. | TEST-018 example commands, packaged assets, browser layout, source review and full regression |
 | REQ-022 | Normal non-editable source/wheel installation passes in a fresh environment. Hardware examples provide read-only recording, continuous monitoring and a direct Dash client with Ctrl-C cleanup. Module/console launchers remain explicitly labeled simulator development tools. Interrupted startup/transactions/writes preserve ownership or refuse uncertain reuse. One lab configuration file uses real types, no guessed settings and blocks incomplete setup. Guides give exact operation and staged hardware resumption. | TEST-019 release audit, signals, package/install and template tests |
 
-| REQ-023 | The package has roughly 5–7 functional modules, plus entry files; no compatibility shims, global registries or implicit workers. A few lines of synchronous Python create/use/close a controller with no GUI, serial package or service dependency. Monitoring/CSV are optional and connection ownership is explicit. | TEST-020 module inventory, import isolation, multi-controller and public API tests |
+| REQ-023 | Reduce the 0.2.2 baseline of 8 package modules, 13 classes and 1,311 Python lines without compressing readable code or weakening required behavior. Retain at most 6 package modules, no compatibility shims, global registries or implicit workers. A few lines of synchronous Python create/use/close a controller without GUI, serial package or service dependencies. Monitoring/CSV remain optional and ownership explicit. | TEST-020 comparative inventory, import isolation, multi-controller and public API tests |
 
 ## Constraints
 

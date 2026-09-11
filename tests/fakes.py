@@ -4,8 +4,7 @@ from collections import deque
 from threading import Event
 from time import sleep
 
-from tark_chiller.controller import Status
-from tark_chiller.errors import ProtocolError
+from tark_chiller.controller import ProtocolError
 from tark_chiller.serial import RS485Mode, SerialDevice, SerialSettings
 
 
@@ -27,7 +26,7 @@ class FakeCodec:
         if operation == "get_status":
             if fields[3] != "connected":
                 raise ProtocolError("Malformed synthetic status")
-            return Status(True, "hardware", "Synthetic test only")
+            return "Synthetic test only"
         if operation == "set_setpoint":
             if fields[3] != "ok":
                 raise ProtocolError("Malformed synthetic acknowledgement")

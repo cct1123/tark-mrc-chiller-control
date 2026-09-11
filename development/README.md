@@ -1,42 +1,67 @@
-# Development and validation
+# Development
 
-[User documentation](../README.md) · [Architecture](architecture.md)
+[User quick start](../README.md#hardware-quick-start) · [API](../docs/api.md)
 
-The installed package contains the driver, serial backend, optional monitoring/
-CSV and optional GUI. Researcher examples use the physical backend configured in
-`examples/connection.py`. Their default configuration refuses port creation;
-tests inject memory endpoints to exercise the same production path.
+## Architecture
+
+Six package files keep the driver independent from its optional clients.
+
+| File | Responsibility |
+| --- | --- |
+| controller.py | Chiller API, validation/recovery, Status, Simulator and ProtocolError |
+| serial.py | Explicit settings, codec interface and bounded serial transactions |
+| monitor.py | Optional worker, immutable snapshots, bounded history and new-file CSV |
+| gui.py | Optional display and validated target controls |
+| __init__.py | Public exports |
+| __main__.py | Simulator utility launcher |
+
+![Driver ownership, backend paths and optional data flow](../docs/assets/system.svg)
+
+Application → Chiller → SerialDevice/codec, or Simulator for development.
+Chiller serializes device access and validates public target requests. Raw backend
+hooks are private. One backend and codec belong to one Chiller; no global owner
+registry or configuration framework is used.
+
+The optional worker reads through Chiller, owns its CSV/history and exposes
+`snapshot()`. Running state comes from the worker thread. Status, Sample and
+Snapshot keep named fields. The serial codec returns a diagnostic string for
+`get_status`; SerialDevice constructs the public Status. Codec output does not
+define local connection ownership.
+
+`stop_monitoring()` joins and closes CSV while preserving connection.
+`disconnect()` also cancels recovery and closes the backend. CSV cleanup occurs
+outside the snapshot lock. Timeouts remain errors; OS calls that ignore them and
+forced process termination cannot guarantee cleanup. Settings and monitoring
+interval are read-only.
+
+Researcher configuration and commands live in one editable
+[examples/lab.py](../examples/lab.py). It creates a fresh hardware driver/codec
+per call, with no simulator fallback. GUI construction starts no acquisition.
+The hardware protocol remains an external dependency.
 
 ## Simulator utilities
 
-Simulation is a development tool, not a fallback in the hardware examples.
-After creating the quick-start environment, install the optional GUI if needed:
+Simulation is a development tool. The module launcher always selects it:
 
 ```powershell
 .\.venv\Scripts\python -m pip install -c requirements-tested.txt ".[gui]"
 .\.venv\Scripts\python -m tark_chiller --csv outputs/simulator-dashboard.csv
 ```
 
-Open [127.0.0.1:8050](http://127.0.0.1:8050). This module launcher always uses the
-simulator. Its CSV and dashboard must not be described as physical measurements.
-
-For a timed software-only recording:
+Open [127.0.0.1:8050](http://127.0.0.1:8050), then stop with Ctrl+C.
+For a short browser-free run:
 
 ```powershell
 .\.venv\Scripts\python -m tark_chiller --headless --duration 5 --interval 0.2 --csv outputs/simulator-timed.csv
 ```
 
-Omit `--duration` to run until Ctrl+C. Each run needs a new CSV filename.
-The headless launcher exits with an error if recording fails.
-The equivalent console command is `.\.venv\Scripts\tark-chiller`.
+Omit duration to run until Ctrl+C; each recording needs a new file.
+The uncalibrated model starts at 20 °C, approaches its target gradually and pauses
+while disconnected. It predicts no physical cooling or fluid-safety performance.
 
-`Simulator()` starts at 20 °C with a 20 °C target. Its uncalibrated thermal model
-approaches a changed target gradually and pauses while disconnected. It predicts
-neither physical cooling performance nor coolant/flow safety.
+## Checks
 
-## Run the checks
-
-From the repository root:
+From the repository root after creating the README environment:
 
 ```powershell
 .\.venv\Scripts\python -m pip install -r requirements-tested.txt
@@ -49,11 +74,9 @@ From the repository root:
 .\.venv\Scripts\python -m build --no-isolation
 ```
 
-Tests exercise production code with simulator or memory backends. Synthetic
-settings and messages establish no electrical compatibility and must never be
-copied into the lab configuration.
-
-For a ten-minute simulator/CSV/Dash integration run:
+Tests use simulator or memory endpoints with production code. Synthetic settings/
+messages establish no hardware compatibility and must not enter lab configuration.
+For a sustained simulator/CSV/Dash run:
 
 ```powershell
 $env:TARK_SOAK_SECONDS = '600'
@@ -61,17 +84,12 @@ $env:TARK_SOAK_SECONDS = '600'
 Remove-Item Env:TARK_SOAK_SECONDS
 ```
 
-The normal suite uses a short run. Its separate
-`test_fake_serial_monitor_reports_outage_and_recovers` test injects a cable fault
-into a memory endpoint; neither test touches hardware.
+The regular suite uses a short run and separately exercises serial faults.
 
-## Engineering records
+## Records
 
-- [Requirements](../PROJECT.md) and [current state](../STATE.md)
-- [Evidence/decisions](../records/RECORDS.md) and [report](../outputs/REPORT.md)
-- [Engineering workflow](../AGENTS.md) and [prompt log](../prompt%20log.md)
-
-Historical evidence applies to its recorded revision. Current checks distinguish
-simulator tests, fake-serial tests and absent physical validation.
-The matching communication manual remains an external dependency; physical work
-requires a reviewed candidate and specific authorization.
+[Requirements](../PROJECT.md), [state](../STATE.md), [evidence](../records/RECORDS.md),
+[report](../outputs/REPORT.md), [workflow](../AGENTS.md) and
+[prompt log](../prompt%20log.md) preserve engineering continuity.
+Historical results apply to their recorded revision. Physical work requires the
+matching protocol, reviewed candidate and specific authorization.

@@ -6,18 +6,10 @@ from collections import deque
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
-from threading import TIMEOUT_MAX, Event, Lock, Thread, current_thread
+from threading import Event, Lock, Thread, current_thread
 from typing import TextIO
 
-from .controller import Chiller, Status, _finite
-from .errors import ProtocolError
-
-
-def _seconds(value: object, name: str) -> float:
-    seconds = _finite(value, name)
-    if not 0 < seconds <= TIMEOUT_MAX:
-        raise ValueError(f"{name} must be positive and at most {TIMEOUT_MAX:g} seconds")
-    return seconds
+from .controller import Chiller, ProtocolError, Status, _seconds
 
 
 @dataclass(frozen=True)
@@ -66,21 +58,18 @@ class Monitor:
         self._lock = Lock()
         self._stop = Event()
         self._thread: Thread | None = None
-        self._running = False
         self._service_error = ""
         self._logging_error = ""
         self._logged_samples = 0
         self._sample_count = 0
         self._failed_samples = 0
         self._file: TextIO | None = None
-        self._writer = None
         if csv_path is not None:
             path = Path(csv_path)
             path.parent.mkdir(parents=True, exist_ok=True)
             self._file = path.open("x", newline="", encoding="utf-8")
             try:
-                self._writer = csv.writer(self._file)
-                self._writer.writerow(
+                csv.writer(self._file).writerow(
                     [
                         "timestamp_utc",
                         "elapsed_s",
@@ -110,7 +99,7 @@ class Monitor:
         with self._lock:
             return Snapshot(
                 history=tuple(self._history),
-                running=self._running,
+                running=self.running,
                 service_error=self._service_error,
                 logging_error=self._logging_error,
                 logging_enabled=self._file is not None,
@@ -129,7 +118,6 @@ class Monitor:
             finally:
                 with self._lock:
                     self._file = None
-                    self._writer = None
 
     def _start(self) -> None:
         ready: Event | None = None
@@ -138,20 +126,15 @@ class Monitor:
             self._thread = Thread(
                 target=self._run, args=(ready,), name="chiller-monitor", daemon=False
             )
-            self._running = True
             self._thread.start()
         except BaseException:
             self._stop.set()
             if self._thread is None or self._thread.ident is None:
-                self._running = False
                 self._close_csv()
             raise
         finally:
             if ready is not None:
                 ready.set()
-
-    def _request_stop(self) -> None:
-        self._stop.set()
 
     def _join(self, timeout_s: float) -> None:
         timeout = _seconds(timeout_s, "Stop timeout")
@@ -170,34 +153,31 @@ class Monitor:
         sampled_monotonic = time.monotonic()
         timestamp_utc = datetime.now(UTC)
         status = Status(connected=False, backend="unknown", detail="unavailable")
+        error = ""
         try:
             status = self._chiller.read_status()
             temperature = self._chiller.read_temperature()
             setpoint = self._chiller.read_setpoint()
-            return Sample(
-                timestamp_utc=timestamp_utc,
-                elapsed_s=sampled_monotonic - started,
-                temperature_c=temperature,
-                setpoint_c=setpoint,
-                status=status,
-                sampled_monotonic=sampled_monotonic,
-            )
         except (OSError, ProtocolError) as exc:
-            return Sample(
-                timestamp_utc=timestamp_utc,
-                elapsed_s=sampled_monotonic - started,
-                temperature_c=None,
-                setpoint_c=None,
-                status=Status(connected=False, backend=status.backend, detail="poll failed"),
-                error=str(exc) or type(exc).__name__,
-                sampled_monotonic=sampled_monotonic,
-            )
+            temperature = None
+            setpoint = None
+            status = Status(connected=False, backend=status.backend, detail="poll failed")
+            error = str(exc) or type(exc).__name__
+        return Sample(
+            timestamp_utc=timestamp_utc,
+            elapsed_s=sampled_monotonic - started,
+            temperature_c=temperature,
+            setpoint_c=setpoint,
+            status=status,
+            error=error,
+            sampled_monotonic=sampled_monotonic,
+        )
 
     def _publish(self, sample: Sample) -> None:
         row_written = False
-        if self._writer is not None and self._file is not None:
+        if self._file is not None:
             try:
-                self._writer.writerow(
+                csv.writer(self._file).writerow(
                     [
                         sample.timestamp_utc.isoformat(),
                         sample.elapsed_s,
@@ -242,6 +222,3 @@ class Monitor:
             except BaseException as exc:
                 with self._lock:
                     self._logging_error = f"CSV close failed: {type(exc).__name__}: {exc}"
-            finally:
-                with self._lock:
-                    self._running = False

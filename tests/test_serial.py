@@ -9,15 +9,14 @@ from time import perf_counter
 import pytest
 from fakes import FakeCodec, FakeSerial, fake_settings, make_serial
 
-from tark_chiller.controller import Chiller
-from tark_chiller.errors import ProtocolError, ProtocolUnavailableError
+from tark_chiller.controller import Chiller, ProtocolError, Status
 from tark_chiller.serial import RS485Mode, SerialDevice, SerialSettings
 
 
 def test_absent_protocol_prevents_endpoint_creation():
     endpoint = FakeSerial()
     chiller = Chiller(SerialDevice(fake_settings(), serial_factory=endpoint.factory))
-    with pytest.raises(ProtocolUnavailableError, match="manual"):
+    with pytest.raises(ProtocolError, match="manual"):
         chiller.connect()
     assert endpoint.factory_arguments == []
     assert endpoint.open_count == endpoint.write_count == 0
@@ -183,6 +182,22 @@ def test_malformed_or_unexpected_reply_suspends_recovery(reply):
         chiller.read_temperature()
     assert endpoint.open_count == endpoint.write_count == 1
     chiller.disconnect()
+
+
+@pytest.mark.parametrize("decoded_status", [None, True, 20.0, Status(True, "simulator")])
+def test_codec_cannot_supply_application_connection_state(decoded_status):
+    class BadStatusCodec(FakeCodec):
+        def decode(self, operation, response):
+            return decoded_status
+
+    device, endpoint = make_serial(codec=BadStatusCodec())
+    with Chiller(device, reconnect_attempts=2) as chiller:
+        with pytest.raises(ProtocolError, match="invalid hardware status"):
+            chiller.read_status()
+        assert not chiller.read_status().connected
+        assert "suspended" in chiller.read_status().detail
+        assert endpoint.write_count == endpoint.open_count == 1
+        assert not endpoint.is_open
 
 
 @pytest.mark.parametrize("reply", [b"", b"TEST|1|get_temperature|20"])

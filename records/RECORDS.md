@@ -6,6 +6,9 @@ in STATE.md. The coordinator allocates unique E/D IDs and links requirements to
 observable test methods. Preserve source provenance and distinguish simulation
 from physical validation.
 
+Superseded artifacts and removed guides are linked to their immutable Git revision
+so the current checkout contains only current evidence and useful user material.
+
 ## E001
 
 Date: 2026-09-10 (America/Chicago).
@@ -195,7 +198,7 @@ regressions passed in E005. No physical or hard real-time guarantee follows.
 Date: 2026-09-10, approximately 17:10 -05:00.
 Kind / scope: final initial automated regression; TEST-002 through TEST-009.
 Configuration: Python 3.12.14, Windows, dependency snapshot E003;
-[initial source/config hashes](../outputs/initial-source-manifest.sha256).
+[initial source/config hashes](https://github.com/cct1123/tark-mrc-chiller-control/blob/778e3d89ddd0ed605e60111da276ba60dcc427d7/outputs/initial-source-manifest.sha256).
 Method: `.venv\Scripts\python -m pytest -q -p no:cacheprovider --junitxml=outputs\test-results.xml`.
 Expected: all hardware-free tests pass; no real serial port constructed/opened.
 Result: **PASS — 130 tests, 0 failures, 0 errors, 1.16 s**. Core 50; serial 52;
@@ -273,7 +276,7 @@ Rebuilt source archive/wheel passed; wheel source matches the corrected monitor,
 and wheel-only simulator/API plus extreme-timing rejection checks passed.
 Reproducibility: added LF text attributes because the local Git configuration uses
 autocrlf; normalized dependency-snapshot newlines so staged and checked-out source
-hashes remain identical. Archived [20-file source/config manifest](../outputs/precommit-source-manifest.sha256)
+hashes remain identical. Archived [20-file source/config manifest](https://github.com/cct1123/tark-mrc-chiller-control/blob/778e3d89ddd0ed605e60111da276ba60dcc427d7/outputs/precommit-source-manifest.sha256)
 supersedes the initial manifest; E005's original manifest is retained separately.
 Authority: prompt 3 explicitly authorizes commit and push to configured origin/main.
 No real hardware interaction or hardware-ready approval is implied.
@@ -337,7 +340,7 @@ Expected: every software test passes without real serial construction or hardwar
 Result: **299 PASS, 0 failures/errors, 8.54 s**, including the actual five-second
 combined fault/Dash HTTP/CSV demonstration and long-delay shutdown regression.
 Superseded raw JUnit pruned under E021; final source/config identities in
-[manifest](../outputs/software-source-manifest.sha256). Ruff check and format: PASS, 23 Python
+[manifest](https://github.com/cct1123/tark-mrc-chiller-control/blob/778e3d89ddd0ed605e60111da276ba60dcc427d7/outputs/software-source-manifest.sha256). Ruff check and format: PASS, 23 Python
 files. Mypy: PASS, all 14 package source modules, untyped definitions disallowed.
 Sandbox temporary-directory failures were resolved with approved execution access;
 tests were not skipped or weakened. No physical claims follow.
@@ -356,7 +359,7 @@ fault/disconnect scenarios. 3,705 refresh callbacks, 149 page reloads, 371 rejec
 invalid writes. Exactly three applied targets (18, 22, 18 °C), including one lost
 acknowledgement applied once. Final valid temperature 18.0029425663 °C. Acquisition
 produced 60 samples before browser activity and 59 after it ended. Clean shutdown.
-Artifacts: [summary](../outputs/soak-600s.json); generated local-only files
+Artifacts: [summary](https://github.com/cct1123/tark-mrc-chiller-control/blob/778e3d89ddd0ed605e60111da276ba60dcc427d7/outputs/soak-600s.json); generated local-only files
 `outputs/soak-600s.csv` and `outputs/soak-600s-trajectory.html` are not committed.
 
 Diagnosis: 70 total connection opens exceeded the scripted faults alone. A focused
@@ -365,7 +368,7 @@ captured nine typed transaction timeouts/recoveries at 10 ms and none at 50 ms;
 all 2,000 high-level reads succeeded. Python 3.12 Windows monotonic clock reports
 GetTickCount64 with 15.625 ms resolution. This reproduces deadline expirations when
 the chosen budget is smaller than clock resolution; it is not a fabricated MRC
-timing fact. [Diagnostic results](../outputs/deadline-diagnostic.json). The production
+timing fact. [Diagnostic results](https://github.com/cct1123/tark-mrc-chiller-control/blob/778e3d89ddd0ed605e60111da276ba60dcc427d7/outputs/deadline-diagnostic.json). The production
 transport default remains 1 s and explicit timing awaits actual protocol evidence.
 
 Scope of source evidence: the sustained process loaded before final review changes
@@ -421,7 +424,7 @@ criteria have current evidence and physical portions retain explicit blockers.
 Template AGENTS.md and ARCHITECTURE.md match the imported framework. Prompt 4 is
 retained verbatim in prompt log.md. Git diff whitespace check passed; test scratch
 was removed after verifying its resolved path stayed inside the workspace.
-[Final manifest](../outputs/software-source-manifest.sha256) identifies 29 source/config
+[Final manifest](https://github.com/cct1123/tark-mrc-chiller-control/blob/778e3d89ddd0ed605e60111da276ba60dcc427d7/outputs/software-source-manifest.sha256) identifies 29 source/config
 files; initial/precommit manifests remain archived for their historical revisions.
 JUnit confirms 299 tests, zero failures/errors (8.461 s test-suite time; pytest
 reported 8.54 s overall). No active monitor, preview or test process remains.
@@ -488,7 +491,7 @@ Date: 2026-09-10 (America/Chicago).
 Kind / scope: repaired review findings and fresh-environment quality gate;
 TEST-002–010/013–016, REQ-002–014/016–019 software portions.
 Result: PASS, **349 tests**, zero failures/errors; pytest 9.82 s.
-[JUnit](../outputs/review-tests.xml). New regressions cover:
+[JUnit](https://github.com/cct1123/tark-mrc-chiller-control/blob/778e3d89ddd0ed605e60111da276ba60dcc427d7/outputs/review-tests.xml). New regressions cover:
 
 - Event-controlled queued setpoint cancellation across explicit connection intent.
 - One acquisition owner per Chiller/state, no constructor side effects, rejected
@@ -516,7 +519,7 @@ A fresh `.venv-review` was created with Python 3.12.14; installed the exact
 `--no-deps`. No existing development site packages were reused. Ruff check PASS,
 format PASS (24 Python files), mypy PASS (14 source modules), pip check PASS.
 `python -m build --no-isolation` built sdist and wheel from that sdist successfully;
-[build log](../outputs/review-build.txt). Wheel bytes match all 14 source modules,
+[build log](https://github.com/cct1123/tark-mrc-chiller-control/blob/778e3d89ddd0ed605e60111da276ba60dcc427d7/outputs/review-build.txt). Wheel bytes match all 14 source modules,
 py.typed and runnable demo are packaged. `python -S` imported the wheel alone and
 ran simulator and both fake serial paths through safe write/monitor/disconnect,
 without Dash, Plotly or pySerial imports. No new dependency was added this review.
@@ -535,7 +538,7 @@ Date: 2026-09-10, approximately 18:14–18:24 -05:00.
 Kind / scope: final-source sustained integration and browser acceptance;
 TEST-011/016, REQ-007–013/017/019.
 Command: `.venv-review\Scripts\python examples/hardware_free_demo.py --duration 600 --interval 1 --output outputs/review-soak`.
-Result: PASS. [Summary](../outputs/review-soak.json). Generated local-only files
+Result: PASS. [Summary](https://github.com/cct1123/tark-mrc-chiller-control/blob/778e3d89ddd0ed605e60111da276ba60dcc427d7/outputs/review-soak.json). Generated local-only files
 `outputs/review-soak.csv` and `outputs/review-soak-trajectory.html` are not committed;
 the command above reproduces these artifact types with a fresh output name.
 
@@ -574,7 +577,7 @@ Date: 2026-09-10 (America/Chicago).
 Kind / scope: final review checkpoint and cleanup audit; TEST-001, REQ-001/014/019.
 Result: PASS. PROJECT and STATE retain all 19 IDs; every software criterion has
 current evidence, and only actual protocol/physical acceptance remains blocked.
-All five prompts remain recorded. [Final manifest](../outputs/source-manifest.sha256)
+All five prompts remain recorded. [Final manifest](https://github.com/cct1123/tark-mrc-chiller-control/blob/778e3d89ddd0ed605e60111da276ba60dcc427d7/outputs/source-manifest.sha256)
 identifies 30 source/config files, unchanged since final tests and sustained run.
 The earlier 29-file manifest is archived for E012/E016 rather than relabeled.
 Local Markdown links resolve; git diff whitespace check passes. AGENTS.md remains
@@ -634,8 +637,8 @@ interface-variant caveat. No wire settings, safety telemetry or coolant recipe
 was inferred. EXT-001/003 remain; unavailable attachment provenance is explicit.
 
 A temporary repository copy and newly created virtual environment exercised the
-commands in [quick start](../docs/quickstart.md), [usage](../docs/usage.md) and
-[maintainer checks](../development/architecture.md#validation-reproduction). Initial PATH
+commands in [quick start](https://github.com/cct1123/tark-mrc-chiller-control/blob/778e3d89ddd0ed605e60111da276ba60dcc427d7/docs/quickstart.md), [usage](https://github.com/cct1123/tark-mrc-chiller-control/blob/778e3d89ddd0ed605e60111da276ba60dcc427d7/docs/usage.md) and
+[maintainer checks](https://github.com/cct1123/tark-mrc-chiller-control/blob/778e3d89ddd0ed605e60111da276ba60dcc427d7/development/architecture.md#validation-reproduction). Initial PATH
 selected unsupported Python 3.9.12 and its package download failed with SSL errors.
 The guide now separates the version check and requires stopping below 3.12.
 Selecting installed Python 3.12.14 and creating a fresh environment succeeded;
@@ -675,7 +678,7 @@ the concise observations here preserve their results without duplicate artifacts
 Date: 2026-09-10 (America/Chicago).
 Kind / scope: documentation visual acceptance and handoff; TEST-001/017, REQ-020.
 
-[GUI screenshot](../outputs/documentation-v1.jpg) is an unedited full-page JPEG browser
+[GUI screenshot](https://github.com/cct1123/tark-mrc-chiller-control/blob/778e3d89ddd0ed605e60111da276ba60dcc427d7/outputs/documentation-v1.jpg) is an unedited full-page JPEG browser
 capture from the production simulator CLI, 1265 × 1313 pixels, 90,426 bytes,
 SHA-256 `39f70efd318146f94d78f0e55dc326baf1157f6a5eb8e1ea82a21d55edd6cefc`.
 It shows 122 samples/CSV rows, zero failed polls, 18.35 °C at an 18 °C target,
@@ -840,7 +843,7 @@ Observed results:
   156 page loads, 389 invalid writes rejected. Exactly three targets applied and
   seven planned opens. Lost acknowledgement is reported and its target is never
   replayed. Final simulated temperature 17.99835708423226 °C at an 18 °C target;
-  clean shutdown. See [summary](../outputs/refactor-soak.json).
+  clean shutdown. See [summary](https://github.com/cct1123/tark-mrc-chiller-control/blob/778e3d89ddd0ed605e60111da276ba60dcc427d7/outputs/refactor-soak.json).
 
 Browser acceptance used the real simulator CLI and native page interactions.
 18 °C produced cooling and reported target readback; 1 °C was rejected. Disconnect
@@ -863,7 +866,7 @@ README, guides and illustrations were rendered with local Markdown tooling;
 screenshot/image loading, typography, diagrams, numbered annotations and local
 file/heading links passed review. No documentation framework was added.
 
-The [38-file manifest](../outputs/refactor-source-manifest.sha256) identifies source,
+The [38-file manifest](https://github.com/cct1123/tark-mrc-chiller-control/blob/778e3d89ddd0ed605e60111da276ba60dcc427d7/outputs/refactor-source-manifest.sha256) identifies source,
 tests, examples, developer fixtures, assets and configuration. Current evidence
 supersedes older run applicability; historical records are retained. Runtime code
 was unchanged throughout the final suite, ten-minute run and browser checks.
@@ -957,9 +960,9 @@ source and wheel byte-for-byte. Source archive contains user guides, six example
 manual references and linked engineering records; wheel excludes developer fixtures.
 No shared site-packages or editable import path was present. The standard
 setuptools distutils-precedence.pth is local package machinery, not path sharing.
-[JUnit](../outputs/release-tests.xml), [build](../outputs/release-build.txt),
-[package/versions](../outputs/release-package.json),
-[40-file source/test/config manifest](../outputs/release-source-manifest.sha256).
+[JUnit](https://github.com/cct1123/tark-mrc-chiller-control/blob/778e3d89ddd0ed605e60111da276ba60dcc427d7/outputs/release-tests.xml), [build](https://github.com/cct1123/tark-mrc-chiller-control/blob/778e3d89ddd0ed605e60111da276ba60dcc427d7/outputs/release-build.txt),
+[package/versions](https://github.com/cct1123/tark-mrc-chiller-control/blob/778e3d89ddd0ed605e60111da276ba60dcc427d7/outputs/release-package.json),
+[40-file source/test/config manifest](https://github.com/cct1123/tark-mrc-chiller-control/blob/778e3d89ddd0ed605e60111da276ba60dcc427d7/outputs/release-source-manifest.sha256).
 That manifest hashes text after CRLF-to-LF normalization, matching .gitattributes
 and fresh Git checkouts. This changes no Python statements or CSS rules.
 
@@ -980,7 +983,7 @@ seven planned endpoint opens and three applied targets. Lost write acknowledgeme
 did not replay; final valid temperature 18.014838654756986 °C at target 18 °C.
 Trace remained bounded at 128; sampling continued for 60 rows after callback
 activity ended. Worker, connection and logger all closed.
-[Summary](../outputs/release-soak.json). All endpoints/bytes were synthetic.
+[Summary](https://github.com/cct1123/tark-mrc-chiller-control/blob/778e3d89ddd0ed605e60111da276ba60dcc427d7/outputs/release-soak.json). All endpoints/bytes were synthetic.
 
 Actual browser check used `python -m tark_chiller --csv outputs/release-browser.csv`
 from the installed release. Local styles loaded; 18 °C was accepted and read back;
@@ -991,7 +994,7 @@ this run independently inspected the desktop rendering. Browser closure did not
 stop acquisition: 37 more rows were written, totaling 360 with 51 intentional
 unavailable rows. Ctrl+C printed stopped monitoring; subsequent append validation
 proved complete rows and a released file lock. Local ports 8050/8051 were closed.
-[Operations summary](../outputs/release-operations.json).
+[Operations summary](https://github.com/cct1123/tark-mrc-chiller-control/blob/778e3d89ddd0ed605e60111da276ba60dcc427d7/outputs/release-operations.json).
 
 The current [screenshot](../docs/assets/dashboard.jpg) is an unedited native JPEG,
 1265 × 955, showing 140 samples/rows, no faults, 18.12 °C and an 18 °C target.
@@ -1094,9 +1097,9 @@ source import, so installed-package checks exercise the installed driver too.
 
 **187 tests PASS in 29.81 s**. Ruff lint and format checks, mypy (eight package
 files), pip check, source archive/wheel build and entry-point smoke checks PASS.
-[JUnit](../outputs/driver-tests.xml), [build](../outputs/driver-build.txt),
-[module/package/browser audit](../outputs/driver-audit.json),
-[current source manifest](../outputs/driver-source-manifest.sha256).
+[JUnit](https://github.com/cct1123/tark-mrc-chiller-control/blob/778e3d89ddd0ed605e60111da276ba60dcc427d7/outputs/driver-tests.xml), [build](https://github.com/cct1123/tark-mrc-chiller-control/blob/778e3d89ddd0ed605e60111da276ba60dcc427d7/outputs/driver-build.txt),
+[module/package/browser audit](https://github.com/cct1123/tark-mrc-chiller-control/blob/778e3d89ddd0ed605e60111da276ba60dcc427d7/outputs/driver-audit.json),
+[current source manifest](https://github.com/cct1123/tark-mrc-chiller-control/blob/778e3d89ddd0ed605e60111da276ba60dcc427d7/outputs/driver-source-manifest.sha256).
 The package has six functional modules plus two entry files and 1,249 Python
 lines versus 2,056 at d1aabc0 (39.3% fewer). The installed wheel excludes test
 fixtures and all removed modules. The source archive retains durable records.
@@ -1106,7 +1109,7 @@ Sustained method: set TARK_SOAK_SECONDS=600, then run
 Observed **600 seconds PASS**: 18,445 samples equal 18,445 CSV rows; 14,730
 concurrent callback/reload cycles; history bounded to 25 samples; temperature
 converged from 20 °C to 18.000000000000007 °C. Sampling continued without browsers,
-and worker, CSV and connection closed. [Output](../outputs/driver-soak.txt).
+and worker, CSV and connection closed. [Output](https://github.com/cct1123/tark-mrc-chiller-control/blob/778e3d89ddd0ed605e60111da276ba60dcc427d7/outputs/driver-soak.txt).
 This run started before the final event-construction interruption guard, which
 changes failed startup only. The final installed full suite revalidated successful
 startup and every interruption regression after that repair. The successful
@@ -1182,14 +1185,14 @@ profiles are not physical safety evidence; protocol and unit dependencies remain
 
 Date: 2026-09-10 (America/Chicago). Scope: current 0.2.1 holistic-review acceptance.
 Baseline b9ecb32; reviewed input hashes, environment and results are in
-[holistic-review.json](../outputs/holistic-review.json).
+[holistic-review.json](https://github.com/cct1123/tark-mrc-chiller-control/blob/778e3d89ddd0ed605e60111da276ba60dcc427d7/outputs/holistic-review.json).
 
 A fresh Python 3.12.14 virtual environment used a normal non-editable source
 installation, all pinned dependency versions and no shared site-packages.
 **193 tests PASS in 29.80 s**, including simulator/serial substitution, adversarial
 setpoints, recovery/no replay, blocked CSV close, recording faults, signals,
 GUI callbacks, all examples and documented Python blocks.
-[JUnit](../outputs/holistic-tests.xml). Ruff lint/format, mypy (eight package files)
+[JUnit](https://github.com/cct1123/tark-mrc-chiller-control/blob/778e3d89ddd0ed605e60111da276ba60dcc427d7/outputs/holistic-tests.xml). Ruff lint/format, mypy (eight package files)
 and pip check PASS. The package remains six functional modules plus two entries,
 1,271 Python lines, 38.2% below the 2,056-line pre-refactor baseline.
 
@@ -1197,15 +1200,15 @@ Installed simulator/CSV/Dash regression: TARK_SOAK_SECONDS=60, then
 `python -m pytest tests/test_end_to_end.py::test_simulator_monitor_csv_dash -s -q`.
 Observed 1,656 sample/CSV rows, 1,218 concurrent callback/reload cycles, history
 bounded at 25, final temperature 18.000000000000007 °C at an 18 °C target, and clean
-worker/file/connection shutdown. [Output](../outputs/holistic-soak.txt).
+worker/file/connection shutdown. [Output](https://github.com/cct1123/tark-mrc-chiller-control/blob/778e3d89ddd0ed605e60111da276ba60dcc427d7/outputs/holistic-soak.txt).
 One Plotly dependency deprecation warning was emitted; no failure or map trace was
 introduced. E030's 600-second run remains historical, not a new run of this patch.
 
 Source archive and wheel build/install and module/console entry checks PASS;
-[build](../outputs/holistic-build.txt). All 12 package source, wheel and installed
+[build](https://github.com/cct1123/tark-mrc-chiller-control/blob/778e3d89ddd0ed605e60111da276ba60dcc427d7/outputs/holistic-build.txt). All 12 package source, wheel and installed
 files match; obsolete modules remain absent. The corrected source archive also
 passes all 193 tests in 29.77 s when extracted outside the checkout, using the
-installed package; [archive JUnit](../outputs/holistic-archive-tests.xml).
+installed package; [archive JUnit](https://github.com/cct1123/tark-mrc-chiller-control/blob/778e3d89ddd0ed605e60111da276ba60dcc427d7/outputs/holistic-archive-tests.xml).
 76 current user/development/project
 links and heading anchors passed case-sensitive checks; five SVGs parsed. GUI
 source, CSS and screenshot are unchanged from E030; the current full suite
@@ -1278,14 +1281,14 @@ communication manual appeared in the available project inputs. No physical actio
 ## E034
 
 Date: 2026-09-10. Version: 0.2.2. Scope: final hardware-independent acceptance.
-[human-review.json](../outputs/human-review.json) records source hashes, package
+[human-review.json](https://github.com/cct1123/tark-mrc-chiller-control/blob/778e3d89ddd0ed605e60111da276ba60dcc427d7/outputs/human-review.json) records source hashes, package
 integrity, dependencies and documentation checks.
 
 A fresh Python 3.12.14 environment installed all 43 pinned dependencies and the
 current package normally (non-editable, no shared site-packages). **209 tests PASS
-in 20.42 s**; [JUnit](../outputs/human-installed-tests.xml). The extracted source
+in 20.42 s**; [JUnit](https://github.com/cct1123/tark-mrc-chiller-control/blob/778e3d89ddd0ed605e60111da276ba60dcc427d7/outputs/human-installed-tests.xml). The extracted source
 archive also passes **209 tests in 20.56 s** against that installed package;
-[archive JUnit](../outputs/human-archive-tests.xml). An initial test invocation
+[archive JUnit](https://github.com/cct1123/tark-mrc-chiller-control/blob/778e3d89ddd0ed605e60111da276ba60dcc427d7/outputs/human-archive-tests.xml). An initial test invocation
 needed its missing temporary parent directory created; this was a harness setup
 error, not a product failure. Ruff lint/format, mypy eight files and pip check PASS.
 
@@ -1300,14 +1303,14 @@ CSV creation. No successful test is represented as physical validation.
 A current installed 60-second simulator/monitor/CSV/Dash regression produced
 1,763 rows, 1,527 concurrent callbacks, history capped at 25 and a final modeled
 temperature of 18.000000000000007 Celsius at an 18 Celsius target; clean shutdown.
-[Run](../outputs/human-soak.txt). This is software behavior only. The full suites
+[Run](https://github.com/cct1123/tark-mrc-chiller-control/blob/778e3d89ddd0ed605e60111da276ba60dcc427d7/outputs/human-soak.txt). This is software behavior only. The full suites
 emitted one upstream Plotly scattermapbox deprecation warning each; this GUI uses
 ordinary scatter traces and no check failed.
 
 The package remains eight Python files (six functional plus two entries), 1,311
 lines and zero core dependencies. Source/wheel packaging preserves all examples,
 connection.py and shared test fixtures; obsolete example 06 is absent. Package
-source and installed files match. [Build](../outputs/human-build.txt).
+source and installed files match. [Build](https://github.com/cct1123/tark-mrc-chiller-control/blob/778e3d89ddd0ed605e60111da276ba60dcc427d7/outputs/human-build.txt).
 
 User documentation is hardware-oriented, with operator-chosen targets and exact
 configuration/shutdown instructions. Local links/anchors and five SVGs were
@@ -1322,3 +1325,85 @@ REQ-002/006/020 and REQ-015 remain BLOCKED by EXT-001/003. Next: obtain the matc
 controller manual, implement page-cited codec commands and byte fixtures in
 serial.py, configure the identified setup, rerun software acceptance and present
 the concrete candidate for physical review. Prompt 14 is recorded verbatim.
+
+## D008
+
+Date: 2026-09-10. Source: prompt 15. Baseline: 778e3d89ddd0ed605e60111da276ba60dcc427d7.
+Decision: reduce the package to six Python files with a clean internal migration.
+Move Simulator and ProtocolError into controller.py; remove the backend Protocol
+wrapper and redundant missing-protocol exception. Keep one shared finite-number,
+reading and time validator. The serial codec returns plain status text, while the
+device constructs connection status. Derive running from the owned worker; remove
+cached error/status/writer state and duplicate sample construction.
+
+Retain immutable named Status/Sample/Snapshot records, explicit serial/RS485
+settings and the codec boundary: they clarify units, coherent snapshots, validated
+configuration and the remaining external protocol dependency. Retain the locks,
+connection intent, finite recovery and uncertain-write guards because regression
+tests demonstrate their effect. Core dependencies remain empty; no extension
+registry, compatibility module or configuration framework is added.
+
+Consolidate six hardware example files into examples/lab.py with read, set, log,
+monitor and gui commands. Configuration and create_chiller() remain directly
+readable; each call owns a fresh codec/driver. The script supplies no wire bytes
+and has no simulator fallback. Module launchers remain development simulator tools.
+Merge overlapping user/development guides and diagrams. Preserve 35 superseded
+output artifacts through committed Git links instead of duplicate checkout files.
+
+## E035
+
+Date: 2026-09-10. Scope: coordinator plus bounded serial/monitor, documentation and
+independent final code review of the prompt 15 migration.
+
+The coordinator reconciled six package modules, the lab workflow, tests and guides.
+Removed interfaces/imports are absent from current code and user documentation.
+The final reviewer found no consequential migration defect or useful further
+pruning: snapshots remain coherent, CSV close stays outside the snapshot lock,
+GUI refresh reads memory only, uncertain/stale writes are not replayed, and startup
+or connection faults retain clear ownership and errors. These conclusions are
+supported by E036 rather than earlier PASS labels.
+
+Tests added malformed decoded status, blank readings when either poll read fails,
+and invalid command/target/CSV combinations before connection. Lab tests exercise
+production SerialDevice, controller/monitor and real Dash HTTP with synthetic
+endpoints. Required read-only configuration, fresh codec instances, single writes,
+readback mismatch, lost acknowledgement, recording faults and cleanup remain covered.
+
+Current inventory: 8→6 package files, 13→11 package classes, 1,311→1,220 Python
+lines; examples 6→1 files and 166→98 lines; user/development guides 8→5; SVGs 5→2.
+This reduces indirection and duplication without shortening readable control flow.
+The consolidated architecture SVG was rendered and inspected with legible labels.
+The earlier actual GUI screenshot remains explicitly labeled simulator data.
+
+## E036
+
+Date: 2026-09-10. Version: 0.3.0. Scope: final hardware-independent acceptance.
+[Validation audit](../outputs/validation.json) records normalized source hashes,
+comparative inventory, environment, package integrity and documentation checks.
+
+A fresh Python 3.12.14 environment installed all 43 pinned dependencies and the
+package normally with no shared site-packages. **218 tests PASS in 15.48 s**;
+[JUnit](../outputs/tests.xml). The extracted source archive also passes **218 tests
+in 15.79 s** against the installed wheel; [archive JUnit](../outputs/archive-tests.xml).
+Ruff lint/format, mypy six modules and pip check PASS. Source/wheel packaging and
+installed file checks exclude removed modules and examples; [build](../outputs/build.txt).
+
+A sustained installed simulator/monitor/CSV/Dash run produced 1,732 CSV rows and
+1,527 concurrent callbacks over 60 seconds. History stayed at 25; the modeled
+reading approached 18.000000000000007 Celsius for an 18 Celsius target. No failed
+polls, service errors or logging errors; clean worker/file/connection shutdown.
+[Run](../outputs/soak.txt). Full suites each emitted one upstream Plotly
+scattermapbox deprecation warning; this GUI uses no map trace and no check failed.
+
+README/API Python examples execute through the configured production serial path
+with memory endpoints. Local links/anchors, two SVGs and final package contents
+are checked. Historical evidence links resolve to existing blobs in the baseline
+commit. No synthetic wire message is presented as a Tark command.
+
+All hardware-independent criteria PASS. Physical parts of REQ-002/006/020 and
+REQ-015 remain BLOCKED by EXT-001/003. The matching communication manual remains
+absent from available inputs; cached official user-manual provenance is unchanged.
+No real interface was enumerated or opened. Next: obtain the matching source and
+unit/controller identity, implement cited codec fixtures, configure the lab script,
+rerun software acceptance, then review the concrete physical candidate. Prompt 15
+is recorded verbatim. Commit/push authorization comes from that same request.

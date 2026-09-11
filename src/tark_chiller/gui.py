@@ -6,8 +6,7 @@ import dash_bootstrap_components as dbc
 import plotly.graph_objects as go
 from dash import Dash, Input, Output, State, dcc, html
 
-from .controller import Chiller
-from .errors import ProtocolError
+from .controller import Chiller, ProtocolError, _seconds
 from .monitor import Monitor, Snapshot
 
 
@@ -154,12 +153,7 @@ def render_snapshot(
 
 def create_app(chiller: Chiller, monitor: Monitor, *, stale_after_s: float = 3.0) -> Dash:
     """The caller connects the chiller, starts monitoring and owns shutdown."""
-    if (
-        isinstance(stale_after_s, bool)
-        or not isinstance(stale_after_s, (int, float))
-        or not 0 < stale_after_s < float("inf")
-    ):
-        raise ValueError("stale_after_s must be positive finite seconds")
+    stale_after_s = _seconds(stale_after_s, "stale_after_s")
     app = Dash(
         __name__, meta_tags=[{"name": "viewport", "content": "width=device-width, initial-scale=1"}]
     )

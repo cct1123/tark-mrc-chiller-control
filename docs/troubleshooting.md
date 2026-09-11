@@ -1,30 +1,25 @@
 # Troubleshooting
 
-[Home](../README.md) · [Quick start](quickstart.md) · [Hardware setup](hardware.md)
+[Home / quick start](../README.md#hardware-quick-start) · [Hardware setup](hardware.md)
 
 | Symptom | What to do |
 | --- | --- |
-| Hardware not configured | Check `examples/connection.py`. Required settings and the documented codec are unavailable until the matching manual is supplied and implemented. No port was opened. |
-| Controller communication manual required | Do not guess commands/settings or substitute a test codec. Resolve the documented protocol dependency. |
-| Python/install fails | Use Python 3.12+ from the project folder. Check `python --version`. |
-| No module named tark_chiller | Install and run with the same environment's Python. |
-| No module named examples.connection | Run API snippets from the repository root. Launch numbered scripts with the paths shown in the quick start. |
-| Dashboard import fails | Install both `gui` and `serial` extras for the hardware dashboard. |
-| Serial port missing/denied/busy | Verify the intended adapter, OS port, permissions and competing applications against the approved setup. |
-| Serial timeout or malformed reply | Stop relying on old values. Check the documented setup and connection; read back an uncertain target before considering another write. |
-| Target rejected | Use a finite numeric Celsius value inside the approved configured bounds, 2–40 °C by default. |
-| Target confirmed but temperature differs | Readback confirms only the requested target. Check the physical temperature and approved operating procedure; do not infer chiller performance from the simulator. |
-| Browser cannot connect | Keep the launch terminal open, read its error and use http://127.0.0.1:8050 on that computer. |
-| Port 8050 busy | Stop another dashboard instance with Ctrl+C; the example uses port 8050. |
-| CSV exists | Edit the script's CSV path to a new filename. Existing data is never overwritten. |
-| CSV write/permission error | Check the error, free space and folder permissions. Resolve it before starting a new recording. |
-| Recording stopped but temperature updates | Inspect `logging_error`; new readings are not being saved. |
-| Unavailable/stale readings | Inspect the fault and terminal output. Resolve the cause before relying on readings. |
-| Monitoring already started | Reuse the existing handle or stop it before another run. |
-| Stop timeout | Worker or CSV cleanup remains active. Resolve pending I/O and retry; do not assume the file or port is closed. |
-| Tab closed but recording continues | Expected: stop with Ctrl+C in the terminal. |
+| Hardware not configured / protocol missing | Supply verified settings and a documented codec in `examples/lab.py`. No port was opened. Do not copy test commands or guess values. |
+| Python/install failure | Use Python 3.12+ and install/run with the same environment's Python. |
+| No module named examples.lab | Run API snippets from the repository root. This helper is checkout code, not part of the installed package. |
+| GUI import failure | Install the `gui` and `serial` extras. |
+| Port missing/denied/busy | Verify the intended adapter, OS port, permissions and competing applications against the approved setup. |
+| Timeout or malformed reply | Stop relying on old readings. Check the documented connection/settings; resolve uncertain writes by readback. |
+| Target rejected or readback unconfirmed | Use an approved finite numeric Celsius target inside configured bounds. A mismatch needs investigation, not a blind retry. |
+| Target confirmed but temperature differs | Readback confirms the target only; observe actual temperature independently. |
+| Browser cannot connect / port 8050 busy | Read the launch terminal, keep it open and stop another dashboard instance if needed. |
+| CSV exists | Choose a new `--csv` path. Existing data is never overwritten. |
+| CSV error / recording stopped | Check `logging_error`, free space and permissions. Temperature may still update without recording. |
+| Stale or unavailable readings | Read the fault and terminal output; resolve the cause before relying on values. |
+| Monitoring already active | Reuse its handle or stop before starting another run. |
+| Stop timeout | Worker or file cleanup remains active. Resolve pending I/O and retry; do not assume the file/port is closed. |
+| Browser closed but recording continues | Expected: end the host with Ctrl+C in the terminal. |
 
-Report the exact command, Python version and full error. State whether the
-problem occurred during a fake-serial test or an approved physical run.
-The project has no completed physical validation; equipment faults require the
-manual and lab procedure.
+Report the command, Python version, full error and whether this was a fake-serial
+test or an approved physical run. Equipment faults require the manual and lab
+procedure; this project has no completed physical validation.
