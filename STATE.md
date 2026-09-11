@@ -2,26 +2,27 @@
 
 ## Status
 
-**Software candidate 0.2.0 complete; protocol and physical validation BLOCKED.**
+**Software candidate 0.2.1 complete; protocol and physical validation BLOCKED.**
 Prompt 12's compact-driver design supersedes the 0.1 internal API. Six functional
 modules plus two entry files replace thirteen files; package Python lines fall
-from 2,056 to 1,249 (39.3%). Current scope and acceptance are in [PROJECT](PROJECT.md),
+from 2,056 to 1,271 (38.2%). Current scope and acceptance are in [PROJECT](PROJECT.md),
 with the merge decision in [D006](records/RECORDS.md#d006).
 
 No physical discovery, serial opening or device operation was performed.
 This is neither HARDWARE_READY nor physically VALIDATED. Resume phase:
 SOFTWARE_DEVELOPMENT when the matching communication manual arrives.
-The [prompt log](prompt%20log.md) includes prompt 12 verbatim.
+The [prompt log](prompt%20log.md) includes prompts 12 and 13.
 
 ## Requirements status
 
-All PASS entries below use the current 0.2 software evidence in E030. Earlier
-E028 results are historical, including removed CSV append and simulator options.
+All software PASS entries below were revalidated for 0.2.1 in E032 after the
+four E031 review findings were fixed. E030 describes the earlier 0.2.0 candidate;
+E028 describes 0.1 and includes features removed under D006.
 
 | ID | Short criterion | Method | Current result | Evidence |
 | --- | --- | --- | --- | --- |
-| REQ-001 | Workspace, prompts and traceability | TEST-001 | PASS | E029/E030, D006 |
-| REQ-002 | Common synchronous Chiller API | TEST-002/012 | Software PASS; physical BLOCKED | E030; EXT-001/003 |
+| REQ-001 | Workspace, prompts and traceability | TEST-001 | PASS | E031/E032, D006 |
+| REQ-002 | Common synchronous Chiller API | TEST-002/012 | Software PASS; physical BLOCKED | E032; EXT-001/003 |
 | REQ-003 | 2–40 °C validation before backend access | TEST-003 | PASS | Controller, serial and GUI adversarial tests |
 | REQ-004 | Explicit coolant bounds and source | TEST-003 | PASS | Controller configuration tests |
 | REQ-005 | Missing protocol prevents port creation | TEST-004/019 | PASS | Serial and hardware-template tests |
@@ -38,7 +39,7 @@ E028 results are historical, including removed CSV append and simulator options.
 | REQ-016 | Deterministic simulator and synthetic faults | TEST-013 | PASS | Controller/serial/end-to-end tests |
 | REQ-017 | Finite read recovery, no write replay | TEST-014 | PASS | Serial fault and queued-write tests |
 | REQ-018 | Exclusive new CSV; no overwrite | TEST-015/019 | PASS | Monitor and example repeat-run tests; D006 |
-| REQ-019 | Sustained independent whole-stack operation | TEST-016 | PASS | E030: 600 s / 18,445 rows / 14,730 concurrent callbacks; fault integration |
+| REQ-019 | Sustained independent whole-stack operation | TEST-016 | PASS | E032: 60 s / 1,656 rows / 1,218 callbacks plus fault suite |
 | REQ-020 | Tested guides, examples and actual visuals | TEST-017 | PASS | Example tests, links and browser review |
 | REQ-021 | Bootstrap client and researcher workflow | TEST-018 | PASS | GUI tests, screenshot and five SVGs |
 | REQ-022 | Install/CLI/termination/hardware template | TEST-019 | PASS | Fresh installation, signals and example tests |
@@ -52,16 +53,19 @@ explicit. Disconnect cancels recovery, closes serialized device I/O and joins th
 worker; the worker closes its CSV. Dash reads snapshots and calls the same public
 setpoint method. The serial backend contains the codec boundary and bounded byte
 exchange. No global registry, compatibility shim or separate logger/state lifecycle
-remains. Do not share a raw backend across controllers or processes.
+remains. Serial configuration is read-only; CSV close runs outside the snapshot
+lock; headless recording now exits with an error when CSV writing fails.
+Do not share a raw backend across controllers or processes.
 
-- 187 unit/integration/fault/example tests PASS against a non-editable installation
-  in a fresh Python 3.12.14 environment; [JUnit](outputs/driver-tests.xml).
+- 193 unit/integration/fault/example tests PASS against a non-editable installation
+  in a fresh Python 3.12.14 environment; [JUnit](outputs/holistic-tests.xml).
 - Ruff lint/format, mypy for eight package files and pip check PASS. Zero core
   dependencies; pinned GUI/serial/development dependencies installed normally.
-- Core module count and installed/source integrity: [audit](outputs/driver-audit.json).
-- Sustained simulator/CSV/Dash result: [run](outputs/driver-soak.txt).
-- Actual simulator screenshot, desktop/narrow layout, safe/unsafe controls and
-  README/diagram rendering reviewed. [Report](outputs/REPORT.md), [E030](records/RECORDS.md#e030).
+- Core module count and installed/source integrity: [audit](outputs/holistic-review.json).
+- Sustained simulator/CSV/Dash result: [run](outputs/holistic-soak.txt).
+- GUI source/styles and the actual screenshot remain unchanged from E030.
+  Current callbacks, snapshot behavior, guides and links were revalidated.
+  [Report](outputs/REPORT.md), [E031/E032](records/RECORDS.md#e031).
 
 Version 0.2 intentionally removes old get_* names, public policy/monitor/logger
 constructors, CSV append, and simulator noise/fault configuration. See D006 for

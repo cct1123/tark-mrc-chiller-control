@@ -1134,3 +1134,89 @@ REQ-002/006 and REQ-015 remain BLOCKED by EXT-001/003. No physical commands,
 settings, signal availability, calibration or reliability are inferred from
 simulation. The next engineering action remains obtaining the matching controller
 manual, then implementing cited codec bytes inside serial.py before candidate review.
+
+## E031
+
+Date: 2026-09-10 (America/Chicago). Scope: prompt 13 holistic review at b9ecb32.
+Methods: source/test/documentation/package audit; independent serial/controller
+and GUI/CLI review; memory-only fault injection. No physical hardware interaction.
+Affected prior REQ-006/008/009/014/017/022 PASS claims were suspended pending repair.
+
+Four consequential defects were reproduced and corrected without new modules:
+
+- Monitor held its snapshot lock while closing CSV. A deliberately stalled close
+  prevented both snapshot access and the stop-timeout error from returning.
+  The failing regression used a real file wrapper, pending close, a 20 ms stop
+  timeout and a 500 ms outer deadline. CSV close now runs outside that lock;
+  metadata publication remains locked, and the worker retains ownership until
+  cleanup finishes. The regression now returns the intended TimeoutError, reads
+  a snapshot, rejects a duplicate worker, then completes cleanup after release.
+- Headless CSV failure was only reported after the run ended. A disk-full failure
+  at roughly 15 ms remained silent until a 0.6 s timed run ended; an indefinite
+  run had no exit condition. The headless launcher now stops on logging_error,
+  closes the driver/worker and exits nonzero. Its real-worker regression requests
+  60 seconds but permits fewer than ten 50 ms idle waits. API/GUI monitoring still
+  continues with an explicit recording error, as intended.
+- SerialDevice allowed reassignment of validated settings and limits. Setting its
+  timeout to NaN disabled deadline comparisons; an infinite response limit also
+  bypassed the original byte cap. All four constructor settings now have read-only
+  properties. Regressions reject reassignment before/after connect and verify
+  that delayed/oversized replies still fail at the original limits.
+
+- Source archives omitted tests/fakes.py because automatic test discovery packaged
+  only test_*.py. The archive could not run its serial/integration tests outside
+  the checkout. MANIFEST.in now explicitly includes tests/*.py; the rebuilt
+  archive is extracted and its complete suite run as an independent check.
+
+No new module, dependency, wire command or ownership framework was added.
+Version 0.2.1 retains the compact public API. User guides now distinguish headless
+recording failure from continued API/GUI acquisition and describe fixed serial
+configuration and pending CSV cleanup. Final current evidence follows in E032.
+
+The cached official manual SHA-256 still matches E002 exactly. Pages 7/12 were
+re-read: water 2–40 °C; RS232/RS485 availability; separate controller manual.
+No matching communication manual is present among project inputs. Software
+profiles are not physical safety evidence; protocol and unit dependencies remain.
+
+## E032
+
+Date: 2026-09-10 (America/Chicago). Scope: current 0.2.1 holistic-review acceptance.
+Baseline b9ecb32; reviewed input hashes, environment and results are in
+[holistic-review.json](../outputs/holistic-review.json).
+
+A fresh Python 3.12.14 virtual environment used a normal non-editable source
+installation, all pinned dependency versions and no shared site-packages.
+**193 tests PASS in 29.80 s**, including simulator/serial substitution, adversarial
+setpoints, recovery/no replay, blocked CSV close, recording faults, signals,
+GUI callbacks, all examples and documented Python blocks.
+[JUnit](../outputs/holistic-tests.xml). Ruff lint/format, mypy (eight package files)
+and pip check PASS. The package remains six functional modules plus two entries,
+1,271 Python lines, 38.2% below the 2,056-line pre-refactor baseline.
+
+Installed simulator/CSV/Dash regression: TARK_SOAK_SECONDS=60, then
+`python -m pytest tests/test_end_to_end.py::test_simulator_monitor_csv_dash -s -q`.
+Observed 1,656 sample/CSV rows, 1,218 concurrent callback/reload cycles, history
+bounded at 25, final temperature 18.000000000000007 °C at an 18 °C target, and clean
+worker/file/connection shutdown. [Output](../outputs/holistic-soak.txt).
+One Plotly dependency deprecation warning was emitted; no failure or map trace was
+introduced. E030's 600-second run remains historical, not a new run of this patch.
+
+Source archive and wheel build/install and module/console entry checks PASS;
+[build](../outputs/holistic-build.txt). All 12 package source, wheel and installed
+files match; obsolete modules remain absent. The corrected source archive also
+passes all 193 tests in 29.77 s when extracted outside the checkout, using the
+installed package; [archive JUnit](../outputs/holistic-archive-tests.xml).
+76 current user/development/project
+links and heading anchors passed case-sensitive checks; five SVGs parsed. GUI
+source, CSS and screenshot are unchanged from E030; the current full suite
+revalidated snapshot responsiveness, presentation and controls. A fresh screenshot
+was unnecessary because no visual source or GUI dependency changed.
+
+Coordinator reconciled both independent reviews and rechecked the repairs and
+public API. No additional consequential issue was found. Guides now describe
+fixed serial configuration, CSV cleanup pending during stop timeout and immediate
+headless recording failure. Prompt 13, STATE and REPORT are current. No new module,
+core dependency, hardware command or protocol assumption was added. All applicable
+hardware-independent criteria PASS; physical criteria remain BLOCKED solely by
+EXT-001/003. The next engineering action remains obtaining and implementing the
+matching documented codec, followed by reviewed physical validation.

@@ -117,10 +117,12 @@ class Monitor:
             try:
                 self._file.close()
             except OSError as exc:
-                self._logging_error = f"CSV close failed: {exc}"
+                with self._lock:
+                    self._logging_error = f"CSV close failed: {exc}"
             finally:
-                self._file = None
-                self._writer = None
+                with self._lock:
+                    self._file = None
+                    self._writer = None
 
     def _start(self) -> None:
         ready: Event | None = None
@@ -197,7 +199,7 @@ class Monitor:
             except (OSError, ValueError) as exc:
                 with self._lock:
                     self._logging_error = f"CSV recording stopped: {exc}"
-                    self._close_csv()
+                self._close_csv()
         with self._lock:
             self._history.append(sample)
             self._count += 1
@@ -216,10 +218,11 @@ class Monitor:
             with self._lock:
                 self._service_error = f"Monitoring stopped: {type(exc).__name__}: {exc}"
         finally:
-            with self._lock:
-                try:
-                    self._close_csv()
-                except BaseException as exc:
+            try:
+                self._close_csv()
+            except BaseException as exc:
+                with self._lock:
                     self._logging_error = f"CSV close failed: {type(exc).__name__}: {exc}"
-                finally:
+            finally:
+                with self._lock:
                     self._running = False

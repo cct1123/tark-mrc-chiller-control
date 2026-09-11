@@ -86,3 +86,59 @@ def test_invalid_duration_is_rejected_before_creating_csv(args, tmp_path):
         cli.main([*args, "--csv", str(path)])
     assert error.value.code == 2
     assert not path.exists()
+
+
+def test_headless_csv_failure_exits_promptly_and_releases_resources(tmp_path, monkeypatch):
+    original_open, original_start = Path.open, Chiller.start_monitoring
+    original_sleep = cli.time.sleep
+    streams, monitors = [], []
+
+    class FullDisk:
+        def __init__(self, stream):
+            self.stream = stream
+            self.writes = 0
+
+        def write(self, value):
+            self.writes += 1
+            if self.writes > 1:
+                raise OSError("simulated disk full")
+            return self.stream.write(value)
+
+        def flush(self):
+            self.stream.flush()
+
+        def close(self):
+            self.stream.close()
+
+    def open_csv(path, *args, **kwargs):
+        stream = original_open(path, *args, **kwargs)
+        if path.name == "full.csv" and args and args[0] == "x":
+            streams.append(stream)
+            return FullDisk(stream)
+        return stream
+
+    def start_monitoring(self, *args, **kwargs):
+        monitor = original_start(self, *args, **kwargs)
+        monitors.append(monitor)
+        return monitor
+
+    waits = 0
+
+    def bounded_sleep(seconds):
+        nonlocal waits
+        waits += 1
+        assert waits < 10, "Headless CLI kept running after CSV recording failed"
+        original_sleep(seconds)
+
+    monkeypatch.setattr(Path, "open", open_csv)
+    monkeypatch.setattr(Chiller, "start_monitoring", start_monitoring)
+    monkeypatch.setattr(cli.time, "sleep", bounded_sleep)
+    path = tmp_path / "full.csv"
+    with pytest.raises(SystemExit, match="simulated disk full"):
+        cli.main(["--headless", "--duration", "60", "--interval", "0.01", "--csv", str(path)])
+    snapshot = monitors[0].snapshot()
+    assert snapshot.logging_error and snapshot.logged_samples == 0
+    assert not snapshot.running and not snapshot.logging_enabled
+    assert not monitors[0]._chiller.is_connected
+    assert streams[0].closed
+    path.unlink()

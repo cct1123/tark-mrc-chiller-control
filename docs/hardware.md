@@ -50,6 +50,8 @@ Its `SerialSettings` has ten explicit fields:
 `xonxoff`, `rtscts`, `dsrdtr`, `rts`, `dtr`.
 An optional `RS485Mode` supplies `rts_level_for_tx`, `rts_level_for_rx`,
 `loopback`, `delay_before_tx` and `delay_before_rx`.
+SerialDevice configuration is read-only after construction, including its timeout
+and response-size limit. Close it and create a new backend to change settings.
 
 [Example 06](../examples/06_hardware_configuration.py) accepts those documented
 objects and returns a disconnected Chiller. It supplies no guessed values or

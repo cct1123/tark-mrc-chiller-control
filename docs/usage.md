@@ -41,7 +41,9 @@ or automatic overwrite mode.
 
 The worker flushes each row for readers. Flushing is not a power-loss guarantee.
 If writing fails, `logging_error` reports it and recording stops; acquisition
-can continue. `stop_monitoring()` waits for polling and closes CSV.
+can continue in the API and GUI. The headless launcher stops and exits with
+the error so unattended recording cannot fail silently.
+`stop_monitoring()` waits for polling and closes CSV.
 `disconnect()` performs this cleanup too.
 
 ![Acquisition, CSV and display data flow](assets/data-flow.svg)

@@ -56,11 +56,11 @@ with Chiller(Simulator()) as chiller:
 - `history` and `latest`: samples with time, temperature, target, status and errors.
 - `running`, `sample_count` and `failed_samples`: acquisition progress.
 - `logging_enabled`, `logged_samples` and `logging_error`: recording progress.
-- `service_error`: an unexpected worker failure.
+- `service_error`: an acquisition or shutdown error.
 
 Failed samples have missing temperature/target values and an `error`. Check both
 service and recording errors: acquisition can continue after writing fails.
-History retains at most `history_size` samples; CSV records the complete run.
+History retains at most `history_size` samples; that limit does not truncate CSV.
 A stop timeout means work is still active. Resolve pending I/O and retry
 shutdown; do not assume recording has closed.
 

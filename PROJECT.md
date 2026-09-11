@@ -34,6 +34,8 @@ CSV append/resume, simulator noise/fault configuration, global ownership
 registries and GUI connection management are removed by this simplification.
 Updated criteria below supersede the corresponding 0.1 criteria; earlier results
 remain historical evidence only. Decision D006 records the tradeoff.
+[Prompt 13](prompt%20log.md#prompt-13) requests a holistic review, corrections,
+updated evidence, commit and push without changing the compact-driver scope.
 
 ## Requirements / acceptance criteria
 

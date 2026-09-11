@@ -60,7 +60,10 @@ def main(argv: list[str] | None = None) -> None:
         if args.headless:
             print("Simulator monitoring started. Press Ctrl+C to stop.", flush=True)
             deadline = time.monotonic() + args.duration if args.duration is not None else None
-            while monitor.snapshot().running:
+            while True:
+                snapshot = monitor.snapshot()
+                if not snapshot.running or snapshot.logging_error:
+                    break
                 if deadline is not None and time.monotonic() >= deadline:
                     break
                 time.sleep(0.05)

@@ -135,15 +135,31 @@ class SerialDevice:
             raise ValueError("rs485 must be explicit RS485Mode or None")
         if type(max_response_bytes) is not int or max_response_bytes <= 0:
             raise ValueError("max_response_bytes must be a positive integer")
-        self.settings = settings
-        self.rs485 = rs485
-        self.timeout_s = _seconds(timeout_s, "timeout_s")
-        self.max_response_bytes = max_response_bytes
+        self._settings = settings
+        self._rs485 = rs485
+        self._timeout_s = _seconds(timeout_s, "timeout_s")
+        self._max_response_bytes = max_response_bytes
         self._codec = codec
         self._factory = serial_factory if serial_factory is not None else _serial_factory
         self._endpoint: Any = None
         self._usable = False
         self._last_error = "disconnected"
+
+    @property
+    def settings(self) -> SerialSettings:
+        return self._settings
+
+    @property
+    def rs485(self) -> RS485Mode | None:
+        return self._rs485
+
+    @property
+    def timeout_s(self) -> float:
+        return self._timeout_s
+
+    @property
+    def max_response_bytes(self) -> int:
+        return self._max_response_bytes
 
     @property
     def is_connected(self) -> bool:

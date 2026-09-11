@@ -1,15 +1,15 @@
-# Engineering report — compact driver 0.2.0
+# Engineering report — compact driver 0.2.1
 
 ## Objective and outcome
 
 Refactor the project into a small laboratory device driver, usable directly from
 scripts and larger experiment-control programs. The software candidate has six
 functional modules plus package/module entry files: **13 → 8 Python files,
-2,056 → 1,249 lines (39.3% fewer)**. There are no core dependencies, implicit
+2,056 → 1,271 lines (38.2% fewer)**. There are no core dependencies, implicit
 workers, global registries or compatibility modules.
 
-**187 current tests PASS**, as do static checks, a fresh non-editable installation
-and a ten-minute simulator/CSV/Dash run. Real MRC control is unavailable: the
+**193 current tests PASS**, as do static checks, a fresh non-editable installation
+and a one-minute simulator/CSV/Dash regression. Real MRC control is unavailable: the
 matching controller communication manual is missing and no physical unit has
 been validated. No serial hardware was discovered, opened or operated.
 
@@ -48,33 +48,37 @@ changes authorized by prompt 12. [API guide](../docs/api.md).
 
 Hardware-independent REQ-001–014 and REQ-016–023 PASS against their updated
 criteria. Physical portions of REQ-002/006 and REQ-015 remain BLOCKED by EXT-001/003.
-The [current matrix](../STATE.md) maps every requirement; [E029/E030](../records/RECORDS.md#e029)
-records review, corrections and evidence. Earlier 0.1 results are historical.
+The [current matrix](../STATE.md) maps every requirement; [E031/E032](../records/RECORDS.md#e031)
+records review, corrections and evidence. Earlier 0.2.0 and 0.1 results remain historical evidence.
 
 | Validation | Observed result |
 | --- | --- |
-| Installed unit/integration/fault/example tests | 187 PASS in 29.81 s; [JUnit](driver-tests.xml) |
+| Installed unit/integration/fault/example tests | 193 PASS in 29.80 s; [JUnit](holistic-tests.xml) |
+| Extracted source archive tests | 193 PASS in 29.77 s; [JUnit](holistic-archive-tests.xml) |
 | Static checks | Ruff lint/format PASS; mypy eight files PASS; pip check PASS |
 | Installation | Fresh Python 3.12.14 environment, pinned dependencies, non-editable package |
-| Packaging | Source archive/wheel build and module/console entry checks; [build](driver-build.txt), [inventory/integrity](driver-audit.json) |
-| Sustained simulator → Chiller → monitor → CSV/Dash | 600 s, 18,445 samples/CSV rows, 14,730 concurrent callbacks, 25 retained samples; [run](driver-soak.txt) |
-| Sustained temperature and shutdown | Cooled from 20 °C to 18 °C; acquisition continued without browsers; no worker/file/connection left active |
-| Fake serial | Explicit RS232/RS485 setup, unavailable/busy/permission failures, truncated/malformed/delayed replies, timeouts/unplug, bounded recovery and lost-write-acknowledgement tests |
-| Browser and guides | Actual screenshot, 18 °C accepted / 1 °C rejected, page reload, responsive layout, 85 local links and five diagrams reviewed |
-| GUI shutdown | 2,450 complete rows; 327 measured after browser closure; Ctrl-C stopped sampling; CSV accessible and local ports closed |
+| Packaging | Source archive/wheel build and module/console entry checks; [build](holistic-build.txt), [inventory/integrity](holistic-review.json) |
+| Current installed simulator → Chiller → monitor → CSV/Dash | 60-second regression with concurrent callbacks and bounded history; [run](holistic-soak.txt) |
+| Fake serial | Explicit RS232/RS485 setup, fixed configuration, unavailable/busy/permission failures, truncated/malformed/delayed replies, bounded recovery and no write replay |
+| Lifecycle faults | Stalled CSV close preserves snapshot access and stop timeout; headless disk-full exits promptly and releases resources |
+| User path | Examples and README/API code blocks run against the installed package; local links, anchors and SVG XML checked |
+| Visual baseline | GUI source/styles/assets unchanged from E030; current callback and snapshot tests PASS |
 
-Independent review found interrupted startup could leak an open CSV before the
-thread started. Ready-event and thread construction now occur within cleanup
-protection; regression tests cover these failures and interruption after launch.
-Other tests exercise queued-write cancellation across reconnect, one active
-worker, pending-read shutdown, disk-full recording failure and fatal worker state.
-Acquisition errors produce missing values, never substitute zeros.
+The holistic review reproduced four defects: CSV close held the snapshot lock,
+headless recording did not report failure until shutdown, mutable serial
+configuration could disable validated transaction limits, and source archives
+omitted the shared serial test fixture. The repairs stay within
+the existing modules. Regressions verify real worker/file behavior and bounded
+memory-serial transactions. [E031](../records/RECORDS.md#e031) records diagnosis.
 
-The sustained run began before the final startup-interruption guard adjustment.
-That adjustment affects failed startup only; the full installed suite, including
-successful startup and all interruption regressions, passed on the final source.
-The complete successful running path was unchanged. No physical performance is
-inferred from simulated temperatures, synthetic messages or callback throughput.
+The API and GUI can continue monitoring after a CSV error with an explicit
+logging_error. The headless launcher now stops and exits nonzero immediately.
+Serial settings, RS485 mode, timeout and byte limit are read-only after construction.
+A stop timeout leaves cleanup ownership intact while snapshots remain accessible.
+
+E030's ten-minute run and actual simulator screenshot remain historical baseline
+evidence. The full installed suite and one-minute integration were rerun for this
+patch; no hardware performance is inferred from either test duration.
 
 ## Exact operation
 
@@ -98,6 +102,7 @@ For the optional GUI:
 
 Open http://127.0.0.1:8050. Choose a new CSV filename each run. Ctrl-C in the
 terminal shuts down the worker, connection and CSV; closing the browser does not.
+A headless CSV failure stops the run with a nonzero exit and error message.
 Use `start_monitoring(csv_path=...)` for recording inside your own application.
 The [quick start](../docs/quickstart.md) and [examples](../README.md#numbered-examples)
 show the current API. The [development guide](../development/README.md) gives exact

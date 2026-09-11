@@ -119,6 +119,26 @@ def test_invalid_response_budget(budget):
         make_serial(max_response_bytes=budget)
 
 
+@pytest.mark.parametrize(
+    "name,value",
+    [
+        ("settings", replace(fake_settings(), port="OTHER-FAKE-ONLY")),
+        ("rs485", RS485Mode(True, False, False, None, None)),
+        ("timeout_s", math.nan),
+        ("max_response_bytes", math.inf),
+    ],
+)
+def test_serial_configuration_is_read_only_before_and_after_connect(name, value):
+    device, _ = make_serial()
+    original = getattr(device, name)
+    with pytest.raises(AttributeError):
+        setattr(device, name, value)
+    with Chiller(device):
+        with pytest.raises(AttributeError):
+            setattr(device, name, value)
+        assert getattr(device, name) == original
+
+
 @pytest.mark.parametrize("rs485", [False, True])
 @pytest.mark.parametrize(
     "error",
@@ -182,6 +202,8 @@ def test_exact_response_byte_budget_and_overflow():
         device, endpoint = make_serial(endpoint=FakeSerial(reply), max_response_bytes=budget)
         chiller = Chiller(device)
         chiller.connect()
+        with pytest.raises(AttributeError):
+            device.max_response_bytes = math.inf
         try:
             if succeeds:
                 assert chiller.read_temperature() == 20
@@ -275,6 +297,8 @@ def test_delayed_complete_reply_respects_transaction_budget(delay, succeeds):
     endpoint.delay_s = delay
     chiller = Chiller(device)
     chiller.connect()
+    with pytest.raises(AttributeError):
+        device.timeout_s = math.nan
     try:
         if succeeds:
             assert chiller.read_temperature() == 20

@@ -12,11 +12,12 @@
 | CSV exists | Choose a new filename. There is no append or overwrite mode. |
 | CSV write/permission error | Check the error, free space and folder permissions. Stop, resolve the problem and choose a new file. |
 | Recording stops, temperature updates | Inspect `logging_error`; those new readings are not being saved. |
+| Headless recording exits with a CSV error | Recording failed. Resolve disk space/permissions and restart with a new file. |
 | Target rejected | Enter a finite numeric Celsius value within the bounds, 2–40 °C by default. |
 | Temperature moves slowly | Expected simulator behavior; check the reported target and wait. |
 | Unavailable/stale readings | Read the fault and terminal output. Resolve the cause before relying on values again. |
 | Monitoring already started | Reuse the handle, or call `stop_monitoring()` before a new run. |
-| Stop timeout | Polling is active. Resolve pending I/O and retry shutdown; do not assume CSV is closed. |
+| Stop timeout | The worker or CSV cleanup is still active. Resolve pending I/O and retry shutdown; do not assume CSV is closed. |
 | Tab closed but recording continues | Expected: stop with Ctrl+C in the terminal. |
 | Controller communication manual required | Hardware is blocked before port opening. Use the simulator; do not guess settings. |
 | Future serial port missing/denied/busy | Verify the intended adapter, OS port, permissions and competing applications against the approved setup. |

@@ -249,3 +249,50 @@ def test_slow_setpoint_read_does_not_make_temperature_look_fresh(monkeypatch):
         release.set()
         wait_for(lambda: monitor.snapshot().latest is not None)
         assert monitor.snapshot().latest.sampled_monotonic <= sampled_before
+
+
+def test_blocked_csv_close_does_not_block_snapshots_or_stop_timeout(tmp_path, monkeypatch):
+    from concurrent.futures import ThreadPoolExecutor
+
+    closing, release = Event(), Event()
+    original_open = Path.open
+    path = tmp_path / "slow-close.csv"
+
+    class SlowClose:
+        def __init__(self, stream):
+            self.stream = stream
+
+        def write(self, row):
+            return self.stream.write(row)
+
+        def flush(self):
+            self.stream.flush()
+
+        def close(self):
+            closing.set()
+            assert release.wait(3)
+            self.stream.close()
+
+    def open_file(target, *args, **kwargs):
+        stream = original_open(target, *args, **kwargs)
+        return SlowClose(stream) if target == path else stream
+
+    monkeypatch.setattr(Path, "open", open_file)
+    with Chiller(Simulator()) as chiller, ThreadPoolExecutor(2) as pool:
+        monitor = chiller.start_monitoring(interval_s=0.01, csv_path=path)
+        wait_for(lambda: monitor.snapshot().sample_count > 0)
+        pending_stop = pool.submit(chiller.stop_monitoring, 0.02)
+        try:
+            assert closing.wait(1)
+            with pytest.raises(TimeoutError, match="still owned"):
+                pending_stop.result(0.5)
+            snapshot = pool.submit(monitor.snapshot).result(0.5)
+            assert snapshot.running and snapshot.logging_enabled
+            with pytest.raises(RuntimeError, match="already started"):
+                chiller.start_monitoring()
+        finally:
+            release.set()
+        chiller.stop_monitoring()
+        assert not monitor.running
+        assert not monitor.snapshot().logging_enabled
+    path.unlink()

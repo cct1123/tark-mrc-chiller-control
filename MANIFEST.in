@@ -3,5 +3,6 @@ include AGENTS.md PROJECT.md STATE.md prompt?log.md
 include records/RECORDS.md
 include outputs/*.md outputs/*.json outputs/*.xml outputs/*.sha256 outputs/*-build.txt outputs/*-soak.txt outputs/*.jpg
 recursive-include examples *.py
+recursive-include tests *.py
 recursive-include development *.md
 recursive-include docs *.md *.svg *.jpg

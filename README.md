@@ -103,6 +103,7 @@ For continuous recording without a browser:
 
 Stop with Ctrl+C; add `--duration 60` for a one-minute run.
 CSV files are never overwritten or appended automatically.
+Headless recording stops and reports an error if CSV writing fails.
 
 ## Real hardware
 

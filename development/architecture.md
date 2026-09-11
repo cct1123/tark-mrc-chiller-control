@@ -45,6 +45,9 @@ retried or replayed.
 `disconnect()` cancels recovery, closes the backend, joins monitoring and closes
 its CSV. Stop timeout remains an error, not proof of successful cleanup. OS calls
 that ignore their timeout cannot be forcibly interrupted by Python.
+CSV close runs outside the snapshot lock, so snapshots and stop-timeout errors
+remain available while filesystem cleanup is pending. Serial settings and
+transaction limits are fixed at construction, including across reconnects.
 
 Snapshots are immutable, history is bounded, and poll timestamps refer to the
 start of sequential reads. A failed poll has missing values. CSV failure remains
