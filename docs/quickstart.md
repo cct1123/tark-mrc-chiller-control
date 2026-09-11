@@ -10,6 +10,8 @@ Download and extract the repository, or use your lab's existing copy. Open
 PowerShell in the project folder containing `pyproject.toml`. Run all commands
 below from that folder. Copy only the command text into the terminal.
 
+![Local simulator setup: install, launch, open browser and record CSV](assets/quickstart.svg)
+
 ## 1. Install once
 
 ```powershell
@@ -22,12 +24,18 @@ Python environment and install the app with its dashboard packages:
 
 ```powershell
 python -m venv .venv
-.\.venv\Scripts\python -m pip install -e ".[gui]"
+.\.venv\Scripts\python -m pip install -c requirements-tested.txt ".[gui]"
 ```
 
 The `.venv` folder holds this project's Python and packages. The commands call
 that Python directly, so you do not need to activate the environment. Reuse it
 on later runs; do not repeat installation each time.
+
+This installs a normal package copy with the tested dependency versions. After
+updating the project, repeat the install command. For headless/API use only,
+install `.` instead of `".[gui]"`; the core has no third-party dependencies.
+On Linux/macOS, use `.venv/bin/python` in place of the Windows Python path;
+those operating systems have not been validated by this release.
 
 ## 2. Start the dashboard and recording
 
@@ -36,7 +44,7 @@ on later runs; do not repeat installation each time.
 ```
 
 Leave the terminal running. Open [http://127.0.0.1:8050](http://127.0.0.1:8050)
-on the same computer. Check that the page says **simulator**, **Monitor running**
+on the same computer. Check that the page says **simulator**, **Monitoring**
 and **CSV Enabled**. Sample and row counts should increase about once a second.
 The app creates the `outputs` folder inside your current project folder. Choose
 a new CSV filename for each new run.
@@ -66,6 +74,14 @@ Without `--append-csv`, the app refuses an existing file. Stop this run with Ctr
 
 ## Without a browser
 
+For continuous recording, omit `--duration` and stop with Ctrl+C:
+
+```powershell
+.\.venv\Scripts\python -m tark_chiller --headless --csv outputs/continuous.csv
+```
+
+For a short timed recording:
+
 ```powershell
 .\.venv\Scripts\python -m tark_chiller --headless --duration 5 --interval 0.2 --csv outputs/headless.csv
 ```
@@ -73,3 +89,7 @@ Without `--append-csv`, the app refuses an existing file. Stop this run with Ctr
 This records about once every 0.2 seconds for five seconds, then exits. Exact
 timing depends on your computer. For CSV fields, Python examples and status
 messages, continue to the [user guide](usage.md).
+
+Run `.\.venv\Scripts\python -m tark_chiller --help` to see the small set of
+options. `--duration` requires `--headless`; without `--headless`, the app serves
+the dashboard until stopped. `.\.venv\Scripts\tark-chiller` is the same launcher.

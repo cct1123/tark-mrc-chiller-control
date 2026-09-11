@@ -150,8 +150,10 @@ and serial parameters are fixture data, never Tark configuration examples.
 | TEST-013 | `tests/test_simulation.py`: injected clock, measurement cadence, seeded variation, deterministic finite fault scripts, reusable synthetic correlation/framing/value checks and both transports with forbidden OS factories. |
 | TEST-014 | `tests/test_recovery.py`: finite outage budget, successful recovery/reset, explicit cancellation/exhaustion, no protocol retries or write replay, concurrent disconnect and long recovery delay. |
 | TEST-015 | `tests/test_csv_resume.py`: explicit append, session IDs, header/schema/record validation before writing, malformed/truncated input unchanged, flush/error latch and concurrent close/write. |
-| TEST-016 | `tests/test_end_to_end.py` and `examples/hardware_free_demo.py`: combined fault run; default sustained conditions 600 s, 1 s polls, capacity 120, seeded 0.01 °C noise. Require >=80% requested sample count, exact CSV/sample/row counts, bounded history/trace, failed polls visible, exactly three applied writes, final valid temperature within 0.2 °C of 18 °C, GUI callbacks/reloads and acquisition before/after browser activity, clean shutdown. These are synthetic software criteria, not hardware tolerances. |
+| TEST-016 | `tests/test_end_to_end.py` and `development/hardware_free_demo.py`: combined fault run; default sustained conditions 600 s, 1 s polls, capacity 120, seeded 0.01 °C noise. Require >=80% requested sample count, exact CSV/sample/row counts, bounded history/trace, failed polls visible, exactly three applied writes, final valid temperature within 0.2 °C of 18 °C, GUI callbacks/reloads and acquisition before/after browser activity, clean shutdown. These are synthetic software criteria, not hardware tolerances. |
 | TEST-017 | In a fresh Python 3.12 environment, execute the current quick-start and maintainer commands and Python blocks extracted from the user guide. Verify CSV fields, row counts and append session separation. Use the real simulator GUI for safe/unsafe controls and an unedited screenshot. Render Markdown and all three SVG diagrams, inspect layout/images, check local links/anchors, and distinguish simulator/fake-serial evidence from unavailable physical validation. |
+| TEST-018 | Run all five numbered examples in subprocesses, check CSV data and refusal to overwrite, and inject a disk error into the logging example. Verify the installed wheel contains local Bootstrap/CSS/license assets and excludes developer serial fixtures. Test fresh layout requests after state changes, stale/stopped cards, safe controls, mobile/tablet/desktop layout, annotated screenshots and guide links. Rerun the complete suite and sustained fault demonstration after core simplification. Record any environment reuse explicitly. |
+| TEST-019 | Fresh non-editable source/wheel install with pinned dependencies; full suite, Ruff, mypy and pip check. Real SIGINT/SIGTERM/SIGBREAK handlers stop continuous headless sampling and release CSV/device; interrupted worker startup, serial I/O/decode and CSV writes retain ownership or refuse uncertain reuse. Bare package copy under python -S proves core operation without extras and friendly GUI failure before file creation. Hardware template uses real configuration types but a forbidden serial factory. Run normal console/module entry points, actual simulator browser/Ctrl-C, guide links and installed-file integrity checks. |
 
 Before hardware readiness, extend short tests with a sustained run and combined
 fault injection while GUI is active. Measure cadence, bounded history, file growth,
@@ -633,7 +635,7 @@ was inferred. EXT-001/003 remain; unavailable attachment provenance is explicit.
 
 A temporary repository copy and newly created virtual environment exercised the
 commands in [quick start](../docs/quickstart.md), [usage](../docs/usage.md) and
-[maintainer checks](../ARCHITECTURE.md#validation-reproduction). Initial PATH
+[maintainer checks](../development/architecture.md#validation-reproduction). Initial PATH
 selected unsupported Python 3.9.12 and its package download failed with SSL errors.
 The guide now separates the version check and requires stopping below 3.12.
 Selecting installed Python 3.12.14 and creating a fresh environment succeeded;
@@ -673,7 +675,7 @@ the concise observations here preserve their results without duplicate artifacts
 Date: 2026-09-10 (America/Chicago).
 Kind / scope: documentation visual acceptance and handoff; TEST-001/017, REQ-020.
 
-[GUI screenshot](../docs/assets/simulator-gui.jpg) is an unedited full-page JPEG browser
+[GUI screenshot](../outputs/documentation-v1.jpg) is an unedited full-page JPEG browser
 capture from the production simulator CLI, 1265 × 1313 pixels, 90,426 bytes,
 SHA-256 `39f70efd318146f94d78f0e55dc326baf1157f6a5eb8e1ea82a21d55edd6cefc`.
 It shows 122 samples/CSV rows, zero failed polls, 18.35 °C at an 18 °C target,
@@ -732,3 +734,285 @@ The temporary preview was stopped and its files removed. Origin/main was verifie
 is authorized for a normal fast-forward push to that branch; Git HEAD and upstream
 identify the final revision. Authoritative protocol and later physical acceptance
 remain the only engineering blockers.
+
+## D004
+
+Date: 2026-09-10 (America/Chicago).
+Decision / scope: researcher workflow and targeted simplification; prompt 9,
+REQ-002/008/011/014/020/021.
+
+Keep Chiller's seven device operations and the existing Monitor/CsvLogger classes.
+Monitor now creates LiveState when omitted; all three are available from the
+package root. Consolidate initial/retry connection and read handling into one
+bounded loop, use its error state instead of a duplicate blocked flag, and reuse
+finite-number validation. Retain ownership locks, cancellation tokens, transport
+and codec boundaries because fault/concurrency tests demonstrate their purpose.
+No manager, factory, command queue, plugin mechanism or new core dependency added.
+
+Use dash-bootstrap-components for responsive cards and controls, with a local
+instrument stylesheet and vendored Bootstrap CSS. Bootstrap 5.3.8 is from the
+[official distribution](https://getbootstrap.com/docs/5.3/getting-started/download/);
+its SHA-384 is `sRIl4kxILFvY47J16cr9ZwB07vP4J8+LH7qKQnuqkuIAvNWLzeN8tE5YBujZqJLB`.
+The MIT license ships alongside it. Keep styling local so installed laboratory
+sessions do not depend on a CDN. Plotly figure settings remain beside the figure.
+
+Move the synthetic serial endpoint/protocol and fault demonstration to development/;
+exclude them from the runtime wheel. Move architecture and maintainer navigation
+there too; preserve PROJECT, STATE, records and REPORT in their canonical locations.
+Replace duplicate usage code blocks with five executable examples and one API guide.
+Archive the old screenshot with its original hash; the new annotated tour embeds
+unchanged screenshot bytes with separate editable SVG markers and a legend.
+
+## E025
+
+Date: 2026-09-10 (America/Chicago).
+Kind / scope: coordinated refactor review and source verification; TEST-001/004/018,
+REQ-001–008/010–014/017/020/021. Baseline: fb369f6.
+
+Two bounded specialists reviewed core simplification and the Bootstrap dashboard;
+the coordinator reviewed examples, documentation, packaging and their integration.
+Independent follow-up caught stale relative imports after moving test fixtures.
+Corrections retained the production path through serial transport, device, API,
+monitoring, CSV and real Dash HTTP callbacks.
+
+Consequential findings and repairs:
+
+- Static app.layout captured old samples for a new page load. A callable layout
+  now reads the current snapshot; a regression checks changed and stale readings
+  through /_dash-layout without acquiring from the device.
+- Plotly's 100% wrapper height overflowed its card. Local CSS lets the figure set
+  its height; desktop, tablet and phone layouts were inspected in the browser.
+- Manual CSV sampling could hide Monitor's isolated file error. Example 03 now
+  checks logging_error before claiming success; injected disk failure must raise
+  and release the logger lock. Example 04 also checks final shutdown errors.
+- A Bootstrap Alert rejected an unsupported role argument. Remove that argument
+  and retain the component's own accessible alert behavior.
+
+The exposed project/attachment inputs and official Tark sources were searched
+again. No matching controller communication manual or identified controller model
+was found. An unrelated PR-59 controller document is not evidence for the MRC.
+The official Rev 13 PDF was re-read: SHA-256
+`24a64ef551f3e209addfb133a085c353f046ca20421d9f7453b8c9f16f4ca4eb`.
+Page 12 delegates communications; pages 4/7 require unit-specific interface
+confirmation; page 7 supports the default distilled-water 2–40 °C range.
+No wire commands/settings or physical telemetry were added. The new hardware
+tutorial marks every physical step as future work and lists the exact missing
+protocol information. E017's actual-unit coolant guidance discrepancy remains open.
+
+No physical port, discovery, device connection or actuation was attempted.
+
+## E026
+
+Date: 2026-09-10 (America/Chicago).
+Kind / scope: final refactor acceptance; TEST-001–011/013–018,
+all hardware-independent REQ-001–014/016–021. No TEST-012 physical step executed.
+
+Environment: Windows / Python 3.12.14. requirements-tested.txt pins 43 packages,
+including Dash 4.4.1, Plotly 6.9.0, dash-bootstrap-components 2.0.4 and pySerial 3.5.
+A full fresh dependency install failed with Errno 28 (disk full). Removed that
+phase's partial environment and created a fresh environment with --without-pip;
+installed the wheel with --no-deps, then supplied the existing pinned dependency
+site-packages through a process-local PYTHONPATH. Confirmed tark_chiller imports
+from the new environment's installed wheel. Global Python/settings were unchanged.
+This validates an isolated controller installation, not a new full dependency install.
+
+Observed results:
+
+- Installed-wheel `python -m pytest -q -p no:cacheprovider
+  --junitxml=outputs/refactor-tests.xml`: **367 PASS in 27.04 s**. All five numbered
+  examples execute in subprocesses through production code. CSV scripts validate
+  data and refuse overwrite; injected disk failure must surface and release locks.
+- Ruff check and format check PASS; mypy PASS across 13 modules; pip check PASS.
+  No behavioral test was removed. The previous baseline had 349 passing cases.
+- `python -m build --no-isolation`: final source archive and wheel PASS. A transient
+  disk-full attempt failed and was retried after confirming free space; the linked
+  build log is the successful run. All 17 package files match current source and
+  the tested installation byte for byte, including three local asset/license files
+  and py.typed. No tark_chiller/testing.py is in the wheel. The sdist contains the
+  five examples, researcher guides/assets and development fixtures.
+- README's Python block executes unchanged and prints 20.0 then 18.0. The five-second
+  headless command produces 25 rows; an append run adds five, preserving 30 valid
+  rows with two distinct session IDs. All have simulator backend, connected=True
+  and blank errors. The GUI launcher also ran through example 05.
+- `python -m development.hardware_free_demo --duration 600 --interval 1
+  --output outputs/refactor-soak` against the installed wheel: **PASS**, 600.0 s,
+  596 samples/CSV rows, 120 retained history, 30 unavailable polls, 3,889 refreshes,
+  156 page loads, 389 invalid writes rejected. Exactly three targets applied and
+  seven planned opens. Lost acknowledgement is reported and its target is never
+  replayed. Final simulated temperature 17.99835708423226 °C at an 18 °C target;
+  clean shutdown. See [summary](../outputs/refactor-soak.json).
+
+Browser acceptance used the real simulator CLI and native page interactions.
+18 °C produced cooling and reported target readback; 1 °C was rejected. Disconnect
+showed unavailable cards and explicit faults while CSV continued. Reconnect
+restored fresh readings; reload preserved target/history without starting another
+monitor. Temporary 390 × 844 and 800 × 900 viewport checks showed stacked cards,
+usable controls, and no horizontal document overflow (375/785 px content with a
+scrollbar). Default desktop layout was also inspected. Stylesheets were local
+/assets URLs. Viewport override was reset afterward. After closing the browser,
+recording continued for 516 further rows. Ctrl+C reported stopped monitoring;
+the closed CSV has 989 rows, including 49 intentionally unavailable polls.
+
+[New dashboard screenshot](../docs/assets/dashboard.jpg): unedited native JPEG,
+1265 × 955 pixels, 88,521 bytes, SHA-256
+`4390a8ba583666d85a030a64444a912ed9dfce014973850c3b9b375f7932866d`.
+It shows 123 samples/rows, zero failures and 18.19 °C at an 18 °C target. The
+annotated SVG embeds those same bytes with separate markers/legend. The historical
+E023 screenshot moved to outputs/documentation-v1.jpg without changing its hash.
+README, guides and illustrations were rendered with local Markdown tooling;
+screenshot/image loading, typography, diagrams, numbered annotations and local
+file/heading links passed review. No documentation framework was added.
+
+The [38-file manifest](../outputs/refactor-source-manifest.sha256) identifies source,
+tests, examples, developer fixtures, assets and configuration. Current evidence
+supersedes older run applicability; historical records are retained. Runtime code
+was unchanged throughout the final suite, ten-minute run and browser checks.
+Temporary validation environments, previews and sample recordings are removed after
+process shutdown; durable JUnit/build/summary/manifests and screenshots remain.
+
+All hardware-independent acceptance is PASS. Only EXT-001's matching protocol and
+EXT-003's eventual physical setup/authorization block physical requirements.
+[STATE](../STATE.md) records the precise next action. No physical validation,
+port discovery, real-device command, new commit or push occurred in this phase.
+
+## E027
+
+Date: 2026-09-10 (America/Chicago).
+Scope: prompt 10 final requirements audit and independent release review.
+Read PROJECT, AGENTS, STATE, all implementation/tests/examples, architecture,
+records and guides before editing. All 38 entry source files matched E026's
+manifest. That establishes provenance, not correctness. The official cached
+16-page Rev 13 manual was re-read in full; its hash remains the E002 value.
+Bounded project/attachment searches found no matching communication manual,
+identified unit or new serial configuration. No OS serial discovery was performed.
+
+Independent review reproduced four gaps despite the previous passing suite:
+
+- A KeyboardInterrupt after Thread.start launched a worker could discard its
+  handle and release ownership. Startup now gates polling until startup/cleanup
+  completes, preserves a launched worker for join, and excludes a late abandoned
+  bootstrap from a replacement worker. Both races have regression tests.
+- KeyboardInterrupt/SystemExit during serial open/read/write/decode left an
+  endpoint open. Sixteen RS232/RS485 fault cases failed before repair and passed
+  after cleanup was extended to interruptions; original exceptions propagate and
+  an uncertain applied write is never replayed.
+- A worker interruption could stop sampling without service_error. Both interrupt
+  classes now leave a visible fatal monitoring error before releasing ownership.
+- Interrupted CSV row/flush operations could permit continuation after a partial
+  or uncertain record. Four regressions now require a failed writer that refuses
+  reuse without altering existing bytes; the original interruption propagates.
+
+These repairs invalidate the affected E026 software PASS applicability until
+E028's integrated validation. No new public API or dependency was needed.
+The independent final pass found no further consequential issue in the repaired
+core, CLI, template or packaging. A confusing guide section/stage label was clarified.
+
+## D005
+
+Date: 2026-09-10 (America/Chicago).
+Decision: finish a software release candidate with the existing argparse launcher,
+seven-operation Chiller, independent Monitor/CsvLogger and local Bootstrap Dash.
+No framework, manager or hardware autodiscovery layer is added.
+
+Headless mode now runs until Ctrl+C when --duration is omitted; a positive finite
+duration requires --headless. GUI dependencies are checked before CSV creation.
+SIGTERM and Windows SIGBREAK reach ordered cleanup, with prior handlers restored;
+ordinary SIGINT already raises KeyboardInterrupt. Forced OS termination remains
+outside Python's guarantees. Normal lab installation is non-editable and uses the
+tested constraints; editable installation remains a development workflow.
+
+Example 06 composes current configuration/transport/device/API types without
+serial defaults or automatic connection. Its MissingProtocol guard reports the
+precise unavailable capability. An executable hardware CLI is deferred until a
+source-backed protocol/configuration can be reviewed. This is an external fact
+dependency, not unfinished simulator functionality. The guide specifies interface,
+temperature, setpoint and explicitly authorized write validation in that order.
+
+Source archives retain the guides/examples and linked engineering record snapshot;
+the wheel contains only the application, typed marker and local GUI assets. Existing
+illustrations are reused; the real simulator screenshot and annotation are refreshed.
+Historical evidence remains; temporary previews/environments/simulated recordings
+are removed after final checks. REQ-022 / TEST-019 captures these release criteria.
+
+## E028
+
+Date: 2026-09-10 (America/Chicago; final checks continued after 02:00 UTC Sep 11).
+Scope: prompt 10 final software release acceptance; REQ-001–014/016–022.
+Configuration: Windows, Python 3.12.14, package 0.1.0, all 43 exact third-party
+pins in requirements-tested.txt. A new outputs/release-check/venv was created
+without system packages or shared paths. Dependencies were installed afresh;
+this supersedes E026's disk-space/reused-environment limitation.
+
+Commands used the new environment's Python. It installed the built wheel
+non-editably, ran `python -m pytest -q -p no:cacheprovider
+--junitxml=outputs/release-tests.xml`, then exercised normal source installation
+with `python -m pip install -c requirements-tested.txt ".[gui]"`. A source
+archive was also built into a wheel and installed using pip with --no-deps and
+--no-build-isolation after the exact build dependencies were installed.
+
+Final integrated result: **401 PASS in 27.55 s**. Ruff check, Ruff format
+(35 Python files), mypy (13 production modules) and pip check PASS.
+Source archive and wheel build PASS. All 17 installed package files match both
+source and wheel byte-for-byte. Source archive contains user guides, six examples,
+manual references and linked engineering records; wheel excludes developer fixtures.
+No shared site-packages or editable import path was present. The standard
+setuptools distutils-precedence.pth is local package machinery, not path sharing.
+[JUnit](../outputs/release-tests.xml), [build](../outputs/release-build.txt),
+[package/versions](../outputs/release-package.json),
+[40-file source/test/config manifest](../outputs/release-source-manifest.sha256).
+That manifest hashes text after CRLF-to-LF normalization, matching .gitattributes
+and fresh Git checkouts. This changes no Python statements or CSS rules.
+
+Diagnosis during acceptance: three initial new signal tests referred to a
+nonexistent public Monitor.logger; the fixture now observes the actual logger
+passed to Monitor. An installed-wheel bare-core test then exposed a fixture flaw:
+adding the whole site-packages directory under python -S restored optional GUI
+imports and launched a server instead of rejecting them. Copying only the actual
+installed controller into an isolated directory fixed that test. The final tests
+exercise real absent imports and signal handlers; no production behavior was
+weakened to satisfy the fixtures. The timed-out test left no active server.
+
+Sustained command: `python -m development.hardware_free_demo --duration 600
+--interval 1 --output outputs/release-soak`. Observed **600.0 s PASS**:
+596 sample/CSV rows, history capacity/retention 120, 31 unavailable polls,
+4,002 Dash refreshes, 161 page reloads and 401 rejected unsafe requests. Exactly
+seven planned endpoint opens and three applied targets. Lost write acknowledgement
+did not replay; final valid temperature 18.014838654756986 °C at target 18 °C.
+Trace remained bounded at 128; sampling continued for 60 rows after callback
+activity ended. Worker, connection and logger all closed.
+[Summary](../outputs/release-soak.json). All endpoints/bytes were synthetic.
+
+Actual browser check used `python -m tark_chiller --csv outputs/release-browser.csv`
+from the installed release. Local styles loaded; 18 °C was accepted and read back;
+1 °C was rejected. Disconnect published unavailable values and intentional-error
+rows; explicit reconnect and reload restored fresh data without another worker.
+The unchanged responsive GUI source/styles retain E026's mobile/tablet evidence;
+this run independently inspected the desktop rendering. Browser closure did not
+stop acquisition: 37 more rows were written, totaling 360 with 51 intentional
+unavailable rows. Ctrl+C printed stopped monitoring; subsequent append validation
+proved complete rows and a released file lock. Local ports 8050/8051 were closed.
+[Operations summary](../outputs/release-operations.json).
+
+The current [screenshot](../docs/assets/dashboard.jpg) is an unedited native JPEG,
+1265 × 955, showing 140 samples/rows, no faults, 18.12 °C and an 18 °C target.
+SHA-256: `0c53d3046b5d7289d7abcb1c7d89d7bb32735c1377ed7ba8e4793081d293befc`.
+It replaces the prior current screenshot; E026's hash remains historical evidence.
+The annotated SVG embeds these same bytes with separate markers and legend.
+README, dashboard/CSV, quick-start and hardware guides were rendered and their
+images/navigation inspected. Current local file/heading links and six SVG XML
+files passed checks. The README Python example printed 20.0 and 18.0.
+
+Numbered examples 01–05 pass subprocess/integration tests. Example 06 reports
+the missing manual with exit 1 and no traceback; both configuration branches
+refuse connect before a forbidden serial factory. Both module/console launchers,
+five-second headless logging, append with two sessions, and continuous headless
+SIGINT/SIGTERM/SIGBREAK shutdown pass. GUI dependency absence fails before CSV
+creation; the bare core still monitors with no optional packages.
+
+Final independent review found no consequential remaining software issue.
+Cleanup removes temporary validation environments, previews and synthetic CSV/HTML
+recordings; durable JUnit/build/summary/manifests and current/historical screenshots
+remain. No physical discovery, opening, actuation or calibration was attempted.
+All software acceptance is PASS; only matching-protocol and identified-hardware
+criteria remain BLOCKED. The exact source facts and resumption procedure are in
+[STATE](../STATE.md) and [REPORT](../outputs/REPORT.md).

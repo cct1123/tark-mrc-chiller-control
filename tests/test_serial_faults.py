@@ -1,12 +1,15 @@
 """Adversarial production-stack tests; every serial factory is memory-only."""
 
 import errno
+import json
 from concurrent.futures import ThreadPoolExecutor
 from threading import Event
 from time import perf_counter, sleep
 
 import pytest
+from plotly.utils import PlotlyJSONEncoder
 
+from development.testing import FakeProtocol, FakeSerialEndpoint, make_fake_device
 from tark_chiller import Chiller, RecoveryPolicy
 from tark_chiller.errors import (
     ChillerConnectionError,
@@ -17,7 +20,6 @@ from tark_chiller.errors import (
 from tark_chiller.gui import render_snapshot
 from tark_chiller.hardware import SerialDevice
 from tark_chiller.monitoring import LiveState, Monitor
-from tark_chiller.testing import FakeProtocol, FakeSerialEndpoint, make_fake_device
 from tark_chiller.transport import RS232Transport, RS485Mode, RS485Transport, SerialSettings
 
 
@@ -68,7 +70,8 @@ def test_port_open_failures_preserve_reason_and_never_transmit(interface, attemp
             chiller.get_temperature()
     state = LiveState()
     Monitor(chiller, state).poll_once()
-    text, figure = render_snapshot(state.snapshot())
+    cards, figure = render_snapshot(state.snapshot())
+    text = json.dumps(cards, cls=PlotlyJSONEncoder)
     assert str(error) in text
     assert "Unavailable" in text
     assert figure.data[0].y == (None,)
@@ -196,3 +199,65 @@ def test_short_real_clock_deadline_never_expires_before_its_budget():
         assert endpoint.applied_setpoints == 0
     finally:
         device.disconnect()
+
+
+@pytest.mark.parametrize("interface", ["rs232", "rs485"])
+@pytest.mark.parametrize("interruption", [KeyboardInterrupt, SystemExit])
+@pytest.mark.parametrize("stage", ["open", "read", "write", "decode"])
+def test_interrupted_serial_operation_closes_without_replay(
+    interface, interruption, stage, monkeypatch
+):
+    class InterruptedEndpoint(FakeSerialEndpoint):
+        interrupted = False
+
+        def interrupt_at(self, operation):
+            if stage == operation and not self.interrupted:
+                self.interrupted = True
+                raise interruption("injected application interruption")
+
+        def open(self):
+            super().open()
+            self.interrupt_at("open")
+
+        def write(self, request):
+            result = super().write(request)
+            self.interrupt_at("write")
+            return result
+
+        def read(self, size=1):
+            result = super().read(size)
+            self.interrupt_at("read")
+            return result
+
+    endpoint = InterruptedEndpoint()
+    device = device_for(endpoint, interface)
+    chiller = Chiller(device, recovery=RecoveryPolicy(2, 0.001))
+    if stage == "decode":
+        original_decode = device._codec.decode
+
+        def interrupted_decode(operation, response):
+            result = original_decode(operation, response)
+            endpoint.interrupt_at("decode")
+            return result
+
+        monkeypatch.setattr(device._codec, "decode", interrupted_decode)
+    try:
+        if stage == "open":
+            operation = chiller.connect
+        else:
+            chiller.connect()
+            operation = (
+                (lambda: chiller.set_setpoint(18)) if stage == "write" else chiller.get_temperature
+            )
+        with pytest.raises(interruption, match="application interruption"):
+            operation()
+        assert not endpoint.is_open
+        assert not chiller.is_connected
+        assert "application interruption" in device.get_status().detail
+        assert endpoint.open_count == 1
+        assert endpoint.applied_setpoints == (1 if stage == "write" else 0)
+        chiller.connect()
+        assert chiller.get_setpoint() == (18 if stage == "write" else 20)
+        assert endpoint.applied_setpoints == (1 if stage == "write" else 0)
+    finally:
+        chiller.disconnect()

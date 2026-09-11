@@ -1,0 +1,37 @@
+{
+  "result": "PASS",
+  "scope": "Synthetic memory serial; no physical hardware",
+  "duration_requested_s": 600.0,
+  "duration_observed_s": 600.0,
+  "sample_interval_s": 1.0,
+  "samples": 596,
+  "history_capacity": 120,
+  "history_retained": 120,
+  "failed_samples": 31,
+  "csv_rows": 596,
+  "session_id": "f85f8de5de5f4c2f81a72396d157b459",
+  "samples_before_browser": 60,
+  "samples_after_browser_closed": 60,
+  "final_temperature_c": 18.014838654756986,
+  "final_setpoint_c": 18,
+  "open_count": 7,
+  "applied_setpoints": 3,
+  "operation_counts": {
+    "connect": 7,
+    "get_status": 566,
+    "get_temperature": 569,
+    "get_setpoint": 566,
+    "set_setpoint": 3
+  },
+  "bounded_trace_length": 128,
+  "clean_shutdown": true,
+  "refreshes": 4002,
+  "page_reloads": 161,
+  "invalid_writes_rejected": 401,
+  "actions": [
+    "Two transient read timeouts; bounded automatic recovery",
+    "Malformed reply visible; explicit GUI reconnect",
+    "Intentional disconnect preserved; GUI reconnect and 22 \u00b0C",
+    "Lost write acknowledgement reported; write applied exactly once"
+  ]
+}

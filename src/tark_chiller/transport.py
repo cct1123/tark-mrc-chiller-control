@@ -7,24 +7,19 @@ Timeouts bound cooperating serial reads/writes, not arbitrary OS open/close call
 
 from collections.abc import Callable
 from dataclasses import asdict, dataclass
-from math import isfinite
-from numbers import Real
 from threading import TIMEOUT_MAX, RLock
 from time import perf_counter
 from typing import Any, Protocol
 
-from .errors import ChillerTimeoutError, ProtocolError, TransportError
+from .errors import ChillerTimeoutError, ProtocolError, SetpointValidationError, TransportError
+from .safety import _finite_real
 
 
 def _finite_number(value: object, name: str, *, positive: bool) -> None:
-    if isinstance(value, bool) or not isinstance(value, Real):
-        raise ValueError(f"{name} must be a finite real number")
     try:
-        number = float(value)
-    except (OverflowError, ValueError) as exc:
-        raise ValueError(f"{name} must be a finite real number") from exc
-    if not isfinite(number):
-        raise ValueError(f"{name} must be a finite real number")
+        number = _finite_real(value, name)
+    except SetpointValidationError as exc:
+        raise ValueError(str(exc)) from exc
     if number < 0 or (positive and number == 0):
         raise ValueError(f"{name} must be {'positive' if positive else 'nonnegative'}")
 
@@ -182,9 +177,9 @@ class RS232Transport:
                 if not self._serial.is_open:
                     raise TransportError("Serial port did not open")
                 self._usable = True
-            except Exception as exc:
+            except BaseException as exc:
                 self._cleanup_after_error(exc)
-                if isinstance(exc, TransportError):
+                if not isinstance(exc, Exception) or isinstance(exc, TransportError):
                     raise
                 raise _serial_error("Serial open failed", exc) from exc
 
@@ -199,7 +194,7 @@ class RS232Transport:
                     raise _serial_error("Serial close failed", exc) from exc
                 self._serial = None
 
-    def _cleanup_after_error(self, original: Exception) -> None:
+    def _cleanup_after_error(self, original: BaseException) -> None:
         try:
             self.close()
         except TransportError as cleanup_error:
@@ -247,9 +242,11 @@ class RS232Transport:
                             return bytes(response)
                     if len(response) >= self.max_response_bytes:
                         raise ProtocolError("Response exceeded the configured byte budget")
-            except Exception as exc:
+            except BaseException as exc:
                 self._cleanup_after_error(exc)
-                if isinstance(exc, (ProtocolError, TransportError)):
+                if not isinstance(exc, Exception) or isinstance(
+                    exc, (ProtocolError, TransportError)
+                ):
                     raise
                 raise _serial_error("Serial transaction failed", exc) from exc
         finally:

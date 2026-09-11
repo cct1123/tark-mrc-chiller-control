@@ -1,0 +1,16 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1000" height="390" viewBox="0 0 1000 390" role="img" aria-labelledby="title desc">
+  <title id="title">Physical connection plan: documentation required first</title>
+  <desc id="desc">A laboratory computer connects through a verified serial interface or adapter to the identified MRC chiller. The matching controller manual, pinout and settings are required before connection. Coolant plumbing and physical power are separate from software control.</desc>
+  <defs><marker id="arrow" markerWidth="8" markerHeight="8" refX="7" refY="4" orient="auto"><path d="M0 0L8 4L0 8Z" fill="#637b85"/></marker></defs>
+  <rect width="1000" height="390" rx="12" fill="#f2f6f8"/>
+  <g font-family="Segoe UI,Arial,sans-serif" fill="#183642">
+    <text x="28" y="37" font-size="22" font-weight="600">Physical setup — not yet enabled by this release</text>
+    <rect x="28" y="65" width="944" height="56" rx="7" fill="#fff1d9" stroke="#d2a760"/>
+    <text x="50" y="100" font-size="19" fill="#855215">Required first: matching controller manual, verified interface and approved test setup</text>
+    <g fill="none" stroke="#637b85" stroke-width="2" stroke-dasharray="7 5" marker-end="url(#arrow)"><path d="M270 208H360"/><path d="M640 208H730"/></g>
+    <g fill="#fff" stroke="#c7d8df"><rect x="28" y="152" width="242" height="116" rx="9"/><rect x="364" y="152" width="276" height="116" rx="9"/><rect x="734" y="152" width="238" height="116" rx="9"/></g>
+    <g text-anchor="middle"><g font-size="20" font-weight="600"><text x="149" y="186">Lab computer</text><text x="502" y="186">Verified serial interface</text><text x="853" y="186">Identified MRC unit</text></g><g font-size="16"><text x="149" y="219">Python app + OS port</text><text x="149" y="244">One software owner</text><text x="502" y="219">Adapter only if required</text><text x="502" y="244">RS-232 or verified RS-485</text><text x="853" y="219">Controller + firmware</text><text x="853" y="244">Exact model matters</text></g></g>
+    <text x="28" y="309" font-size="17">Separate physical setup: coolant circuit • airflow • electrical supply • lab shutdown procedure</text>
+    <text x="28" y="349" font-size="16" fill="#526b79">Dashed lines show a plan, not a wiring diagram. No pinout, cable type or serial setting is assumed.</text>
+  </g>
+</svg>

@@ -1,7 +1,7 @@
 """Reproducible synthetic end-to-end demonstration; never opens hardware.
 
 Run after installing .[gui,dev]:
-python examples/hardware_free_demo.py --duration 600 --output outputs/soak
+python -m development.hardware_free_demo --duration 600 --output outputs/soak
 Produces a flushed CSV, standalone Plotly trajectory and acceptance summary.
 Dash callbacks use Flask's HTTP test client; monitoring runs without a browser.
 """
@@ -16,11 +16,11 @@ from threading import Event
 
 import plotly.graph_objects as go
 
+from development.testing import make_fake_device
 from tark_chiller import Chiller, RecoveryPolicy, SimulatedDevice
 from tark_chiller.csvlog import CsvLogger
 from tark_chiller.gui import create_app
 from tark_chiller.monitoring import LiveState, Monitor, positive_seconds
-from tark_chiller.testing import make_fake_device
 
 
 def run_demo(output: Path, *, duration: float = 600, interval: float = 1) -> dict:
@@ -94,7 +94,9 @@ def run_demo(output: Path, *, duration: float = 600, interval: float = 1) -> dic
                 assert response.status_code == 200, response.get_data(as_text=True)
                 trace = response.json["response"]["temperature-history"]["figure"]["data"]
                 assert len(trace[0]["y"]) <= 120
-                assert "Rows written" in response.json["response"]["live-status"]["children"]
+                assert "Rows written" in json.dumps(
+                    response.json["response"]["live-status"]["children"]
+                )
                 counters["refreshes"] += 1
                 if tick % 25 == 0:
                     assert client.get("/").status_code == 200

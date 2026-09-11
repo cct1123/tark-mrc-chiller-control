@@ -1,173 +1,83 @@
-# Using the controller
+# Dashboard and CSV guide
 
-[Home](../README.md) · [Quick start](quickstart.md) · [Troubleshooting](troubleshooting.md)
+[Home](../README.md) · [Quick start](quickstart.md) · [Python API](api.md) · [Hardware](hardware.md)
 
-## Simulator and real hardware
+The supplied launcher always uses the simulator. It starts at 20 °C and moves
+gradually toward your target. Restarting the app resets it. Disconnect/reconnect
+within a running app pauses/resumes the simulation with the same target.
 
-The app always starts in **simulator mode**, at 20 °C with a 20 °C target. The
-temperature changes gradually toward the target. This model demonstrates the
-software; it does not predict the performance of a physical MRC chiller.
+## Dashboard tour
 
-Restarting the app resets the simulator. Within a running app, **Disconnect**
-pauses the simulation and **Connect / retry** resumes it with the same target.
+![Annotated simulator dashboard: readings, status, history and controls](assets/dashboard-tour.svg)
 
-![Simulator and hardware paths: both use Chiller; simulator runs now, physical communication stops at the missing protocol](assets/modes.svg)
-
-**Real-hardware mode is not available.** The project has serial connection code
-for RS-232/RS-485, but the controller's commands and settings are still unknown.
-The current `SerialDevice` uses `MissingProtocol`, which blocks connection before
-opening a port. There is no command-line option to select a physical chiller.
-Installing pySerial does not add the missing protocol.
-
-Fake serial tests replace the serial device with software. Their messages and
-settings are **test data only**, not instructions for connecting an MRC chiller.
-
-## Dashboard controls and status
-
-Launch it using the [quick-start command](quickstart.md#2-start-the-dashboard-and-recording).
-A **poll** is one attempt to read the device. Each poll produces a **sample**:
-readings and a timestamp, or an error if the attempt fails.
-
-| Display or control | Meaning |
+| Area | How to use it |
 | --- | --- |
-| Last poll / Sample age | Result of the latest poll and seconds since it started. **Stale** means a new sample is overdue. These values do not prove the device is still connected now. |
-| Temperature / Setpoint | Reported °C values; an unavailable poll shows dashes and a gap in the plot. |
-| Samples / Failed polls | Total polls and failed polls since this application started. |
-| CSV Enabled / Rows written | Recording is enabled; the count shows rows written so far, including error rows. **Off** means recording was not enabled. **Failed** means a file error stopped recording. |
-| Apply setpoint | Checks the Celsius value against the limits and sends one request. Check the Setpoint display on the next update to confirm the reported target. |
-| Disconnect | Closes the software connection. The app keeps polling and records unavailable rows until you reconnect or stop it. |
-| Connect / retry | Opens the software connection. It does not restart monitoring if monitoring has stopped. |
+| Temperature | Latest Celsius reading and sample age. A dash means no fresh reading. |
+| Reported setpoint | Target read from the device. Check here after submitting a new target. |
+| Session status | Backend, monitoring state, last connection result and CSV rows written. |
+| Fault messages | Read the specific error. “No reported software fault” does not prove physical safety. |
+| Temperature history | Solid temperature and dashed target, with UTC time. Hover for values, drag to zoom, double-click to reset; the graph toolbar can export a PNG. |
+| Set temperature | Enter a numeric Celsius target within the displayed profile, then Apply setpoint. |
+| Connection | Disconnect closes the software connection; Connect / retry reconnects it. Monitoring continues during an intentional disconnect and records unavailable rows. |
 
-The plot keeps the latest 3,600 samples by default; the CSV keeps all rows written
-during recording. Reloading or closing the page does not stop monitoring. Use
-Ctrl+C in the launching terminal to stop the app. Closing a software connection
-does not mean that a physical chiller has been switched off.
+A **poll** is one attempt to read the device. Each poll produces a **sample**:
+readings and a timestamp, or an error. Last poll describes that attempt, not an
+instantaneous connection check. Stale means a new sample is overdue. Stale or
+stopped monitoring hides the live card values; the graph keeps historical data.
 
-![Data flow: independent polling reads the API, records CSV and publishes shared history; GUI refresh reads history and explicit controls use the API](assets/data-flow.svg)
+The plot keeps the latest 3,600 samples by default. Reloading or closing the browser
+does not stop monitoring. Press **Ctrl+C in the terminal** to stop the application.
+Connect / retry cannot restart a stopped monitoring thread; resolve its error and
+restart the app. See [troubleshooting](troubleshooting.md).
+
+![Acquisition, logging and GUI data flow](assets/data-flow.svg)
 
 ## CSV recording
 
-Use a new filename, or choose `--append-csv` to add readings to an existing file.
-Before appending, the app checks the column names and every row. It refuses
-damaged or incomplete files without changing them. Only one recording process
-can write to a file at a time. Each row is made available to file readers after
-writing, but data may still be lost during a power failure.
+Launch with `--csv outputs/session.csv` and use a fresh filename for each run.
+**CSV Enabled** means recording is configured. **Rows written** counts completed
+rows in this recording session, including error rows. **Off** means recording was
+not enabled. **Failed** means a file error stopped recording; monitoring can continue.
 
-| Column | Meaning |
+Use `--append-csv` to add a new session to an existing, undamaged file. The app
+checks every row and the column names before writing. It refuses incomplete or
+corrupt files unchanged. Only one CsvLogger can write to a file at a time.
+Each row is flushed for readers, but power loss can still lose data.
+The launcher handles Ctrl+C and cooperative termination signals. A forced OS
+kill (including Windows `TerminateProcess`) bypasses Python cleanup; use Ctrl+C
+and wait for the terminal to report that the simulator stopped.
+
+| CSV field | Meaning |
 | --- | --- |
-| session_id | ID for this recording session. A new run gets a new ID, even when adding to an existing file. |
-| timestamp_utc | Date and time when the poll started, in UTC (not the computer's local time zone). |
-| elapsed_s | Seconds since this monitor was created; resets for a new monitor. |
-| temperature_c / setpoint_c | Celsius readings; blank for a failed poll, never a placeholder zero. |
-| backend / connected | Device type (for example, simulator) and whether the poll succeeded. |
-| status_detail / error | Status or error message. The error field is blank when the poll succeeds. |
+| session_id | New ID for each recording session, including append runs |
+| timestamp_utc | UTC date/time at the start of the poll |
+| elapsed_s | Seconds since this monitor was created |
+| temperature_c / setpoint_c | Celsius values; blank for failed polls |
+| backend / connected | Device type and whether that poll succeeded |
+| status_detail / error | Status or error text; no error text on successful polls |
 
-If a file error occurs, recording stops and the app displays the error. Monitoring
-continues. Fix the storage problem, stop the app and start a new recording. Keep
-any damaged file for investigation. CSV files contain no flow, coolant, level or
-leak measurements.
+**Expected output:** example 03 creates five rows with temperature/setpoint 20 °C,
+backend `simulator`, `connected=True`, and blank error fields. Example 04 sets an
+18 °C target, records roughly 20 rows over ten seconds, and shows gradual cooling.
+Exact sample counts and timestamps depend on scheduling. Each rerun needs a new
+filename or an explicit append choice.
 
-## Basic Python API
+CSV contains no coolant, flow, level or leak measurements. If recording fails,
+read the error, fix storage, stop the app and begin a new recording. Preserve any
+damaged file for investigation. [Numbered examples](../README.md#five-examples)
+show both manual sampling and background monitoring with error checks.
 
-After installing, save this as `read_temperature.py` in the project folder.
-Run it using the environment created in the quick start.
+## Safe temperature changes
 
-```python
-from tark_chiller import Chiller, SimulatedDevice
+A setpoint is a target, not an immediate temperature change. Every write is checked
+before device access. The default distilled-water limits are **2–40 °C**, including
+both endpoints. Enter **18** to try cooling; **1** is rejected. Numeric values
+always mean Celsius, with no Fahrenheit/Kelvin conversion.
 
-chiller = Chiller(SimulatedDevice())
-try:
-    chiller.connect()
-    print("Connected:", chiller.is_connected)
-    chiller.set_setpoint(18.0)
-    print("Temperature (Celsius):", chiller.get_temperature())
-    print("Setpoint (Celsius):", chiller.get_setpoint())
-    print("Status:", chiller.get_status())
-finally:
-    chiller.disconnect()
-```
+Python calls also reject strings, booleans, NaN and infinity. Other coolants need
+an explicit, documented `CoolantProfile` at both API and device. A profile cannot
+identify the installed fluid or prove that a value below 0 °C is safe. The software
+never repeats a setpoint write automatically after reconnect.
 
-```powershell
-.\.venv\Scripts\python read_temperature.py
-```
-
-Temperature initially remains near 20 °C; setting a target does not change it
-instantly. These seven operations form the common API for the simulator and
-serial device. Call `connect()` before reading or setting temperatures. You can
-check connection status while disconnected. Device errors use `ChillerError`;
-invalid setpoints raise `SetpointValidationError`.
-
-## Python sampling and CSV
-
-Save as `record_temperature.py`. This example takes ten samples, one at a time,
-using the same `Monitor` and `CsvLogger` classes as the app.
-
-```python
-from time import sleep
-
-from tark_chiller import Chiller, SimulatedDevice
-from tark_chiller.csvlog import CsvLogger
-from tark_chiller.monitoring import LiveState, Monitor
-
-chiller = Chiller(SimulatedDevice())
-state = LiveState(capacity=120)
-with CsvLogger("outputs/python-session.csv") as logger:
-    monitor = Monitor(chiller, state, logger=logger)
-    try:
-        chiller.connect()
-        chiller.set_setpoint(18.0)
-        for _ in range(10):
-            sample = monitor.poll_once()
-            print(sample.temperature_c, sample.error)
-            sleep(0.5)
-    finally:
-        chiller.disconnect()
-    print("Rows written:", logger.rows_written)
-```
-
-```powershell
-.\.venv\Scripts\python record_temperature.py
-```
-
-Expect ten CSV rows and gradual cooling. Use a fresh filename on rerun, or
-`CsvLogger("outputs/python-session.csv", append=True)` to validate and append.
-The GUI app runs monitoring in a background thread. Do not call `poll_once()`
-yourself while that thread runs. Share one `Chiller` instance per device. See the
-[ownership and shutdown rules](../ARCHITECTURE.md#safety-and-lifecycle) for custom applications.
-
-## Safety and hardware limits
-
-Every setpoint is checked before it reaches the device. The default limits for
-distilled water are **2–40 °C**, including both limits. Python API calls must use
-numbers, not text. Strings, booleans, NaN (not a number), infinity and values
-outside the limits are rejected. All numeric values mean Celsius: the app does
-not convert Fahrenheit or Kelvin.
-
-Other coolants require a Python `CoolantProfile` with a name, finite temperature
-limits and a source explaining those limits. Set the profile at both the API and
-device. There is no command-line option to change it. A profile cannot identify
-the liquid installed or prove that operation below 0 °C is safe. A controller
-accepting a value does not establish that the value is safe.
-
-The software never automatically repeats a setpoint write, including after a
-reconnect. If the device's confirmation is lost, the write may have succeeded;
-read the setpoint before deciding whether to send another request.
-
-The hardware facts below come from Tark's public
-[MRC150/300 User Manual, Rev 13](https://tark-solutions.com/sites/default/files/fields/media.file.field_media_file/2024-03/MRC150-300-User-Manual.pdf),
-used in place of the unavailable original attachment:
-
-- Page 7 specifies a 2–40 °C distilled-water control range. This supports the
-  software default; it does not establish the actual unit's setup or coolant.
-- Page 12 describes RS232/RS485 and a separate controller-manufacturer manual.
-  Page 4 records removal of the DH4 RS485 option; page 7 lists DH2 RS232.
-  Confirm the interface of the particular unit rather than assume both exist.
-- Pages 11–13 describe physical coolant, flow and leak checks and indicators.
-  They do not say that the software can read these signals through the serial port.
-
-**Before testing a physical chiller:** identify its controller model and firmware,
-obtain the matching communication manual, and implement and test its protocol.
-Then confirm the unit's interface, wiring, coolant limits and test setup before
-requesting approval for physical testing. This guide does not cover hardware setup.
-Source details and open questions are recorded in
-[STATE.md](../STATE.md#external-dependencies-and-precise-next-action).
+[Hardware tutorial and manual facts](hardware.md) explain the protocol dependency
+and the remaining checks before a physical chiller can be used.

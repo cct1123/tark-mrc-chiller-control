@@ -1,13 +1,19 @@
 """TEST-008/009: actual Dash callback transport, without a browser or device."""
 
 from datetime import timedelta
+from json import dumps
 
 import pytest
+from plotly.utils import PlotlyJSONEncoder
 
+from development.testing import make_fake_device
 from tark_chiller import Chiller, SimulatedDevice
 from tark_chiller.gui import create_app, render_snapshot, submit_setpoint
 from tark_chiller.monitoring import LiveState, Monitor
-from tark_chiller.testing import make_fake_device
+
+
+def status_text(component):
+    return dumps(component, cls=PlotlyJSONEncoder, ensure_ascii=False)
 
 
 @pytest.fixture
@@ -26,18 +32,20 @@ def dashboard():
 def test_render_live_stale_and_error_states(dashboard):
     chiller, state, monitor, _app = dashboard
     snap = state.snapshot()
-    text, figure = render_snapshot(snap, now=snap.latest.timestamp_utc)
+    cards, figure = render_snapshot(snap, now=snap.latest.timestamp_utc)
+    text = status_text(cards)
     assert "simulator" in text and "Connected" in text
-    assert "20.00 °C" in text
+    assert "20.00" in text and "°C" in text
     assert figure.layout.xaxis.title.text == "Time (UTC)"
     assert figure.layout.yaxis.title.text == "Temperature (°C)"
     assert len(figure.data) == 2
-    text, _ = render_snapshot(snap, now=snap.latest.timestamp_utc + timedelta(seconds=10))
-    assert "Stale" in text
+    cards, _ = render_snapshot(snap, now=snap.latest.timestamp_utc + timedelta(seconds=10))
+    assert "Stale" in status_text(cards)
     chiller.disconnect()
     monitor.poll_once()
     state.set_error("CSV test failure", logging=True)
-    text, figure = render_snapshot(state.snapshot())
+    cards, figure = render_snapshot(state.snapshot())
+    text = status_text(cards)
     assert "Unavailable" in text and "ChillerConnectionError" in text
     assert "CSV test failure" in text
     assert figure.data[0].y[-1] is None
@@ -68,7 +76,7 @@ def test_http_layout_and_refresh_do_not_acquire(dashboard):
             },
         )
         assert response.status_code == 200
-        assert "simulator" in response.json["response"]["live-status"]["children"]
+        assert "simulator" in status_text(response.json["response"]["live-status"]["children"])
     assert len(state.snapshot().history) == count
 
 
@@ -112,7 +120,8 @@ def test_freshness_uses_monotonic_clock_despite_wall_clock_change(dashboard, mon
     )
     snapshot = replace(snapshot, history=(latest,))
     monkeypatch.setattr(gui, "monotonic", lambda: latest.sampled_monotonic + 10)
-    text, _figure = render_snapshot(snapshot)
+    cards, _figure = render_snapshot(snapshot)
+    text = status_text(cards)
     assert "Stale" in text and "Sample age 10.0 s" in text
 
 
@@ -216,7 +225,83 @@ def test_connection_wording_identifies_last_poll_without_refresh_io(dashboard):
     chiller, state, _monitor, _app = dashboard
     before_disconnect = state.snapshot()
     chiller.disconnect()
-    text, _figure = render_snapshot(state.snapshot())
+    cards, _figure = render_snapshot(state.snapshot())
+    text = status_text(cards)
     assert "Last poll: Connected" in text
     assert "Sample age" in text
     assert state.snapshot().sample_count == before_disconnect.sample_count
+
+
+@pytest.mark.parametrize("running, age_s", [(False, 0), (True, 10)])
+def test_stopped_or_stale_readings_are_not_presented_as_current(dashboard, running, age_s):
+    _chiller, state, _monitor, _app = dashboard
+    state.set_running(running)
+    snapshot = state.snapshot()
+    cards, figure = render_snapshot(
+        snapshot, now=snapshot.latest.timestamp_utc + timedelta(seconds=age_s)
+    )
+    text = status_text(cards)
+    assert "No fresh reading" in text
+    assert "20.00" not in text
+    assert figure.data[0].y[-1] == 20
+    assert figure.data[1].y[-1] == 20
+
+
+def test_dashboard_serves_its_styles_without_a_cdn(dashboard):
+    import re
+
+    _chiller, _state, _monitor, app = dashboard
+    client = app.server.test_client()
+    index = client.get("/").get_data(as_text=True)
+    styles = re.findall(r'<link[^>]+href="([^"]+\.css[^\"]*)"', index)
+    assert len(styles) == 2
+    assert all(url.startswith("/assets/") for url in styles)
+    assert "00-bootstrap.min.css" in styles[0]
+    assert "instrument.css" in styles[1]
+    for url in styles:
+        response = client.get(url)
+        assert response.status_code == 200
+        assert "text/css" in response.content_type
+    assert "Bootstrap  v5.3.8" in client.get(styles[0]).get_data(as_text=True)
+    assert "The MIT License" in client.get("/assets/bootstrap-LICENSE.txt").get_data(as_text=True)
+
+
+def test_logging_failure_is_visible_without_hiding_fresh_temperature(dashboard):
+    _chiller, state, _monitor, _app = dashboard
+    state.set_error("CSV disk full", logging=True)
+    snapshot = state.snapshot()
+    cards, _figure = render_snapshot(snapshot, now=snapshot.latest.timestamp_utc)
+    text = status_text(cards)
+    assert "CSV Failed" in text and "CSV disk full" in text
+    assert "Software fault" in text
+    assert "20.00" in text
+
+
+def test_unsampled_dashboard_has_no_invented_reading_or_backend():
+    cards, figure = render_snapshot(LiveState().snapshot())
+    text = status_text(cards)
+    assert "Waiting for the first sample" in text
+    assert "No sample" in text
+    assert "20.00" not in text and "simulator" not in text
+    assert not figure.data[0].y
+
+
+def test_reload_reads_current_snapshot_and_recomputes_age(dashboard, monkeypatch):
+    from tark_chiller import gui
+
+    chiller, state, monitor, app = dashboard
+    client = app.server.test_client()
+    assert "20.00" in status_text(client.get("/_dash-layout").json)
+
+    chiller.set_setpoint(18)
+    monitor.poll_once()
+    snapshot = state.snapshot()
+    reloaded = client.get("/_dash-layout")
+    assert reloaded.status_code == 200
+    assert "18.00" in status_text(reloaded.json)
+
+    monkeypatch.setattr(gui, "monotonic", lambda: snapshot.latest.sampled_monotonic + 10)
+    stale_reload = status_text(client.get("/_dash-layout").json)
+    assert "Stale" in stale_reload and "Sample age 10.0 s" in stale_reload
+    assert "18.00" not in stale_reload
+    assert state.snapshot().sample_count == snapshot.sample_count

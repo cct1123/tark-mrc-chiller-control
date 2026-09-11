@@ -464,3 +464,197 @@ Finish when a new user can quickly understand, install, run the simulator, use t
 ## Prompt 8
 
 read the repo like a new human users. simple technical english language improvement. clean up. commit. push.
+
+## Prompt 9
+
+Refactor `cct1123/tark-mrc-chiller-control` into a simpler, cleaner, human-friendly laboratory controller.
+
+Goals:
+
+- Aggressively simplify the codebase and remove unnecessary scaffolding, abstraction layers, duplication, and over-engineered machinery.
+- Keep the public API small and explicit: connect/disconnect, read temperature, read/set setpoint, read status, start/stop monitoring, CSV logging.
+- Preserve hardware safety, timeout/error handling, reconnect behavior, simulator support, and test coverage.
+- Redesign the Dash GUI using `dash-bootstrap-components` with a clean scientific-instrument aesthetic, responsive layout, clear temperature/setpoint cards, connection/fault/recording status, and an intuitive live Plotly temperature graph. Move styling out of large inline dictionaries where practical.
+- Make the README a visual landing page: concise description, GUI screenshot, features, quick install, simulator quick start, real-hardware quick start, API overview, examples, compatibility/validation status, and documentation links.
+- Create intuitive illustrated documentation for human users, including hardware/software flow diagrams, annotated GUI screenshots, setup illustrations, expected outputs, and troubleshooting.
+- Add numbered real-use examples such as:\
+  `01_read_temperature.py`\
+  `02_set_temperature.py`\
+  `03_log_temperature.py`\
+  `04_monitor_experiment.py`\
+  `05_launch_dashboard.py`
+- Write a step-by-step real-hardware tutorial organized into clear sections: hardware connection, serial-port identification, read-only validation, logging, safe setpoint change, GUI use, and shutdown.
+- Add an explicit function/API layout explaining what each public function does and when to use it.
+- Keep engineering/agentic-development records out of the main user path; move them to development documentation where appropriate.
+- Verify all hardware commands and assumptions against the Tark MRC150/300 manual. Do not present unverified protocol behavior as supported hardware functionality.
+
+Optimize for this outcome: a new researcher should understand the project in \~10 minutes, run the simulator immediately, and confidently use the real hardware through a small obvious API.
+
+## Prompt 10
+
+Take the Tark MRC150/300 controller project from its current validated software state to a finished, human-usable engineering release.
+
+Read PROJECT.md, AGENTS.md, STATE.md, records, tests, manuals, and the complete implementation first.
+
+Begin with a final requirements audit. Do not assume earlier PASS states remain valid if relevant code has changed.
+
+Complete the project autonomously wherever possible.
+
+DOCUMENTATION
+
+Create a concise high-quality README for a laboratory user who did not develop the software.
+
+Cover:
+
+- what the project does
+- supported Python/environment assumptions
+- installation
+- simulator quick start
+- Dash GUI quick start
+- command/API example
+- continuous monitoring
+- CSV logging
+- selecting simulator versus hardware
+- RS-232 versus RS-485 configuration
+- safe setpoint behavior
+- common connection errors
+- clean shutdown
+- project architecture at a useful level
+- current hardware/protocol validation status
+
+Do not claim that the real chiller is supported if its protocol has not actually been implemented and validated.
+
+Create one simple architecture figure if it materially improves understanding.
+
+Generate an actual GUI screenshot using the simulator and include it in the documentation if practical.
+
+Keep documentation proportional to this small controller project.
+
+EXAMPLES
+
+Provide minimal working examples such as:
+
+- simulator monitoring/logging
+- programmatic temperature read
+- safe setpoint change
+- starting the Dash application
+- hardware configuration template
+
+Examples must run against actual current APIs.
+
+PACKAGING / OPERATIONS
+
+Make normal installation and execution straightforward.
+
+Provide sensible entry points, for example a CLI or module commands for:
+
+- simulator GUI
+- hardware GUI
+- simple monitoring/logging
+
+Do not add a large CLI framework unless justified.
+
+Ensure Ctrl-C/application termination closes:
+
+- monitoring workers
+- log files
+- serial connections
+
+FINAL SOFTWARE VALIDATION
+
+Run:
+
+- unit tests
+- integration tests
+- simulator end-to-end test
+- fault-injection tests
+- lint/format checks
+- type checks if adopted by the project
+- package/build/install test
+
+Fix regressions.
+
+PHYSICAL HARDWARE VALIDATION
+
+Inspect available inputs and environment.
+
+Only proceed with real hardware when:
+
+- an MRC150/300 is actually available,
+- the authoritative communication protocol has been obtained and implemented,
+- device operations are authorized,
+- serial parameters are known,
+- and the system is in a safe operating state.
+
+If those conditions are satisfied, use a staged validation process.
+
+Stage 1 — interface only
+
+- enumerate/configure the intended serial interface
+- establish connection
+- perform read-only identification/status operations if supported
+
+Stage 2 — temperature read
+
+- repeatedly read temperature
+- compare software values with the front-panel indication
+- verify timeouts/disconnection handling
+
+Stage 3 — setpoint read
+
+- query the existing setpoint without changing it
+- compare with the front panel
+
+Stage 4 — controlled write
+Only after explicit authorization for device writes:
+
+- determine the configured coolant profile and permitted range
+- choose a small, safe setpoint change within the already-safe operating region
+- send one setpoint command
+- read it back
+- observe the temperature response
+- restore the original setpoint if appropriate
+- record results
+
+Do not test extreme setpoints merely to demonstrate validation.
+
+Never override software safety limits for convenience.
+
+If hardware or the controller communication manual is unavailable, do NOT treat this as project failure.
+
+Instead:
+
+- finish everything independent of them,
+- mark only the affected requirements BLOCKED,
+- provide the precise information/action required to resume,
+- give exact commands/procedure for the future validation session,
+- and leave the repository in a clean release-candidate state.
+
+FINAL REVIEW
+
+Perform one last independent code review and simplification pass.
+
+Delete obsolete scaffolding and temporary engineering artifacts that are not useful durable evidence.
+
+Update:
+
+- STATE.md
+- records/RECORDS.md
+- outputs/REPORT.md
+
+REPORT.md should state:
+
+- objective
+- implemented architecture
+- validated requirements
+- test evidence
+- simulator validation
+- protocol source/status
+- physical-hardware validation status
+- known limitations
+- exact operating instructions
+- exact resumption procedure for any genuine blocker
+
+A requirement is PASS only when supported by evidence.
+
+Finish when the software is reproducible, understandable, minimal, and validated to the maximum extent possible with the available information and hardware.

@@ -9,6 +9,7 @@ from time import monotonic
 
 import pytest
 
+from development.testing import make_fake_device
 from tark_chiller import Chiller, DeviceStatus
 from tark_chiller.api import RecoveryPolicy
 from tark_chiller.errors import (
@@ -19,7 +20,6 @@ from tark_chiller.errors import (
     SetpointValidationError,
     TransportError,
 )
-from tark_chiller.testing import make_fake_device
 
 
 class FaultDevice:
@@ -203,6 +203,41 @@ def test_initial_reconnect_budget_survives_until_a_successful_read():
         chiller.get_temperature()
     assert device.calls["connect"] == 3
     assert device.calls["get_temperature"] == 2
+
+
+@pytest.mark.parametrize("stage", ["disconnect", "connect", "get_temperature"])
+def test_each_failed_reconnect_stage_consumes_the_same_finite_budget(stage):
+    chiller, device = recovering(attempts=2)
+    chiller.connect()
+    device.faults["get_temperature"].append(TransportError("initial outage"))
+    device.faults[stage].extend(TransportError(f"failed {stage}") for _ in range(2))
+    with pytest.raises(ChillerConnectionError, match="exhausted after 2"):
+        chiller.get_temperature()
+    assert device.calls["disconnect"] == 3  # Two attempts, then final cleanup.
+    assert device.calls["connect"] == (1 if stage == "disconnect" else 3)
+    assert device.calls["get_temperature"] == (3 if stage == "get_temperature" else 1)
+    assert device.calls["set_setpoint"] == 0
+    calls = dict(device.calls)
+    for _ in range(3):
+        with pytest.raises(ChillerConnectionError, match="exhausted"):
+            chiller.get_temperature()
+    assert dict(device.calls) == calls
+
+
+@pytest.mark.parametrize("stage", ["connect", "get_temperature"])
+def test_protocol_failure_during_reconnect_suspends_remaining_attempts(stage):
+    chiller, device = recovering(attempts=2)
+    chiller.connect()
+    device.faults["get_temperature"].append(TransportError("initial outage"))
+    device.faults[stage].append(ProtocolError("unknown protocol response"))
+    with pytest.raises(ProtocolError, match="unknown protocol"):
+        chiller.get_temperature()
+    calls = dict(device.calls)
+    with pytest.raises(ChillerConnectionError, match="suspended"):
+        chiller.get_temperature()
+    assert dict(device.calls) == calls
+    assert device.calls["connect"] == 2
+    assert device.calls["set_setpoint"] == 0
 
 
 @pytest.mark.parametrize("error_type", [ProtocolError, ProtocolUnavailableError])

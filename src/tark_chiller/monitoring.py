@@ -119,6 +119,7 @@ def positive_seconds(value: float, name: str) -> float:
 class Monitor:
     """One acquisition owner per Chiller and LiveState; caller owns their lifetimes.
 
+    Omit state to create a private history, accessible through monitor.state.
     Read recovery follows the Chiller's finite policy; writes are never replayed. Unexpected
     errors stop the worker and are retained in live state. Logging failure disables
     further CSV writes for this run while temperature monitoring continues.
@@ -127,13 +128,13 @@ class Monitor:
     def __init__(
         self,
         chiller: Chiller,
-        state: LiveState,
+        state: LiveState | None = None,
         *,
         interval_s: float = 1.0,
         logger: SampleSink | None = None,
     ) -> None:
         self.chiller = chiller
-        self.state = state
+        self.state = state if state is not None else LiveState()
         self.interval_s = positive_seconds(interval_s, "interval")
         self._logger = logger
         self._stop = Event()
@@ -247,25 +248,36 @@ class Monitor:
             self.state.clear_service_error()
             self.state.set_logging(self._logger is not None)
             self._stop.clear()
-            self._thread = Thread(target=self._run, name="chiller-monitor", daemon=False)
+            startup = Event()
+            self._thread = Thread(
+                target=self._run, args=(startup,), name="chiller-monitor", daemon=False
+            )
             self.state.set_running(True)
             try:
                 self._thread.start()
             except BaseException as exc:
-                self._thread = None
-                self.state.set_running(False)
+                self._stop.set()
                 self.state.set_error(f"Monitoring could not start: {exc}")
-                self._release()
+                if self._thread.ident is None:
+                    self._thread = None
+                    self.state.set_running(False)
+                    self._release()
                 raise
+            finally:
+                startup.set()
 
-    def _run(self) -> None:
+    def _run(self, startup: Event) -> None:
+        # Do not poll until startup or interrupted-start cleanup has completed.
+        startup.wait()
+        if self._thread is not current_thread():
+            return
         try:
             while not self._stop.is_set():
                 started = monotonic()
                 with self._poll_lock:
                     self._poll()
                 self._stop.wait(max(0.0, self.interval_s - (monotonic() - started)))
-        except Exception as exc:
+        except BaseException as exc:
             self.state.set_error(f"Monitoring stopped: {type(exc).__name__}: {exc}")
         finally:
             self.state.clear_service_error(_STOP_TIMEOUT)

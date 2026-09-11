@@ -26,6 +26,24 @@ def connected():
     chiller.disconnect()
 
 
+def test_default_history_is_private_without_bypassing_device_ownership(connected):
+    first = Monitor(connected)
+    second = Monitor(connected)
+    assert first.state is not second.state
+    first.poll_once()
+    assert first.state.snapshot().sample_count == 1
+    assert second.state.snapshot().sample_count == 0
+    first.start()
+    try:
+        with pytest.raises(RuntimeError, match="acquisition owner"):
+            second.poll_once()
+        assert second.state.snapshot().sample_count == 0
+    finally:
+        first.stop()
+    second.poll_once()
+    assert second.state.snapshot().sample_count == 1
+
+
 def test_worker_acquires_without_gui_and_has_single_lifecycle(connected):
     state = LiveState()
     monitor = Monitor(connected, state, interval_s=0.02)
@@ -158,14 +176,15 @@ def test_disk_error_is_sticky_and_does_not_kill_acquisition(connected, error_typ
     assert broken.calls == 1  # Never append to a potentially corrupted CSV again.
 
 
-def test_unexpected_worker_failure_is_visible(connected, monkeypatch):
+@pytest.mark.parametrize("error_type", [RuntimeError, KeyboardInterrupt, SystemExit])
+def test_unexpected_worker_failure_is_visible(connected, monkeypatch, error_type):
     entered = Event()
     state = LiveState()
     monitor = Monitor(connected, state, interval_s=0.02)
 
     def fail():
         entered.set()
-        raise RuntimeError("test programming failure")
+        raise error_type("test programming failure")
 
     monkeypatch.setattr(connected, "get_temperature", fail)
     monitor.start()
@@ -198,6 +217,81 @@ def test_thread_start_failure_rolls_back_lifecycle(connected, monkeypatch):
     assert not state.snapshot().running
     assert "could not start" in state.snapshot().service_error
     monitor.stop()  # Must not try to join an unstarted thread.
+
+
+def test_interrupted_thread_start_retains_launched_worker_until_joined(connected, monkeypatch):
+    from threading import Thread
+
+    worker_entered, release_worker = Event(), Event()
+    monitor = Monitor(connected)
+    competitor = Monitor(connected)
+    original_run = monitor._run
+    original_start = Thread.start
+    launched = []
+
+    def held_worker(*args):
+        worker_entered.set()
+        assert release_worker.wait(2)
+        original_run(*args)
+
+    def interrupted_start(worker):
+        original_start(worker)
+        launched.append(worker)
+        assert worker_entered.wait(1)
+        raise KeyboardInterrupt("Interrupted after launching the worker")
+
+    monkeypatch.setattr(monitor, "_run", held_worker)
+    monkeypatch.setattr(Thread, "start", interrupted_start)
+    try:
+        with pytest.raises(KeyboardInterrupt):
+            monitor.start()
+        assert monitor._thread is launched[0]
+        with pytest.raises(RuntimeError, match="acquisition owner"):
+            competitor.start()
+        with pytest.raises(TimeoutError, match="still active"):
+            monitor.stop(timeout_s=0.01)
+        assert monitor.state.snapshot().sample_count == 0
+    finally:
+        monitor.request_stop()
+        release_worker.set()
+        for worker in launched:
+            worker.join(2)
+        monkeypatch.setattr(Thread, "start", original_start)
+        monitor.stop()
+    assert monitor.state.snapshot().sample_count == 0
+    assert not monitor.state.snapshot().running
+    competitor.start()
+    competitor.stop()
+
+
+def test_cancelled_start_bootstrapping_late_cannot_touch_replacement_worker(connected, monkeypatch):
+    from threading import Thread
+
+    monitor = Monitor(connected)
+    competitor = Monitor(connected)
+    original_start = Thread.start
+    pending = []
+
+    def delayed_start(worker):
+        pending.append(worker)
+        raise KeyboardInterrupt("Native thread has not bootstrapped yet")
+
+    monkeypatch.setattr(Thread, "start", delayed_start)
+    with pytest.raises(KeyboardInterrupt):
+        monitor.start()
+    monkeypatch.setattr(Thread, "start", original_start)
+    monitor.start()
+    try:
+        original_start(pending[0])
+        pending[0].join(1)
+        assert not pending[0].is_alive()
+        assert monitor.state.snapshot().running
+        with pytest.raises(RuntimeError, match="acquisition owner"):
+            competitor.start()
+    finally:
+        monitor.request_stop()
+        monitor.stop()
+        pending[0].join(2)
 
 
 def test_slow_later_read_does_not_refresh_temperature_timestamp(connected, monkeypatch):

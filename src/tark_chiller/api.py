@@ -68,7 +68,6 @@ class Chiller:
         self._recovery = recovery
         self._remaining_attempts = recovery.max_reconnect_attempts
         self._recovery_error = ""
-        self._recovery_blocked = False
         self._last_status = DeviceStatus(False, "unknown", "not yet polled")
         # Intent has its own short lock so disconnect can cancel a recovery wait
         # even while another thread holds the serialized device-operation lock.
@@ -85,16 +84,8 @@ class Chiller:
         with self._lock:
             self._check_cancel(cancel)
             self._remaining_attempts = self._recovery.max_reconnect_attempts
-            self._recovery_blocked = False
             self._recovery_error = ""
-            try:
-                self._connect_device()
-                self._check_cancel(cancel)
-            except ProtocolError as exc:
-                self._suspend_recovery(exc)
-                raise
-            except (ChillerConnectionError, TransportError) as exc:
-                self._recover(self._connect_device, exc, cancel, connect_only=True)
+            self._call_with_recovery(self._connect_device, cancel, connect_only=True)
 
     def _connect_device(self) -> None:
         self._device.connect()
@@ -110,7 +101,6 @@ class Chiller:
                 if cancel is not self._cancel:
                     return
             self._recovery_error = ""
-            self._recovery_blocked = False
             self._device.disconnect()
 
     def _new_intent(self, connected: bool) -> threading.Event:
@@ -131,53 +121,45 @@ class Chiller:
     def is_connected(self) -> bool:
         with self._lock:
             return (
-                not self._cancel.is_set()
-                and not self._recovery_blocked
-                and self._device.is_connected
+                not self._cancel.is_set() and not self._recovery_error and self._device.is_connected
             )
 
     def _require_connected(self) -> None:
         self._check_cancel(self._cancel)
-        if self._recovery_blocked:
+        if self._recovery_error:
             raise ChillerConnectionError(self._recovery_error)
         if not self._device.is_connected:
             raise ChillerConnectionError("Chiller is disconnected; call connect() explicitly")
 
     def _suspend_recovery(self, error: ProtocolError) -> None:
-        self._recovery_blocked = True
         self._recovery_error = f"Protocol failure; automatic recovery suspended: {error}"
         try:
             self._device.disconnect()
         except ChillerError as cleanup_error:
             error.add_note(str(cleanup_error))
 
-    def _recover(
+    def _call_with_recovery(
         self,
         operation: Callable[[], _ReadResult],
-        error: ChillerConnectionError | TransportError,
         cancel: threading.Event,
         *,
         connect_only: bool = False,
     ) -> _ReadResult:
-        self._check_cancel(cancel)
-        if (
-            not self._want_connected
-            or self._recovery_blocked
-            or self._recovery.max_reconnect_attempts == 0
-        ):
-            raise error
-        last_error: ChillerConnectionError | TransportError = error
-        while self._remaining_attempts:
-            self._check_cancel(cancel)
-            self._remaining_attempts -= 1
+        # Caller holds the device lock. One loop handles initial and retry faults;
+        # the captured token prevents either from crossing a connection intent.
+        reconnecting = False
+        while True:
             try:
-                self._device.disconnect()
-                if cancel.wait(self._recovery.delay_s):
-                    self._check_cancel(cancel)
                 self._check_cancel(cancel)
-                if not connect_only:
-                    self._connect_device()
+                if reconnecting:
+                    self._device.disconnect()
+                    cancel.wait(self._recovery.delay_s)
                     self._check_cancel(cancel)
+                    if not connect_only:
+                        self._connect_device()
+                        self._check_cancel(cancel)
+                elif not connect_only:
+                    self._require_connected()
                 result = operation()
                 self._check_cancel(cancel)
                 if not connect_only:
@@ -189,34 +171,25 @@ class Chiller:
                 raise
             except (ChillerConnectionError, TransportError) as exc:
                 self._check_cancel(cancel)
-                last_error = exc
-        self._recovery_blocked = True
-        self._recovery_error = (
-            f"Recovery exhausted after {self._recovery.max_reconnect_attempts} reconnect "
-            f"attempt(s): {type(last_error).__name__}: {last_error}; call connect() explicitly"
-        )
-        try:
-            self._device.disconnect()
-        except ChillerError as cleanup_error:
-            last_error.add_note(str(cleanup_error))
-        raise ChillerConnectionError(self._recovery_error) from last_error
-
-    def _read(self, operation: Callable[[], _ReadResult]) -> _ReadResult:
-        # Caller holds the operation lock. Preserve the cancellation token even
-        # if a competing explicit connect installs a new connection intent.
-        cancel = self._cancel
-        try:
-            self._require_connected()
-            result = operation()
-            self._check_cancel(cancel)
-        except ProtocolError as exc:
-            self._suspend_recovery(exc)
-            raise
-        except (ChillerConnectionError, TransportError) as exc:
-            return self._recover(operation, exc, cancel)
-        self._remaining_attempts = self._recovery.max_reconnect_attempts
-        self._recovery_error = ""
-        return result
+                if (
+                    not self._want_connected
+                    or self._recovery_error
+                    or self._recovery.max_reconnect_attempts == 0
+                ):
+                    raise
+                if self._remaining_attempts:
+                    self._remaining_attempts -= 1
+                    reconnecting = True
+                    continue
+                self._recovery_error = (
+                    f"Recovery exhausted after {self._recovery.max_reconnect_attempts} reconnect "
+                    f"attempt(s): {type(exc).__name__}: {exc}; call connect() explicitly"
+                )
+                try:
+                    self._device.disconnect()
+                except ChillerError as cleanup_error:
+                    exc.add_note(str(cleanup_error))
+                raise ChillerConnectionError(self._recovery_error) from exc
 
     @staticmethod
     def _reading(value: object, label: str) -> float:
@@ -227,13 +200,16 @@ class Chiller:
 
     def get_temperature(self) -> float:
         with self._lock:
-            return self._read(
-                lambda: self._reading(self._device.get_temperature(), "temperature (°C)")
+            return self._call_with_recovery(
+                lambda: self._reading(self._device.get_temperature(), "temperature (°C)"),
+                self._cancel,
             )
 
     def get_setpoint(self) -> float:
         with self._lock:
-            return self._read(lambda: self._reading(self._device.get_setpoint(), "setpoint (°C)"))
+            return self._call_with_recovery(
+                lambda: self._reading(self._device.get_setpoint(), "setpoint (°C)"), self._cancel
+            )
 
     def set_setpoint(self, value_c: object) -> None:
         # Validate before accessing even the backend's connection property.
@@ -253,7 +229,7 @@ class Chiller:
     def get_status(self) -> DeviceStatus:
         """Connection status remains available while disconnected."""
         with self._lock:
-            if self._cancel.is_set() or self._recovery_blocked:
+            if self._cancel.is_set() or self._recovery_error:
                 detail = (
                     "intentionally disconnected" if self._cancel.is_set() else self._recovery_error
                 )
@@ -261,7 +237,7 @@ class Chiller:
             if self._device.is_connected or (
                 self._want_connected and self._recovery.max_reconnect_attempts > 0
             ):
-                return self._read(self._status_read)
+                return self._call_with_recovery(self._status_read, self._cancel)
             return self._status_read()
 
     def _status_read(self) -> DeviceStatus:

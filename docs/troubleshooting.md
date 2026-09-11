@@ -16,13 +16,16 @@ hardware operation yet.
 | Cannot lock CSV / permission denied | Close other programs using the file. Check that you can write to the folder, or choose a new file in a writable local folder. |
 | CSV schema mismatch / unterminated record | The file has unexpected columns or a damaged/incomplete row. Keep the original and start a new CSV. The app does not repair damaged files. |
 | CSV Failed | Read the file error. Monitoring may still run, but new rows are not being recorded. Fix the storage problem, stop with Ctrl+C and start a new recording. |
-| Setpoint rejected | Enter a number in °C within the displayed limits (2–40 °C by default). See [safety and hardware limits](usage.md#safety-and-hardware-limits) before changing a profile. |
+| Setpoint rejected | Enter a number in °C within the displayed limits (2–40 °C by default). See [safety and hardware limits](usage.md#safe-temperature-changes) before changing a profile. |
 | Temperature does not jump to the target | Normal simulator behavior: it approaches the target gradually. Check the reported setpoint on the next update. |
 | Last poll: Unavailable | Read the error. After an intentional disconnect, use Connect / retry. Failed polls have blank readings and remain in the CSV. |
-| Stale / Monitoring stopped | Read the displayed error and check the terminal. Connect / retry does not restart monitoring. Fix the error, then stop and relaunch the app. |
+| Stale / Monitoring stopped / live cards show dashes | Read the displayed error and check the terminal. Connect / retry does not restart monitoring. Fix the error, then stop and relaunch the app. |
 | Recording continues after tab closure | Expected: monitoring runs separately from the browser. Stop it with Ctrl+C in its terminal. |
 | Controller communication manual is required | Real-hardware mode is unavailable. Do not guess serial settings or commands; use the simulator until the matching manual is available and its protocol is implemented. |
+| Serial port missing | Future hardware use: confirm the intended adapter is attached and its OS port name has not changed. The simulator needs no serial port. |
+| Serial permission denied / port busy | Future hardware use: close the other application using the identified port and check the OS permissions. Do not start another controller process. |
+| Serial timeout / disconnected / malformed reply | Stop relying on the last value. Inspect the cable and documented configuration; an uncertain write must be resolved by readback before any new write. Automatic read recovery is bounded and off by default. |
 
 When reporting a software issue, include the exact command, Python version,
-displayed error and whether it occurred in simulator or fake-serial testing.
+displayed error and whether it occurred in the simulator or a developer test.
 Do not describe fake-serial results as physical measurements.

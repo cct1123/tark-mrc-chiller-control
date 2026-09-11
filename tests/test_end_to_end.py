@@ -3,16 +3,15 @@
 import json
 import subprocess
 import sys
-from pathlib import Path
 
 
 def test_hardware_free_demo_with_concurrent_dash_faults_and_shutdown(tmp_path):
-    script = Path(__file__).resolve().parents[1] / "examples" / "hardware_free_demo.py"
     output = tmp_path / "integration"
     result = subprocess.run(
         [
             sys.executable,
-            str(script),
+            "-m",
+            "development.hardware_free_demo",
             "--duration",
             "5",
             "--interval",

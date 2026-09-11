@@ -40,8 +40,8 @@ class SerialDevice:
                 self._codec.ensure_available()  # Must precede even port opening.
                 self._transport.open()
                 self._last_error = ""
-            except ChillerError as exc:
-                self._last_error = str(exc)
+            except BaseException as exc:
+                self._last_error = str(exc) or type(exc).__name__
                 raise
 
     def disconnect(self) -> None:
@@ -86,13 +86,13 @@ class SerialDevice:
                     raise ProtocolError("Codec did not normalize setpoint success to None")
                 self._last_error = ""
                 return result
-            except Exception as exc:
-                self._last_error = str(exc)
+            except BaseException as exc:
+                self._last_error = str(exc) or type(exc).__name__
                 try:
                     self._transport.close()
                 except ChillerError as cleanup_error:
                     exc.add_note(str(cleanup_error))
-                if isinstance(exc, ChillerError):
+                if not isinstance(exc, Exception) or isinstance(exc, ChillerError):
                     raise
                 raise ProtocolError(f"Controller protocol failed: {exc}") from exc
 

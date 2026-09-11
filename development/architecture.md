@@ -1,17 +1,18 @@
 # Controller software architecture
 
 The package uses synchronous Python and one background thread for monitoring. The
-engineering loop and future hardware review gate remain in [AGENTS.md](AGENTS.md).
+engineering loop and future hardware review gate remain in [AGENTS.md](../AGENTS.md).
 Source framework: [agentic-engineering-template](https://github.com/cct1123/agentic-engineering-template),
-commit 724a7f772069d3357ea66dbc4742d25bd874a33e. Project decisions: D001–D003 in
-[records](records/RECORDS.md); observable criteria: [PROJECT.md](PROJECT.md).
+commit 724a7f772069d3357ea66dbc4742d25bd874a33e. Project decisions: D001–D004 in
+[records](../records/RECORDS.md); observable criteria: [PROJECT.md](../PROJECT.md).
 
 ## Dependencies and ownership
 
-The CLI creates Chiller, Monitor, LiveState, CsvLogger and Dash. The
-[system overview](docs/assets/system.svg), [device paths](docs/assets/modes.svg)
-and [data flow](docs/assets/data-flow.svg) show the boundaries. Lab instructions
-and runnable Python examples are in the [user guide](docs/usage.md).
+The CLI creates Chiller, Monitor, CsvLogger and Dash. Monitor supplies LiveState
+when the caller does not provide one. The
+[system overview](../docs/assets/system.svg), [device paths](../docs/assets/modes.svg)
+and [data flow](../docs/assets/data-flow.svg) show the boundaries. Lab instructions
+and runnable Python examples are in the [user guide](../docs/usage.md).
 
 The device uses the protocol codec to encode a command, asks the transport to
 exchange bytes, then decodes the reply. The codec and transport do not import
@@ -39,7 +40,7 @@ snapshots that cannot be changed.
 | csvlog.py | CSV checks, append sessions, one writer per file; stops recording after a write error |
 | gui.py | Displays snapshots and calls the API when the user submits a control |
 | __main__.py | Creates and stops the simulator application |
-| testing.py | Software serial stand-in and test protocol that exercise the production code |
+| development/testing.py | Software serial stand-in and test protocol that exercise the production code |
 
 The core API and monitoring use only the Python standard library. Dash/Plotly and
 pySerial are optional packages. A replaceable serial constructor allows tests to
@@ -67,6 +68,13 @@ hardware snapshots. GUI connection wording describes the last poll and its age.
 Serial deadlines use a high-resolution monotonic clock; scheduling is not hard
 real time. Never start multiple processes to share a physical device.
 
+Interrupted worker startup cannot release an active polling owner. Serial I/O
+interruptions close the endpoint, and an interrupted CSV write prevents reuse
+of that writer. Worker termination leaves a visible service error. The launcher
+handles cooperative termination through the same shutdown sequence; a forced
+OS kill cannot run Python cleanup. See the regressions and rationale in
+[E027 / D005](../records/RECORDS.md#e027).
+
 ## Protocol readiness
 
 EXT-001 remains external. Obtain the matching controller model/firmware and manual
@@ -82,29 +90,9 @@ hardware/coolant/setup and the review gate in AGENTS.md.
 
 ## Validation reproduction
 
-Maintainer commands, from the repository root after creating the quick-start
-virtual environment. The version snapshot supplies the build/test tools too.
-
-```powershell
-.\.venv\Scripts\python -m pip install -r requirements-tested.txt
-.\.venv\Scripts\python -m pip install -e ".[gui,serial,dev]" --no-deps
-.\.venv\Scripts\python -m pytest -q -p no:cacheprovider
-.\.venv\Scripts\python -m ruff check .
-.\.venv\Scripts\python -m ruff format --check src tests examples
-.\.venv\Scripts\python -m mypy
-.\.venv\Scripts\python -m pip check
-.\.venv\Scripts\python -m build --no-isolation
-```
-
-Hardware-free fault demonstration (use a fresh output name):
-
-```powershell
-.\.venv\Scripts\python examples/hardware_free_demo.py --duration 5 --interval 0.1 --output outputs/demo
-```
-
-This traverses simulator → synthetic serial → production transport/device/API →
-monitor/CSV/state → concurrent Dash HTTP callbacks. It produces a CSV, Plotly HTML
-and JSON summary. The ten-minute validation evidence is in
-[E019](records/RECORDS.md#e019). The reusable software serial stand-in lives in
-testing.py; its message format is unrelated to Tark. Diagrams are editable SVG
-files. The screenshot shows an actual simulator session; records describe its capture.
+[Development guide](README.md#run-the-checks) has the current install, quality and
+sustained-run commands. The ten-minute baseline is recorded in
+[E019](../records/RECORDS.md#e019); later records state which code each run tested.
+Bootstrap CSS and its license ship in package assets. No CDN is needed at runtime.
+Researcher examples use the package-root Chiller, Monitor and CsvLogger classes;
+synthetic serial fixtures remain in development and are not in the installed wheel.

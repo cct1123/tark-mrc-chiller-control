@@ -25,3 +25,4 @@ dist/
 outputs/*.csv
 outputs/*-screenshot.png
 outputs/*-trajectory.html
+outputs/release-check/

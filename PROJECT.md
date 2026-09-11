@@ -18,6 +18,13 @@ authorize physical commissioning or imply a validated hardware release.
 and visuals; physical validation remains out of scope.
 [Prompt 8](prompt%20log.md#prompt-8) requests a new-user language review, cleanup,
 commit and push of the documentation.
+[Prompt 9](prompt%20log.md#prompt-9) adds a simpler researcher workflow, a Bootstrap
+dashboard, numbered examples and illustrated setup/API/hardware guides. Protocol
+and physical acceptance must remain separate from simulator success.
+[Prompt 10](prompt%20log.md#prompt-10) requests a reproducible software release
+candidate, a fresh requirements audit, normal termination checks and a precise
+staged resumption procedure. Physical work requires the matching protocol,
+identified equipment, known settings and safe setup; writes need explicit approval.
 
 ## Requirements / acceptance criteria
 
@@ -48,10 +55,13 @@ belong in [records/RECORDS.md](records/RECORDS.md).
 | REQ-018 | Explicit CSV append validates existing schema, avoids duplicate headers, preserves completed rows, and refuses malformed/truncated records unchanged. Concurrent logger owners are refused without changing the file. Session boundaries and elapsed-time resets remain distinguishable. | TEST-015 CSV resume tests |
 | REQ-019 | A reproducible simulator → acquisition → CSV → Dash/state demonstration produces a cooling trajectory and survives browser refresh/absence. Sustained concurrent callbacks, injected faults, bounded history and clean shutdown pass; lint/type/build checks pass. | TEST-016 sustained end-to-end validation |
 | REQ-020 | A new lab user can install, launch the simulator/Dash, safely request a setpoint, record CSV and use the Python API from concise guides. Every documented command/example runs; screenshot is an actual simulator session; three diagrams and local links render; simulator, fake-serial and physical evidence are distinguished. | TEST-017 documentation examples, links and visual review |
+| REQ-021 | A responsive dash-bootstrap-components dashboard shows separate temperature/setpoint, connection/fault/recording status and live history. Styling works offline after installation. Five numbered examples run through the common API/monitor/logger; API reference and illustrated hardware tutorial identify every unsupported step. Developer test fixtures and records stay outside the main researcher path. Simplification preserves safety/recovery coverage. | TEST-018 example subprocesses, packaged assets, browser layout, source review and full regression |
+| REQ-022 | Normal non-editable source/wheel installation passes in a fresh environment. Module/console launchers run the simulator GUI or continuous/timed headless CSV. Ctrl-C/cooperative termination releases workers, device and CSV. Interrupted startup/transactions/writes preserve ownership or refuse uncertain reuse. A hardware template uses real types, no guessed settings and blocks connection. Current guides give exact operation and staged hardware resumption. | TEST-019 release audit, signals, package/install and template tests |
 
 ## Constraints
 
-- No real-device discovery, serial port opening or physical actuation in this run.
+- No real-device discovery, serial port opening or physical actuation while the
+  protocol, identified equipment, known settings and safe setup are unavailable.
 - Validate setpoints at the public boundary and physical write boundary. Coolant
   policy is a software guard; it cannot establish what liquid is installed.
 - Retain the template's candidate review phase before future hardware integration.

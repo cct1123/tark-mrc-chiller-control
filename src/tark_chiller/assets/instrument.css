@@ -1,0 +1,57 @@
+:root {
+  --bs-body-color: #183642;
+  --bs-body-bg: #f2f5f7;
+  --bs-body-font-family: "Segoe UI", system-ui, sans-serif;
+  --instrument-teal: #087f8c;
+  --instrument-amber: #b76b18;
+  --instrument-muted: #61747d;
+}
+
+.dashboard { max-width: 1240px; padding: 30px 28px 24px; }
+.page-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 26px; }
+.instrument-name { color: var(--instrument-teal); letter-spacing: .14em; font-size: .76rem; font-weight: 700; margin-bottom: 7px; }
+h1 { font-size: clamp(1.75rem, 3vw, 2.2rem); font-weight: 650; letter-spacing: -.025em; margin-bottom: 5px; }
+.subtitle { color: var(--instrument-muted); font-size: .9rem; margin: 0; }
+.instrument-mark { color: #82959e; font-size: .7rem; letter-spacing: .16em; border: 1px solid #cfdce2; padding: 9px 12px; border-radius: 5px; }
+.card { --bs-card-border-color: #dce5e9; --bs-card-border-radius: 9px; --bs-card-bg: #fff; box-shadow: 0 2px 3px #16333d03; }
+.card-body { padding: 22px; }
+.metric-label { font-size: .8rem; color: var(--instrument-muted); font-weight: 600; margin-bottom: 12px; }
+.metric-value { font-variant-numeric: tabular-nums; font-size: clamp(2.4rem, 4vw, 3.3rem); letter-spacing: -.035em; line-height: 1.1; font-weight: 600; white-space: nowrap; }
+.metric-value span { font-size: 1.25rem; font-weight: 400; margin-left: .5rem; }
+.temperature-color { color: var(--instrument-teal); }
+.setpoint-color { color: var(--instrument-amber); }
+.metric-caption { color: var(--instrument-muted); font-size: .78rem; margin: 13px 0 0; }
+.status-badges { display: flex; gap: 7px; flex-wrap: wrap; margin-bottom: 13px; }
+.badge { font-weight: 500; border-radius: 4px; padding: 6px 8px; }
+.badge.bg-success { background: #d9efeb !important; }
+.badge.bg-warning { background: #fff0ce !important; }
+.connection-status { font-size: .88rem; margin-bottom: 6px; }
+.recording-status { font-size: .8rem; color: var(--instrument-muted); margin-bottom: 0; font-variant-numeric: tabular-nums; }
+.session-summary { display: flex; justify-content: space-between; flex-wrap: wrap; gap: 7px; color: var(--instrument-muted); font-size: .77rem; padding: 12px 2px 18px; }
+.fault-message { overflow-wrap: anywhere; font-size: .85rem; }
+.panel-heading { font-size: 1rem; font-weight: 650; margin-bottom: 9px; }
+.panel-caption { color: var(--instrument-muted); font-size: .77rem; line-height: 1.55; margin-bottom: 0; }
+.history-panel .card-body { padding: 22px 15px 5px; }
+.history-panel .panel-heading, .history-panel .panel-caption { margin-left: 7px; }
+/* Plotly sets a 100% wrapper height; let the figure determine its own height. */
+#temperature-history { height: auto !important; }
+.coolant-profile { background: #eef6f7; color: #28636a; border-radius: 5px; padding: 8px 10px; margin: 14px 0 18px; font-size: .83rem; }
+.form-label { font-size: .8rem; color: #425c67; }
+.form-control { min-height: 42px; font-variant-numeric: tabular-nums; }
+.form-control:focus { border-color: #087f8c; box-shadow: 0 0 0 .2rem #087f8c20; }
+.btn { font-size: .85rem; min-height: 40px; }
+.btn-primary { --bs-btn-bg: #087f8c; --bs-btn-border-color: #087f8c; --bs-btn-hover-bg: #086d78; --bs-btn-hover-border-color: #086d78; --bs-btn-active-bg: #065e67; --bs-btn-active-border-color: #065e67; }
+.btn-outline-secondary { --bs-btn-color: #415f6c; --bs-btn-border-color: #bdced6; --bs-btn-hover-bg: #eaf0f3; --bs-btn-hover-color: #183642; --bs-btn-hover-border-color: #a3bcc8; }
+.connection-actions { display: flex; flex-wrap: wrap; gap: 8px; }
+.connection-actions .btn { flex: 1 1 auto; }
+.action-result { font-size: .8rem; line-height: 1.5; overflow-wrap: anywhere; }
+.action-result:not(:empty) { margin-top: 12px; padding: 10px; background: #f1f5f7; border-left: 3px solid #7e969f; }
+hr { border-color: #cedbe1; margin: 22px 0; }
+.safety-note { font-size: .75rem; line-height: 1.6; color: var(--instrument-muted); margin-top: 18px; padding: 0 2px; }
+@media (max-width: 575px) {
+  .dashboard { padding: 20px 15px; }
+  .instrument-mark { display: none; }
+  .card-body { padding: 18px; }
+  .session-summary { flex-direction: column; }
+  .metric-value { font-size: 2.6rem; }
+}

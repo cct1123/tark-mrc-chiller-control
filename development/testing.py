@@ -13,13 +13,13 @@ import time
 from collections import Counter, deque
 from typing import Any, Literal
 
-from .device import DeviceStatus
-from .errors import ChillerTimeoutError, ProtocolError, SetpointValidationError
-from .hardware import SerialDevice
-from .protocol import Operation
-from .safety import _finite_real
-from .simulator import SimulatedDevice, SimulatedOperation
-from .transport import RS232Transport, RS485Mode, RS485Transport, SerialSettings
+from tark_chiller.device import DeviceStatus
+from tark_chiller.errors import ChillerTimeoutError, ProtocolError, SetpointValidationError
+from tark_chiller.hardware import SerialDevice
+from tark_chiller.protocol import Operation
+from tark_chiller.safety import _finite_real
+from tark_chiller.simulator import SimulatedDevice, SimulatedOperation
+from tark_chiller.transport import RS232Transport, RS485Mode, RS485Transport, SerialSettings
 
 _TAG = "synthetic-test-only-v1"
 _OPERATIONS = ("get_temperature", "get_setpoint", "set_setpoint", "get_status")

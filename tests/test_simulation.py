@@ -6,10 +6,10 @@ from concurrent.futures import ThreadPoolExecutor
 
 import pytest
 
+from development.testing import FakeProtocol, FakeSerialEndpoint, make_fake_device
 from tark_chiller import Chiller, CoolantProfile, ProtocolError, SetpointValidationError
 from tark_chiller.errors import ChillerTimeoutError, TransportError
 from tark_chiller.simulator import SimulatedDevice
-from tark_chiller.testing import FakeProtocol, FakeSerialEndpoint, make_fake_device
 
 
 class Clock:

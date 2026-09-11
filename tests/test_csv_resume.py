@@ -280,6 +280,42 @@ def test_write_failure_blocks_further_writes(tmp_path, sample, monkeypatch):
         assert logger.rows_written == 0
 
 
+@pytest.mark.parametrize("stage", ["row", "flush"])
+@pytest.mark.parametrize("interruption", [KeyboardInterrupt, SystemExit])
+def test_interrupted_recording_refuses_reuse_without_changing_uncertain_bytes(
+    tmp_path, sample, monkeypatch, stage, interruption
+):
+    path = tmp_path / "interrupted.csv"
+    with CsvLogger(path) as logger:
+        writerow = logger._writer.writerow
+        flush = logger._stream.flush
+
+        def interrupted_row(_row):
+            logger._stream.write("partial record")
+            flush()
+            raise interruption("application interrupted the row")
+
+        def interrupted_flush():
+            flush()
+            raise interruption("application interrupted the flush")
+
+        if stage == "row":
+            monkeypatch.setattr(logger._writer, "writerow", interrupted_row)
+        else:
+            monkeypatch.setattr(logger._stream, "flush", interrupted_flush)
+        try:
+            with pytest.raises(interruption, match="application interrupted"):
+                logger.write(sample)
+        finally:
+            monkeypatch.setattr(logger._writer, "writerow", writerow)
+            monkeypatch.setattr(logger._stream, "flush", flush)
+        uncertain = path.read_bytes()
+        assert logger.rows_written == 0
+        with pytest.raises(ValueError, match="write failure"):
+            logger.write(sample)
+        assert path.read_bytes() == uncertain
+
+
 def test_concurrent_writes_are_complete_and_close_waits_for_write(tmp_path, sample, monkeypatch):
     path = tmp_path / "concurrent.csv"
     logger = CsvLogger(path)

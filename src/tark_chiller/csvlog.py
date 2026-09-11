@@ -213,10 +213,10 @@ class CsvLogger:
             try:
                 self._writer.writerow(row)
                 self._stream.flush()
-            except (OSError, csv.Error, UnicodeError):
+                self._rows_written += 1
+            except BaseException:
                 self._failed = True
                 raise
-            self._rows_written += 1
 
     def close(self) -> None:
         with self._lock:
