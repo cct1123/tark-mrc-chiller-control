@@ -59,6 +59,15 @@ and hardware review boundary; simulator demos are explicitly labeled.
 workflow, with simulation retained only as an optional demo near the bottom.
 [Prompt 18](prompt%20log.md#prompt-18) requests review, corrections, commit and push
 of the resulting documentation.
+[Prompt 19](prompt%20log.md#prompt-19) asks for a clearer explanation of the
+unfinished hardware communication shown in the setup diagram.
+[Prompt 21](prompt%20log.md#prompt-21) supplies the actual MRC manual and requests
+documented command implementation, controller verification, matching simulator
+behavior, final human-test preparation, updated/pruned guides, commit and push.
+The resulting candidate targets the documented CAL 3300/9300 subset; the installed
+controller remains a human identification prerequisite. Required protocol and
+emulator code supersedes the old line/class reduction target, while retaining the
+six-module design (D009). No physical access or actuation is authorized.
 
 ## Requirements / acceptance criteria
 
@@ -84,14 +93,16 @@ belong in [records/RECORDS.md](records/RECORDS.md).
 | REQ-013 | Neither API nor GUI claims coolant presence, leak, flow, level or alarm telemetry is available without protocol evidence; unknown is distinct from safe/normal. | TEST-008 UI/status review; TEST-012 capability validation |
 | REQ-014 | Installation, exact tested dependency versions, run/test/shutdown instructions and limitations are reproducible. Initial source is importable and tests pass in an isolated environment. | TEST-010 install/package/static checks |
 | REQ-015 | Before declaring the project validated, verify actual unit/controller identity, documented interface/settings, read/write semantics, setpoint readback and calibrated temperature behavior on physical hardware under reviewed conditions. | TEST-012 physical acceptance, currently external |
-| REQ-016 | Simulator provides deterministic thermal response with an injected clock. Clearly synthetic protocol/serial test fixtures exercise production SerialDevice, Chiller and monitoring through connection/timeout faults without real ports or Tark syntax. | TEST-013 simulator/fake-stack tests |
+| REQ-016 | Simulator provides deterministic thermal response with an injected clock. Synthetic transport fixtures and a documented CAL byte-protocol simulator exercise production SerialDevice, Chiller and monitoring without real ports. | TEST-013/021 simulator/fake-stack and CAL tests |
 | REQ-017 | Configured read recovery has finite reconnect budget and delay, recovers transient transport faults and reports exhaustion. Explicit disconnect cancels recovery intent; invalid writes and unknown/malformed protocol errors are never retried as writes. No write replay. | TEST-014 recovery/fault tests |
 | REQ-018 | Each monitoring run creates a new CSV exclusively. Existing files are refused unchanged, including files owned by another controller. No append/resume or independent logger lifecycle is exposed. | TEST-015 new-file and writer-exclusion tests |
 | REQ-019 | A reproducible simulator → acquisition → CSV → Dash/state demonstration produces a cooling trajectory and survives browser refresh/absence. Sustained concurrent callbacks, injected faults, bounded history and clean shutdown pass; lint/type/build checks pass. | TEST-016 sustained end-to-end validation |
 | REQ-020 | Concise guides teach installation, explicit hardware configuration, reads, operator-selected setpoint changes, CSV and Dash. Hardware examples use the production serial path with no simulator fallback and clearly refuse incomplete configuration. Their software behavior is exercised with fake serial I/O; physical execution stays blocked pending protocol and equipment. Screenshots and validation scopes are labeled accurately; local links and diagrams render. | TEST-017 documentation examples, links and visual review |
 | REQ-021 | A responsive dash-bootstrap-components dashboard shows separate temperature/setpoint, connection/fault/recording status and live history. Styling works offline after installation. One lab example provides read, set, log, monitor and gui workflows through the common API; API reference and illustrated hardware guide identify unsupported steps. Developer fixtures and records stay outside the researcher path. Simplification preserves safety/recovery coverage. | TEST-018 example commands, packaged assets, browser layout, source review and full regression |
 | REQ-022 | Normal non-editable source/wheel installation passes in a fresh environment. Hardware examples provide read-only recording, continuous monitoring and a direct Dash client with Ctrl-C cleanup. Module/console launchers remain explicitly labeled simulator development tools. Interrupted startup/transactions/writes preserve ownership or refuse uncertain reuse. One lab configuration file uses real types, no guessed settings and blocks incomplete setup. Guides give exact operation and staged hardware resumption. | TEST-019 release audit, signals, package/install and template tests |
-| REQ-023 | Reduce the 0.2.2 baseline of 8 package modules, 13 classes and 1,311 Python lines without compressing readable code or weakening required behavior. Retain at most 6 package modules, no compatibility shims, global registries or implicit workers. A few lines of synchronous Python create/use/close a controller without GUI, serial package or service dependencies. Monitoring/CSV remain optional and ownership explicit. | TEST-020 comparative inventory, import isolation, multi-controller and public API tests |
+| REQ-023 | Retain at most 6 package modules, readable code, no compatibility shims, global registries or implicit workers. A few lines of synchronous Python create/use/close a controller without GUI, serial package or service dependencies. Monitoring/CSV remain optional and ownership explicit. Prompt 21 supersedes the v0.3 line/class reduction criterion to add the required documented protocol and simulator. | TEST-020 inventory, import isolation, multi-controller and public API tests |
+| REQ-024 | Implement only source-backed CAL temperature/target/status/identity commands and the documented security sequence; reject unsupported identities/configurations, enforce host and controller limits/resolution, never retry or auto-commit an uncertain write. **Derived candidate scope:** CAL 3300/9300, RTD/Celsius, nonnegative readings, 0–40 °C backend targets intersected with application bounds. | TEST-021 published byte vectors, protocol/fault tests; TEST-012 physical comparison |
+| REQ-025 | The memory simulator executes the production CAL frames, stages targets until commit, models keypad/busy/error behavior and preserves modeled control after serial close. Guides distinguish source facts, simulation and pending human tests; prepare exact first reads, controlled writes and recovery. | TEST-021 protocol simulation; TEST-017/019 guide/CLI/install checks; TEST-012 human validation |
 
 ## Constraints
 
@@ -118,12 +129,12 @@ belong in [records/RECORDS.md](records/RECORDS.md).
 - Framework: [agentic-engineering-template](https://github.com/cct1123/agentic-engineering-template),
   clean local checkout `724a7f772069d3357ea66dbc4742d25bd874a33e`; core operating
   instructions/architecture imported, project-specific state/report adapted.
-- No attached manual is exposed in the current session or project files. Official
-  online manual used provisionally; source and revision differences are recorded
-  in [E002](records/RECORDS.md#e002). Do not represent it as the missing attachment.
-- Controller communications manual, actual model suffix, controller model/firmware,
-  interface variant, electrical wiring, serial settings and installed coolant are
-  not available. See dependency EXT-001 in STATE.md.
+- The supplied 18-page Tark Rev 13 manual is accessible and reviewed (prompt 21).
+  It differs from the provisional 16-page Laird-branded source in E002. See
+  [protocol provenance](docs/protocol.md); EXT-002 attachment access is resolved.
+- Official CAL operating/communications guides supply protocol details. Actual
+  MRC suffix, installed controller/firmware, interface/wiring, serial settings and
+  coolant are still unconfirmed. No actual-unit compatibility claim is made.
 
 ## Assumptions / engineering choices
 
@@ -133,8 +144,10 @@ belong in [records/RECORDS.md](records/RECORDS.md).
   claim for the physical chiller.
 - Simulator starts at 20 °C with a 20 °C target (test convenience, not a factory
   setting); its thermal model is uncalibrated and excludes fluid/flow physics.
+  CalSimulator uses that model with the supplied manual's 10 °C factory target;
+  its selected identity/register state and 30 s time constant are simulation choices.
 - No unattended write retry or replay. Read reconnection is explicitly configured
   with a bounded outage budget; the default API remains conservative.
-- This phase finishes only after all hardware-independent acceptance passes.
-  Missing authoritative protocol and physical validation remain explicit external
-  dependencies; software completion is not a hardware-ready or validated release.
+- This phase finishes only after hardware-independent candidate acceptance passes.
+  Human review of actual identity/setup is required before hardware integration;
+  software completion is not physical validation.

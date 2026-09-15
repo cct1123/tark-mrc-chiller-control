@@ -38,5 +38,5 @@
 <g fill="#536c79" font-size="15">
 <text x="490" y="233">Starts / owns</text><text x="257" y="305">Snapshot</text>
 <text x="635" y="305">Record</text><text x="155" y="202">Explicit target request</text>
-<text x="30" y="396">The browser never owns acquisition. Missing hardware protocol blocks port creation.</text>
+<text x="30" y="396">The browser never owns acquisition. CAL commands run on hardware or a memory-only serial simulator.</text>
 </g></g></svg>

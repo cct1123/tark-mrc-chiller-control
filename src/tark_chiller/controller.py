@@ -303,7 +303,11 @@ class Simulator:
     """
 
     def __init__(
-        self, *, time_constant_s: float = 30.0, clock: Callable[[], float] = monotonic
+        self,
+        *,
+        time_constant_s: float = 30.0,
+        clock: Callable[[], float] = monotonic,
+        initial_setpoint_c: float = 20.0,
     ) -> None:
         self._tau = _finite(time_constant_s, "time_constant_s")
         if self._tau <= 0:
@@ -311,7 +315,8 @@ class Simulator:
         self._clock = clock
         self._connected = False
         self._updated = 0.0
-        self._temperature = self._setpoint = 20.0
+        self._temperature = 20.0
+        self._setpoint = _finite(initial_setpoint_c, "initial_setpoint_c")
 
     def connect(self) -> None:
         if not self._connected:

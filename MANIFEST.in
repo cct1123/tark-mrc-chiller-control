@@ -1,8 +1,8 @@
 include requirements-tested.txt
 include AGENTS.md PROJECT.md STATE.md prompt?log.md
 include records/RECORDS.md
-include outputs/REPORT.md outputs/validation.json outputs/tests.xml outputs/archive-tests.xml outputs/build.txt outputs/soak.txt
+include outputs/REPORT.md outputs/validation.json outputs/tests.xml outputs/fresh-tests.xml outputs/build.txt outputs/soak.txt
 recursive-include examples *.py
 recursive-include tests *.py
 recursive-include development *.md
-recursive-include docs *.md *.svg *.jpg
+recursive-include docs *.md *.svg *.png

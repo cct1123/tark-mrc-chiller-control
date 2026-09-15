@@ -4,8 +4,8 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "tark-mrc-chiller"
-version = "0.3.0"
-description = "Small laboratory chiller driver; MRC150/300 protocol integration pending"
+version = "0.4.0"
+description = "Laboratory chiller driver with CAL 3300/9300 protocol and simulator"
 readme = "README.md"
 requires-python = ">=3.12"
 dependencies = []

@@ -124,6 +124,17 @@ def test_disconnected_write_returns_understandable_error(dashboard):
     assert not chiller.is_connected
 
 
+def test_read_only_dashboard_refuses_even_direct_callback_submission(dashboard):
+    chiller, monitor, _, _ = dashboard
+    app = create_app(chiller, monitor, allow_setpoints=False)
+    assert "Read-only session" in app.server.test_client().get("/_dash-layout").get_data(
+        as_text=True
+    )
+    response = submit(app, 18)
+    assert "read-only" in text(response.json)
+    assert chiller.read_setpoint() == 20 and chiller.is_connected
+
+
 def test_refresh_and_reload_do_not_start_or_read_a_device(dashboard, monkeypatch):
     chiller, monitor, app, _path = dashboard
     chiller.stop_monitoring()

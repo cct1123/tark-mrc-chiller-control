@@ -1,7 +1,7 @@
 """Hardware examples: read, set, log, monitor or gui. No simulator fallback.
 
-Configure the lab connection below only after obtaining and testing the matching
-controller protocol. Construction and import open no port and start no worker.
+Configure the lab connection after confirming a CAL 3300/9300 and reviewing the
+hardware procedure. Construction and import open no port and start no worker.
 """
 
 import argparse
@@ -9,23 +9,27 @@ from pathlib import Path
 from time import monotonic, sleep
 
 from tark_chiller import Chiller, ProtocolError
-from tark_chiller.serial import Codec, RS485Mode, SerialDevice, SerialSettings
+from tark_chiller.serial import Cal33xx, RS485Mode, SerialDevice, SerialSettings
 
-# Fill from the identified controller and adapter documentation; no Tark defaults.
+# Fill from the identified controller and adapter; see docs/hardware.md.
 SERIAL_SETTINGS: SerialSettings | None = None
-CODEC_CLASS: type[Codec] | None = None  # A fresh protocol instance for each controller.
+CAL_ADDRESS: int | None = None
+ALLOW_WRITES = False  # Enable only after the human read-only review.
+EXPECTED_MODEL: int | None = None  # Exact hex codes printed by the approved read.
+EXPECTED_FIRMWARE: int | None = None
 RS485_MODE: RS485Mode | None = None  # Native direction settings only if required.
 
 
 def create_chiller() -> Chiller:
     """Return a disconnected hardware controller owned by the calling program."""
-    if SERIAL_SETTINGS is None or CODEC_CLASS is None:
+    if SERIAL_SETTINGS is None or CAL_ADDRESS is None:
         raise ProtocolError(
             "Hardware not configured: edit examples/lab.py with verified serial settings "
-            "and a documented codec class. The matching controller communication manual "
-            "is still required. No port was opened."
+            "and CAL_ADDRESS after controller identification and human review. "
+            "See docs/hardware.md. No port was opened."
         )
-    return Chiller(SerialDevice(SERIAL_SETTINGS, codec=CODEC_CLASS(), rs485=RS485_MODE))
+    protocol = Cal33xx(CAL_ADDRESS, ALLOW_WRITES, EXPECTED_MODEL, EXPECTED_FIRMWARE)
+    return Chiller(SerialDevice(SERIAL_SETTINGS, codec=protocol, rs485=RS485_MODE))
 
 
 def main(argv: list[str] | None = None) -> None:
@@ -65,7 +69,7 @@ def main(argv: list[str] | None = None) -> None:
         monitor = chiller.start_monitoring(csv_path=args.csv)
         try:
             if args.command == "gui":
-                app = create_app(chiller, monitor)
+                app = create_app(chiller, monitor, allow_setpoints=ALLOW_WRITES)
                 app.run(host="127.0.0.1", port=8050, debug=False, use_reloader=False)
             else:
                 deadline = monotonic() + 5 if args.command == "log" else None

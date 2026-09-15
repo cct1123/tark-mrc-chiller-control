@@ -1,9 +1,27 @@
-<svg xmlns="http://www.w3.org/2000/svg" width="960" height="255" viewBox="0 0 960 255" role="img" aria-labelledby="title desc">
-<title id="title">Physical setup requires matching documentation</title><desc id="desc">A computer connects through a verified serial adapter and documented wiring to an identified MRC controller. The missing protocol currently blocks software connection.</desc>
-<defs><marker id="arrow" markerWidth="8" markerHeight="8" refX="7" refY="4" orient="auto"><path d="M0 0 L8 4 L0 8Z" fill="#536c79"/></marker></defs>
-<rect width="960" height="255" rx="14" fill="#f5f8fa"/>
-<g font-family="Segoe UI,Arial,sans-serif" fill="#18313d">
-<text x="30" y="36" font-size="22" font-weight="600">Physical setup requires matching documentation</text>
-<path d="M265 126H355" fill="none" stroke="#536c79" stroke-width="2" marker-end="url(#arrow)"/><path d="M605 126H695" fill="none" stroke="#536c79" stroke-width="2" marker-end="url(#arrow)"/><rect x="30" y="90" width="235" height="72" rx="8" fill="#fff" stroke="#c6d4dc" stroke-width="1.5"/><text x="147.5" y="119" text-anchor="middle" font-size="20">Computer</text><text x="147.5" y="144" text-anchor="middle" font-size="15" fill="#536c79">Recorded OS port</text><rect x="360" y="90" width="245" height="72" rx="8" fill="#fff" stroke="#c6d4dc" stroke-width="1.5"/><text x="482.5" y="119" text-anchor="middle" font-size="20">Verified adapter</text><text x="482.5" y="144" text-anchor="middle" font-size="15" fill="#536c79">Actual RS-232 / RS-485 mode</text><rect x="700" y="90" width="230" height="72" rx="8" fill="#fff" stroke="#c6d4dc" stroke-width="1.5"/><text x="815" y="119" text-anchor="middle" font-size="20">Identified MRC</text><text x="815" y="144" text-anchor="middle" font-size="15" fill="#536c79">Controller model + firmware</text><text x="480" y="203" text-anchor="middle" font-size="18" fill="#a75019">Missing communication manual → no codec → no port opening</text>
-<text x="30" y="235" font-size="15" fill="#536c79">Connection plan only. This drawing supplies no pinout, cable wiring or electrical settings.</text>
-</g></svg>
+<svg xmlns="http://www.w3.org/2000/svg" width="960" height="278" viewBox="0 0 960 278" role="img" aria-labelledby="title desc">
+  <title id="title">Planned connection to a real chiller</title>
+  <desc id="desc">Identify a supported CAL controller and verify its cable and serial settings. After human review, connect read-only. Software commands are implemented; physical validation is pending.</desc>
+  <defs>
+    <marker id="arrow" markerWidth="8" markerHeight="8" refX="7" refY="4" orient="auto">
+      <path d="M0 0 L8 4 L0 8Z" fill="#536c79"/>
+    </marker>
+  </defs>
+  <rect width="960" height="278" rx="14" fill="#f5f8fa"/>
+  <g font-family="Segoe UI,Arial,sans-serif" fill="#18313d">
+    <text x="30" y="36" font-size="22" font-weight="600">Planned connection to a real chiller</text>
+    <path d="M265 110H355" fill="none" stroke="#536c79" stroke-width="2" marker-end="url(#arrow)"/>
+    <path d="M605 110H695" fill="none" stroke="#536c79" stroke-width="2" marker-end="url(#arrow)"/>
+    <rect x="30" y="74" width="235" height="72" rx="8" fill="#fff" stroke="#c6d4dc" stroke-width="1.5"/>
+    <text x="147.5" y="103" text-anchor="middle" font-size="20">Computer</text>
+    <text x="147.5" y="128" text-anchor="middle" font-size="15" fill="#536c79">Select the correct serial port</text>
+    <rect x="360" y="74" width="245" height="72" rx="8" fill="#fff" stroke="#c6d4dc" stroke-width="1.5"/>
+    <text x="482.5" y="103" text-anchor="middle" font-size="20">Serial adapter</text>
+    <text x="482.5" y="128" text-anchor="middle" font-size="15" fill="#536c79">Match RS-232 or RS-485</text>
+    <rect x="700" y="74" width="230" height="72" rx="8" fill="#fff" stroke="#c6d4dc" stroke-width="1.5"/>
+    <text x="815" y="103" text-anchor="middle" font-size="20">Your MRC150/300</text>
+    <text x="815" y="128" text-anchor="middle" font-size="15" fill="#536c79">Confirm model and firmware</text>
+    <text x="480" y="185" text-anchor="middle" font-size="18" font-weight="600" fill="#a75019">Confirm CAL 3300/9300 → Review setup → Connect read-only</text>
+    <text x="480" y="212" text-anchor="middle" font-size="16" fill="#536c79">Commands are implemented. Your controller, cable and physical behavior still need verification.</text>
+    <text x="30" y="255" font-size="15" fill="#536c79">Connection plan only. Obtain the actual MRC connector pinout before wiring.</text>
+  </g>
+</svg>

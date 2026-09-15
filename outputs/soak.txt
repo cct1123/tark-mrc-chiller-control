@@ -1,3 +1,9 @@
-{"duration_s": 60.0, "samples": 1732, "csv_rows": 1732, "concurrent_callbacks": 1527, "final_temperature_c": 18.000000000000007, "history_size": 25, "clean_shutdown": true}
+{"duration_s": 60.0, "backend": "cal", "samples": 183, "csv_rows": 183, "concurrent_callbacks": 1167, "final_temperature_c": 18.0, "history_size": 25, "clean_shutdown": true}
 .
-1 passed in 60.54s (0:01:00)
+============================== warnings summary ===============================
+tests/test_end_to_end.py::test_simulator_monitor_csv_dash[cal]
+  C:\projects\tark-mrc-chiller-control\.venv\Lib\site-packages\_plotly_utils\basevalidators.py:2554: DeprecationWarning: *scattermapbox* is deprecated! Use *scattermap* instead. Learn more at: https://plotly.com/python/mapbox-to-maplibre/
+    res.append(self.data_class(v_el, skip_invalid=skip_invalid))
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+1 passed, 1 warning in 60.93s (0:01:00)

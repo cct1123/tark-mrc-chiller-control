@@ -766,3 +766,18 @@ more focus on using with real hardware
 ## Prompt 18
 
 review fix issues commit push
+
+## Prompt 19
+
+what does the missing communication manual ->.... no port opening mean? it can be confusing for new users
+
+## Prompt 20
+
+grilling you. I supported the manual. if not, state it
+
+## Prompt 21
+
+Attachment: `MRC150_300_chiller_user_manual.pdf`, supplied at
+`C:/Users/ctcheung/Downloads/MRC150_300_chiller_user_manual.pdf`.
+
+> implementation of the commands. verify the controller. apply the command and the behavior to the simulator . final review to ready for real hardware test by human. update the doc, readme, tutorial etc. prune commit push.

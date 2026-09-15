@@ -4,26 +4,32 @@
 
 Use one Chiller per backend and share it with your experiment code.
 [examples/lab.py](../examples/lab.py) provides an editable checkout helper,
-not an installed API or required integration layer. Missing settings or codec
+not an installed API or required integration layer. Missing settings or address
 raise `ProtocolError` before port creation.
 
 External applications can import `Chiller` from `tark_chiller` and
-`SerialDevice`, `SerialSettings`, `Codec` and `RS485Mode` from
+`SerialDevice`, `SerialSettings`, `Cal33xx` and `RS485Mode` from
 `tark_chiller.serial`, then construct
 `Chiller(SerialDevice(settings, codec=codec, rs485=mode))` directly.
 Each backend needs its own codec instance. Native RS-485 mode does not select the
 electrical interface; follow the verified adapter's requirements.
 
+For the supported CAL candidate, use `Cal33xx(address)` for reads. Enabling writes
+requires `Cal33xx(address, allow_writes=True, expected_model=..., expected_firmware=...)`
+with actual reviewed identity codes. Do not copy simulator codes into a hardware
+profile. [Protocol scope](protocol.md) lists supported models and restrictions.
+The generic `Codec` interface remains available for separately reviewed protocols.
+
 ## Functions
 
 | Function or property | Purpose |
 | --- | --- |
-| `connect()` | Open the configured backend without writing a target |
+| `connect()` | Open the backend; CAL verifies identity, RTD and Celsius with read commands |
 | `disconnect()` | Cancel recovery, close connection, stop monitoring and close CSV |
 | `is_connected` | Check driver connection state; not physical safety |
 | `read_temperature()` | Return a finite Celsius measurement |
 | `read_setpoint()` | Return the device's reported Celsius target |
-| `set_setpoint(value_c)` | Validate and send one target request |
+| `set_setpoint(value_c)` | Validate target; CAL performs the five-write sequence and readback |
 | `read_status()` | Return `Status(connected, backend, detail)` |
 | `start_monitoring(interval_s=1, csv_path=None, history_size=3600)` | Start one worker and return its snapshot handle |
 | `stop_monitoring(timeout_s=5)` | Join the worker and close CSV, keeping the connection |
@@ -88,7 +94,9 @@ readings; the console monitor exits on recording/service errors.
 Defaults are `setpoint_range=(2.0, 40.0)`, `coolant="distilled water"`, with
 automatic recovery disabled. Targets must be finite numeric Celsius values;
 strings, booleans, NaN, infinity and out-of-range values raise `ValueError`.
-No unit conversion occurs. Custom bounds need a coolant name and `coolant_source`
+No unit conversion occurs. The CAL candidate additionally requires RTD/Celsius,
+0–40 °C targets, the controller's scale bounds and its 0.1/1 °C resolution.
+Custom bounds need a coolant name and `coolant_source`
 documenting applicability to the actual setup.
 
 Set `reconnect_attempts` to 1–10 for bounded read/connect recovery;
@@ -96,6 +104,11 @@ Set `reconnect_attempts` to 1–10 for bounded read/connect recovery;
 Protocol errors suspend recovery; exhaustion requires explicit `connect()`.
 No write is retried or replayed. Resolve an uncertain write by documented readback
 before considering another request.
+
+For CAL, an interrupted write latches the backend unusable even across explicit
+connect calls. It may have locked the panel or staged/saved a target. Follow the
+[human recovery procedure](hardware.md#uncertain-write-or-shutdown); the driver
+does not send an automatic exit-program command. A new session needs human review.
 
 | Error | Meaning |
 | --- | --- |
@@ -110,8 +123,11 @@ before considering another request.
 `create_app(chiller, monitor)` from `tark_chiller.gui` displays existing objects;
 it neither connects nor starts acquisition. The lab script's `gui` command owns
 their lifecycle and uses one process with its reloader disabled.
+It passes `allow_setpoints=ALLOW_WRITES` to disable target controls during
+read-only review. Other clients can pass `allow_setpoints=False` as well; the
+CAL backend independently enforces its write permission.
 
-The display shows temperature, reported target, sample age, faults and recording
+The display shows temperature, reported target, sample age, controller detail, faults and recording
 status. The [README screenshot](../README.md#optional-dashboard) illustrates it
 using simulator data, not physical measurements.
 Drag the graph to zoom, double-click to reset, or select legend entries to hide

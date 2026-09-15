@@ -1,152 +1,85 @@
 # Tark MRC150/300 chiller controller
 
-Control a laboratory chiller from Python: read its temperature, change an approved
-setpoint (target temperature), record CSV data, and watch a live dashboard.
-[examples/lab.py](examples/lab.py) is the main entry point for real equipment.
+Read chiller temperature from Python, change an approved target, record CSV data,
+and watch a live dashboard. Start real-equipment sessions with
+[examples/lab.py](examples/lab.py).
 
-**Current status — version 0.3.0:** the software passes 218 tests, but real-hardware
-operation is blocked by the missing controller communication manual and Tark
-protocol implementation. No physical MRC150/300 has been validated.
-The lab script refuses incomplete configuration and never substitutes a simulator.
+**Version 0.4.0 — software candidate for human hardware review.** CAL 3300/9300
+commands and a byte-protocol simulator are implemented. **No physical chiller has
+been tested, and the controller fitted to your unit has not been confirmed.**
+The supplied MRC manual does not name it. Use this driver only after a human
+confirms a supported CAL controller, its interface and the setup below.
 
-**Lab workflow:** Install → Configure your unit → Read and verify → Record →
-Change an approved target → Shut down safely.
+| Available now | Still needs a human hardware test |
+| --- | --- |
+| CAL identity, temperature, target and display-state reads | Installed controller/firmware, wiring and adapter |
+| Checked target changes; writes disabled initially | Readback, restart behavior and physical temperature response |
+| Protocol simulator, CSV and dashboard | Flow, leaks, coolant suitability and calibration |
+
+**Install → Test without hardware → Identify and connect → Read → Record → Approved control**
 
 <a id="hardware-quick-start"></a>
 
-## 1. Install
+## 1. Install and test without hardware
 
-Use **Windows PowerShell** in the repository folder containing `pyproject.toml`.
-Check `python --version` is **3.12+** before continuing. Windows / Python 3.12.14
-is the tested platform; other platforms and versions have not been exercised.
+In **Windows PowerShell**, from this repository, use Python **3.12+**:
 
 ```powershell
 python -m venv .venv
 .\.venv\Scripts\python -m pip install -c requirements-tested.txt ".[gui,serial]"
+.\.venv\Scripts\python -m tark_chiller --cal --headless --duration 5 --csv outputs/demo.csv
 ```
 
-This installs serial communication and the dashboard. No environment activation
-is needed. Complete the configuration and review below before running hardware commands.
+Expected: simulator starts, records samples, then stops. The CSV contains
+**simulator** rows. Use a new filename on repeat runs. --cal exercises the actual
+CAL commands through a memory-only controller; it opens no physical port.
+Windows / Python 3.12.14 is the tested platform.
 
-## 2. Configure and connect your chiller
+## 2. Prepare your real chiller
 
-![Connection plan: computer, verified serial adapter and identified MRC controller](docs/assets/hardware-setup.svg)
+![Hardware setup and first connection](docs/assets/hardware-setup.svg)
 
-1. **Identify the equipment.** Record the chiller model/suffix, controller model,
-   firmware, adapter and coolant. Obtain the matching controller communication
-   manual. Follow the unit's manual and lab procedure for plumbing, power and wiring.
-2. **Verify communication.** Confirm the actual RS-232 or RS-485 interface, adapter,
-   pinout and serial settings. The software has both transport paths; compatibility
-   with your unit/adapter is unverified. No baud rate, pinout or address is supplied.
-3. **Supply the missing protocol.** A *codec* translates operations into the
-   controller's command/reply format. A documented, tested implementation is needed;
-   installing pySerial or entering a COM port does not provide it.
-   After changes under `src/tark_chiller`, rerun the pip install command in step 1
-   so the environment uses the updated driver.
-4. **Edit the connection entries** at the top of [examples/lab.py](examples/lab.py):
+1. **Identify it.** Record the full MRC model, controller label and firmware.
+   Supported candidate: **CAL 3300/9300**, RTD input, Celsius. Other controllers,
+   Fahrenheit, linear input and sub-zero operation are not enabled.
+2. **Prepare plumbing and power using your unit manual.** Fill/purge the coolant
+   circuit, check leaks and flow, and provide the specified clearance and grounding.
+3. **Verify the serial link.** Confirm RS-232/RS-485, the cable pinout, adapter and
+   OS port. Rev 13 lists **DH2 as RS-232**; generic RS-485 support does not prove
+   that your chiller has RS-485. Do not infer wiring from the connector shape.
+4. **Edit [examples/lab.py](examples/lab.py)** using the
+   [configuration tutorial](docs/hardware.md#configure-the-lab-script):
 
-   | Entry | What to enter |
+   | Setting | Enter |
    | --- | --- |
-   | `SERIAL_SETTINGS` | Verified port, baud rate, framing, flow control and RTS/DTR levels |
-   | `CODEC_CLASS` | Tested codec class for the identified controller |
-   | `RS485_MODE` | Verified native direction settings if required; otherwise `None` |
+   | SERIAL_SETTINGS | Verified port, baud, framing and adapter line settings |
+   | CAL_ADDRESS | Address shown in the communication menu, 1–247 |
+   | ALLOW_WRITES | Leave False for first connection |
+   | EXPECTED_MODEL, EXPECTED_FIRMWARE | Initially None; record read results before enabling writes |
+   | RS485_MODE | Adapter-specific native direction settings, only if required |
 
-5. **Review the setup before connection.** Obtain explicit authorization for the
-   concrete hardware candidate and setup before opening a port. Even reads and
-   port opening may have side effects. Connect using the verified wiring procedure.
+5. **Have the lab reviewer approve the candidate and setup** before connection.
+   Use the [human test checklist](docs/hardware.md#human-hardware-test).
 
-See the [hardware guide](docs/hardware.md) for every configuration field and the
-staged validation procedure. Leave required entries unset until verified.
+The CAL communication guide is now linked and implemented. You no longer need to
+write a codec. The shipped script leaves your port and address unset: running it
+now reports **Hardware not configured / No port was opened**.
 
-## 3. Read and verify the connection
+## 3. Read and verify
 
-Use one program per chiller at a time. Stop an active monitor/dashboard before
-starting another lab command; the dashboard can submit targets within its own session.
-
-After configuration and authorization, start with a single read:
+After setup and read-only approval, run one program per chiller:
 
 ```powershell
 .\.venv\Scripts\python examples/lab.py read
 ```
 
-It prints temperature, reported setpoint and status without requesting a target
-change. Check that the backend is **hardware** and compare Celsius readings with
-the front panel and approved reference instrument. Resolve unexpected replies
-before continuing.
+Connection first reads CAL model/firmware, input type and units; incompatible
+replies stop the session. The command then prints temperature, target and status.
+Confirm **hardware**, record the identity codes, and compare readings with the
+front panel and an approved reference. Codes distinguish the CAL family/output
+configuration; they cannot distinguish a 3300 from a 9300 chassis.
 
-**With the shipped configuration:** expect `Hardware not configured`, a nonzero
-exit and `No port was opened`. This is the intended behavior until setup is complete.
-
-## 4. Record an experiment
-
-After the initial reads are verified, make a **five-second read-only recording**:
-
-```powershell
-.\.venv\Scripts\python examples/lab.py log --csv outputs/check.csv
-```
-
-Check the reported saved rows and failed polls, then open `outputs/check.csv`.
-CSV contains UTC time, elapsed seconds, temperature/setpoint in °C, backend,
-connection status and errors. Failed readings are blank.
-
-For **continuous read-only monitoring and recording**:
-
-```powershell
-.\.venv\Scripts\python examples/lab.py monitor --csv outputs/experiment.csv
-```
-
-Press **Ctrl+C in the terminal** to finish. Omit `--csv` if you only need terminal
-readings. Each recording needs a new filename; existing files are never overwritten
-and cannot be appended to.
-
-## 5. Change an approved target
-
-Only after read validation and explicit write approval, enter your approved
-Celsius target:
-
-```powershell
-$targetC = Read-Host "Approved target in Celsius"
-.\.venv\Scripts\python examples/lab.py set $targetC
-```
-
-The script reads the original target, writes once, and checks exact readback.
-A mismatch is reported as unconfirmed; it does not retry. **Matching readback
-confirms the target, not that the liquid has reached it.** Observe temperature
-independently before relying on it for the experiment.
-
-<a id="optional-dashboard"></a>
-
-## 6. Use the dashboard
-
-After the approved connection checks:
-
-```powershell
-.\.venv\Scripts\python examples/lab.py gui --csv outputs/dashboard.csv
-```
-
-Open **[http://127.0.0.1:8050](http://127.0.0.1:8050)**. Check:
-
-| On screen | What to look for |
-| --- | --- |
-| Session status | **hardware** backend, recent connected poll |
-| Temperature / reported setpoint | Celsius values and a fresh sample age |
-| Recording | CSV enabled and rows increasing |
-| Faults and history | Investigate errors, stale readings or gaps |
-
-Use **Requested temperature (°C) → Apply setpoint** only for approved targets.
-Watch the reported setpoint for readback. Omit `--csv` to use the dashboard without
-recording. Closing the browser leaves monitoring running; stop with **Ctrl+C in
-the terminal**.
-
-![Dashboard layout showing temperature, setpoint, recording status and history; simulator data](docs/assets/dashboard.jpg)
-
-*Interface preview captured with the simulator. This is not a hardware measurement;
-when connected to real equipment, verify that the backend badge says **hardware**.*
-
-## Use it in a Python experiment
-
-After hardware configuration and approved read validation, run from the repository
-root with the same environment's Python:
+One basic Python example, run from the repository root:
 
 ```python
 from examples.lab import create_chiller
@@ -157,74 +90,110 @@ with create_chiller() as chiller:
     print(chiller.read_status())
 ```
 
-The context connects on entry and disconnects on exit. It starts no monitoring
-or GUI. See the [API guide](docs/api.md) for optional monitoring and CSV recording.
+The context closes the software connection on exit.
 
-## Safety and shutdown
+## 4. Record data
 
-- **Default targets: 2–40 °C inclusive, distilled-water profile.** Confirm these
-  limits apply to the actual unit and coolant. Other coolant/range choices need
-  a named profile and documented source.
-- **No verified coolant, leak, flow, level or alarm telemetry.** Connection status
-  and the absence of software errors do not establish physical safety.
-- **No automatic write retries or replay.** Investigate failed or unconfirmed
-  writes before making another request. Polling is not real time.
-- **Ctrl+C stops monitoring and closes CSV and the software connection.** It does
-  **not stop the physical chiller, pump or cooling**. Follow the equipment shutdown
-  procedure separately; no serial stop command is documented.
-- Resolve stale readings and cleanup timeouts before relying on the data or assuming
-  the connection/file has closed. Software tests do not establish calibration.
+Five-second read-only check, then continuous monitoring if approved:
+
+```powershell
+.\.venv\Scripts\python examples/lab.py log --csv outputs/check.csv
+.\.venv\Scripts\python examples/lab.py monitor --csv outputs/experiment.csv
+```
+
+Check saved rows and failed polls. CSV includes UTC time, elapsed time,
+temperature/target in °C, status and errors. Failed readings are blank.
+**Ctrl+C** ends continuous monitoring. Existing CSV files are never overwritten.
+
+## 5. Change an approved target
+
+After successful read tests, the reviewer must approve writes, including the
+controller restart they cause. Enter the observed EXPECTED_MODEL and
+EXPECTED_FIRMWARE codes in lab.py, then set ALLOW_WRITES = True.
+
+```powershell
+$targetC = Read-Host "Approved target in Celsius"
+.\.venv\Scripts\python examples/lab.py set $targetC
+```
+
+The driver checks coolant bounds, controller limits, lock, initialization, mode
+and resolution. It sends the documented lock → target → save/restart sequence,
+then verifies target readback. **A confirmed target does not mean the liquid has
+reached it.** A failed sequence is never retried or automatically unlocked.
+
+## 6. Dashboard and shutdown
+
+<a id="optional-dashboard"></a>
+
+```powershell
+.\.venv\Scripts\python examples/lab.py gui --csv outputs/dashboard.csv
+```
+
+Open [127.0.0.1:8050](http://127.0.0.1:8050). Check the **hardware** badge, fresh
+readings and recording count. Target controls work only when writes are enabled.
+Closing the browser leaves acquisition running; **Ctrl+C in the terminal** stops it.
+
+![Dashboard preview using simulator data](docs/assets/dashboard.png)
+
+*Simulator screenshot; it is not a hardware measurement.*
+
+**Software disconnect does not stop the chiller, pump or cooling.** Follow the
+equipment shutdown procedure separately. No power-off command is implemented.
+
+## Safety and limitations
+
+- Default software target bounds: **2–40 °C**, distilled-water profile. Confirm
+  applicability to your coolant and unit. The [hardware guide](docs/hardware.md)
+  records conflicting manufacturer coolant guidance that needs resolution.
+- CAL targets must match DISP: **0.1 °C** in high resolution or **1 °C** in low
+  resolution. Values are rejected, never silently rounded.
+- Display/alarm codes are diagnostic information. Flow, coolant level and leaks
+  remain **unknown** to the software. Connection is not proof of safety.
+- A lost write reply can leave the keypad locked or a target staged/saved.
+  Stop, inspect the unit, and follow the [recovery procedure](docs/hardware.md#uncertain-write-or-shutdown).
+- No unattended control, physical calibration or cooling-performance claim has
+  been validated. Simulator dynamics are illustrative.
 
 ## Troubleshooting
 
-| Symptom | Next step |
+| Message / symptom | Next step |
 | --- | --- |
-| Hardware not configured | Supply verified settings and a tested codec; see step 2. No port was opened. |
-| Port missing, denied or busy | Check the approved adapter's OS port, permissions and competing applications. |
-| Timeout or malformed reply | Check documented wiring/settings; stop relying on old readings and investigate uncertain writes. |
-| Target rejected / readback differs | Check the approved Celsius value and configured bounds; do not blindly retry. |
-| CSV exists / recording failed | Use a new filename; check free space, permissions and recording status. |
-| Browser cannot connect | Keep the launch terminal open; check its errors and whether port 8050 is already in use. |
-| Python or import error | Use Python 3.12+ and the same `.venv` for install/run; run Python examples from the repository root. |
+| Hardware not configured | Fill verified settings and CAL_ADDRESS; no port opened. |
+| Unsupported identity / RTD / Celsius | Compare the actual controller with the supported profile; do not bypass the check. |
+| Port missing, denied or busy | Check the approved adapter's port and close other control programs. |
+| Timeout / CRC error | Check wiring, address, baud and parity; stop using stale readings. |
+| Writes disabled / target rejected | Check approval, identity codes, limits, SP.LK and DISP. |
+| Write outcome uncertain | Human inspection required; no blind retry or automatic unlock. |
+| CSV exists | Choose a new filename. |
+| Import error after source update | Rerun the install command in step 1. |
 
-[More troubleshooting](docs/troubleshooting.md).
+[More troubleshooting](docs/troubleshooting.md) · [API and CSV](docs/api.md)
 
-## Optional: try the interface without hardware
-
-The simulator is a development/demo tool. With the installation above:
-
-```powershell
-.\.venv\Scripts\python -m tark_chiller
-```
-
-Open [127.0.0.1:8050](http://127.0.0.1:8050), verify the **simulator** badge, and try
-an 18 °C target. The modeled temperature starts at 20 °C and approaches the target.
-Stop with Ctrl+C. For a five-second CSV test without a browser:
+## Optional simulator practice
 
 ```powershell
-.\.venv\Scripts\python -m tark_chiller --headless --duration 5 --csv outputs/demo.csv
+.\.venv\Scripts\python -m tark_chiller --cal
 ```
 
-The module launcher and `tark-chiller` always use the simulator; they cannot select
-hardware. The model is uncalibrated and predicts no physical chiller performance.
+Open the local dashboard and verify **simulator**. Try an 18 °C target: the
+synthetic liquid starts at 20 °C, with the manual's 10 °C factory target, and moves
+gradually toward the requested value. Ctrl+C stops the demo. Omitting --cal
+selects the simpler thermal simulator. Neither launcher can select hardware.
 
-## For developers
-
-The synchronous `Chiller` API owns a simulator or serial backend. Monitoring/CSV
-and Dash are optional clients; core installation has no third-party dependencies.
+## Implementation and validation
 
 ```mermaid
 flowchart LR
-    A[Python script / Dash] --> C[Chiller API]
-    C --> S[Simulator]
-    C --> H[Serial transport + codec]
-    H -. Protocol missing .-> D[Physical MRC150/300]
+    U[Python / Dashboard] --> C[Chiller API]
+    C --> P[CAL commands + serial transport]
+    P --> M[Memory controller simulator]
+    P --> H[Confirmed CAL controller]
 ```
 
-**Validation:** 218 software tests and a 60-second integrated simulator run pass.
-Serial tests use in-memory endpoints. Physical compatibility and temperature
-performance remain unvalidated. [Validation report](outputs/REPORT.md).
+The same transport and command sequence run in the protocol simulator and hardware
+path. Automated tests cover published bytes, identity/configuration rejection,
+each interrupted write stage, monitoring and cleanup. Physical testing remains
+pending. See the [current validation report](outputs/REPORT.md).
 
-[Development and tests](development/README.md) · [API](docs/api.md) ·
-[Requirements](PROJECT.md) · [Current state](STATE.md) ·
-[Validation evidence](records/RECORDS.md#e036)
+[Hardware tutorial](docs/hardware.md) · [Protocol sources and scope](docs/protocol.md) ·
+[Development](development/README.md) · [Current state](STATE.md)

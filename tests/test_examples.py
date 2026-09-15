@@ -37,7 +37,8 @@ def hardware(lab, monkeypatch):
     endpoint = FakeSerial()
     monkeypatch.setattr("tark_chiller.serial._serial_factory", endpoint.factory)
     monkeypatch.setattr(lab, "SERIAL_SETTINGS", fake_settings())
-    monkeypatch.setattr(lab, "CODEC_CLASS", FakeCodec)
+    monkeypatch.setattr(lab, "CAL_ADDRESS", 1)
+    monkeypatch.setattr(lab, "Cal33xx", lambda *args: FakeCodec())
     return endpoint
 
 
@@ -66,10 +67,10 @@ def test_configured_lab_uses_serial_backend(lab, hardware, monkeypatch, rs485):
     assert hardware.applied_writes == 0
 
 
-@pytest.mark.parametrize("missing", ["SERIAL_SETTINGS", "CODEC_CLASS"])
+@pytest.mark.parametrize("missing", ["SERIAL_SETTINGS", "CAL_ADDRESS"])
 def test_incomplete_configuration_never_creates_port(lab, hardware, monkeypatch, missing):
     monkeypatch.setattr(lab, missing, None)
-    with pytest.raises(ProtocolError, match="communication manual"):
+    with pytest.raises(ProtocolError, match="human review"):
         lab.create_chiller()
     assert not hardware.factory_arguments
 
@@ -118,7 +119,7 @@ def test_unconfigured_commands_explain_dependency_without_simulator_or_traceback
     )
     assert result.returncode == 1
     assert "Hardware not configured" in result.stderr
-    assert "communication manual" in result.stderr
+    assert "human review" in result.stderr
     assert "No port was opened" in result.stderr
     assert "Traceback" not in result.stderr
     assert list(tmp_path.iterdir()) == []

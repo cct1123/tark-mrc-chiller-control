@@ -6,16 +6,25 @@ import os
 from concurrent.futures import ThreadPoolExecutor
 from time import monotonic, sleep
 
+import pytest
 from fakes import make_serial
 
 from tark_chiller import Chiller, Simulator
 from tark_chiller.gui import create_app
+from tark_chiller.serial import CalSimulator
 
 
-def test_simulator_monitor_csv_dash(tmp_path):
-    duration = float(os.environ.get("TARK_SOAK_SECONDS", "2"))
+@pytest.mark.parametrize("backend", ["thermal", "cal"])
+def test_simulator_monitor_csv_dash(tmp_path, backend):
+    duration = float(os.environ.get("TARK_SOAK_SECONDS", "5" if backend == "cal" else "2"))
     path = tmp_path / "integration.csv"
-    with Chiller(Simulator(time_constant_s=0.5)) as chiller:
+    # Accelerated synthetic clock gives both models a short test trajectory.
+    device = (
+        CalSimulator(clock=lambda: monotonic() * 60).device()
+        if backend == "cal"
+        else Simulator(time_constant_s=0.5)
+    )
+    with Chiller(device) as chiller:
         monitor = chiller.start_monitoring(interval_s=0.02, csv_path=path, history_size=25)
         chiller.set_setpoint(18)
         app = create_app(chiller, monitor)
@@ -57,14 +66,21 @@ def test_simulator_monitor_csv_dash(tmp_path):
         assert snapshot.latest.setpoint_c == 18
     with path.open(newline="") as stream:
         rows = list(csv.DictReader(stream))
-    assert len(rows) == snapshot.logged_samples == snapshot.sample_count >= 25
-    assert len(snapshot.history) == 25
+    # CAL performs multiple RTU frames with mandatory gaps for each poll.
+    assert (
+        len(rows)
+        == snapshot.logged_samples
+        == snapshot.sample_count
+        >= (3 if backend == "cal" else 25)
+    )
+    assert len(snapshot.history) == min(25, snapshot.sample_count)
     assert not snapshot.service_error and not snapshot.logging_error
     assert not snapshot.failed_samples and not monitor.running and not chiller.is_connected
     print(
         json.dumps(
             {
                 "duration_s": duration,
+                "backend": backend,
                 "samples": snapshot.sample_count,
                 "csv_rows": len(rows),
                 "concurrent_callbacks": callbacks,

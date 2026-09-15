@@ -112,6 +112,7 @@ def render_snapshot(
                 ],
                 className="session-summary",
             ),
+            html.P(latest.status.detail if latest else "", className="panel-caption"),
             *[dbc.Alert(issue, color="danger", className="fault-message") for issue in issues],
         ]
     )
@@ -151,9 +152,13 @@ def render_snapshot(
     return status, figure
 
 
-def create_app(chiller: Chiller, monitor: Monitor, *, stale_after_s: float = 3.0) -> Dash:
+def create_app(
+    chiller: Chiller, monitor: Monitor, *, stale_after_s: float = 3.0, allow_setpoints: bool = True
+) -> Dash:
     """The caller connects the chiller, starts monitoring and owns shutdown."""
     stale_after_s = _seconds(stale_after_s, "stale_after_s")
+    if type(allow_setpoints) is not bool:
+        raise ValueError("allow_setpoints must be boolean")
     app = Dash(
         __name__, meta_tags=[{"name": "viewport", "content": "width=device-width, initial-scale=1"}]
     )
@@ -181,6 +186,11 @@ def create_app(chiller: Chiller, monitor: Monitor, *, stale_after_s: float = 3.0
                 n_clicks=0,
                 color="primary",
                 className="w-100 mt-3",
+                disabled=not allow_setpoints,
+            ),
+            html.P(
+                "" if allow_setpoints else "Read-only session; target changes disabled.",
+                className="panel-caption",
             ),
             html.Div(id="setpoint-result", role="status", className="action-result"),
             html.P(
@@ -239,7 +249,8 @@ def create_app(chiller: Chiller, monitor: Monitor, *, stale_after_s: float = 3.0
                     className="instrument-panels",
                 ),
                 html.Footer(
-                    "Coolant presence, leaks, flow, fluid level and alarms: telemetry unavailable. "
+                    "Coolant presence, leaks, flow and fluid level: telemetry unavailable. "
+                    "Controller display codes are diagnostic only. "
                     "Software connection status does not establish physical safety.",
                     className="safety-note",
                 ),
@@ -266,6 +277,8 @@ def create_app(chiller: Chiller, monitor: Monitor, *, stale_after_s: float = 3.0
         prevent_initial_call=True,
     )
     def apply_setpoint(_clicks: int, value: object) -> str:
+        if not allow_setpoints:
+            return "Rejected: read-only session; target changes disabled."
         try:
             chiller.set_setpoint(value)
         except (ValueError, OSError, ProtocolError) as exc:

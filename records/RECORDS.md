@@ -856,7 +856,7 @@ scrollbar). Default desktop layout was also inspected. Stylesheets were local
 recording continued for 516 further rows. Ctrl+C reported stopped monitoring;
 the closed CSV has 989 rows, including 49 intentionally unavailable polls.
 
-[New dashboard screenshot](../docs/assets/dashboard.jpg): unedited native JPEG,
+[New dashboard screenshot](https://github.com/cct1123/tark-mrc-chiller-control/blob/26b9dd54f7f9774aac6f9ac051b461b3a45cfd76/docs/assets/dashboard.jpg): unedited native JPEG,
 1265 × 955 pixels, 88,521 bytes, SHA-256
 `4390a8ba583666d85a030a64444a912ed9dfce014973850c3b9b375f7932866d`.
 It shows 123 samples/rows, zero failures and 18.19 °C at an 18 °C target. The
@@ -996,7 +996,7 @@ unavailable rows. Ctrl+C printed stopped monitoring; subsequent append validatio
 proved complete rows and a released file lock. Local ports 8050/8051 were closed.
 [Operations summary](https://github.com/cct1123/tark-mrc-chiller-control/blob/778e3d89ddd0ed605e60111da276ba60dcc427d7/outputs/release-operations.json).
 
-The current [screenshot](../docs/assets/dashboard.jpg) is an unedited native JPEG,
+The current [screenshot](https://github.com/cct1123/tark-mrc-chiller-control/blob/26b9dd54f7f9774aac6f9ac051b461b3a45cfd76/docs/assets/dashboard.jpg) is an unedited native JPEG,
 1265 × 955, showing 140 samples/rows, no faults, 18.12 °C and an 18 °C target.
 SHA-256: `0c53d3046b5d7289d7abcb1c7d89d7bb32735c1377ed7ba8e4793081d293befc`.
 It replaces the prior current screenshot; E026's hash remains historical evidence.
@@ -1378,21 +1378,21 @@ The earlier actual GUI screenshot remains explicitly labeled simulator data.
 ## E036
 
 Date: 2026-09-10. Version: 0.3.0. Scope: final hardware-independent acceptance.
-[Validation audit](../outputs/validation.json) records normalized source hashes,
+[Validation audit](https://github.com/cct1123/tark-mrc-chiller-control/blob/26b9dd54f7f9774aac6f9ac051b461b3a45cfd76/outputs/validation.json) records normalized source hashes,
 comparative inventory, environment, package integrity and documentation checks.
 
 A fresh Python 3.12.14 environment installed all 43 pinned dependencies and the
 package normally with no shared site-packages. **218 tests PASS in 15.48 s**;
-[JUnit](../outputs/tests.xml). The extracted source archive also passes **218 tests
-in 15.79 s** against the installed wheel; [archive JUnit](../outputs/archive-tests.xml).
+[JUnit](https://github.com/cct1123/tark-mrc-chiller-control/blob/26b9dd54f7f9774aac6f9ac051b461b3a45cfd76/outputs/tests.xml). The extracted source archive also passes **218 tests
+in 15.79 s** against the installed wheel; [archive JUnit](https://github.com/cct1123/tark-mrc-chiller-control/blob/26b9dd54f7f9774aac6f9ac051b461b3a45cfd76/outputs/archive-tests.xml).
 Ruff lint/format, mypy six modules and pip check PASS. Source/wheel packaging and
-installed file checks exclude removed modules and examples; [build](../outputs/build.txt).
+installed file checks exclude removed modules and examples; [build](https://github.com/cct1123/tark-mrc-chiller-control/blob/26b9dd54f7f9774aac6f9ac051b461b3a45cfd76/outputs/build.txt).
 
 A sustained installed simulator/monitor/CSV/Dash run produced 1,732 CSV rows and
 1,527 concurrent callbacks over 60 seconds. History stayed at 25; the modeled
 reading approached 18.000000000000007 Celsius for an 18 Celsius target. No failed
 polls, service errors or logging errors; clean worker/file/connection shutdown.
-[Run](../outputs/soak.txt). Full suites each emitted one upstream Plotly
+[Run](https://github.com/cct1123/tark-mrc-chiller-control/blob/26b9dd54f7f9774aac6f9ac051b461b3a45cfd76/outputs/soak.txt). Full suites each emitted one upstream Plotly
 scattermapbox deprecation warning; this GUI uses no map trace and no check failed.
 
 README/API Python examples execute through the configured production serial path
@@ -1516,3 +1516,185 @@ Prompt 18 explicitly authorizes the documentation commit and push to that existi
 remote/branch. Physical hardware remains unvalidated and blocked by EXT-001/003;
 no real port was enumerated or opened. The protocol/manual and candidate-review
 requirements remain in force.
+
+## E040
+
+Date: 2026-09-15. Source: prompt 19 and the supplied setup-diagram screenshot.
+Scope: plain-language hardware-status explanation; REQ-020, TEST-017.
+
+Replaced "Missing communication manual → no codec → no port opening" with
+"Real-chiller communication is not implemented yet" and a sentence identifying
+the developer's next step: use the controller manual to add and test the required
+commands. Simplified the diagram labels and aligned the README/hardware-guide
+introductions. The manual is a development input; supplying it alone does not
+make the software communicate with hardware.
+
+SVG XML parses successfully. Browser rendering confirms readable labels without
+overlap or clipping. Product code, commands and examples are unchanged; E039's
+software checks remain applicable. No physical device interaction occurred, and
+EXT-001/003 and the hardware review boundary remain unchanged.
+
+## E041
+
+Date: 2026-09-15. Source: prompt 20. Scope: manual provenance clarification.
+
+The user reports having supplied the manual. The original prompt explicitly refers
+to an attached MRC150/300 user manual. E001 records that the attachment was not
+exposed to the earlier implementation session; E002 identifies a separately obtained
+public Rev 13 manual. Its recorded reference to another controller manual does not
+prove what the user's original attachment contained.
+
+Current repository search found no accessible PDF/manual file; some ignored test
+temporary directories denied access. This is not an exhaustive search of user files
+or proof that no attachment was ever supplied. The original manual is not accessible
+in the current conversation. Earlier records were the basis for the missing-manual
+claim, not a fresh inspection of the user's document. Correct conclusion: required
+communication details have not been verified from the supplied attachment. Access
+to that exact file is needed to resolve its contents. No hardware behavior or
+implementation changed.
+
+## E042
+
+Date: 2026-09-15. Scope: actual supplied manual and primary controller sources;
+REQ-005/015/024/025, TEST-001/021. Resolves EXT-002.
+
+Read the user's actual MRC150_300_chiller_user_manual.pdf: 18 pages, Tark-branded
+Rev 13, SHA256 a60573b85faaa589b6d46e5ba4e5c373ed59c6884e54dfa14ea48a3f11d25df1.
+All pages were extracted; cover, nomenclature p8 and controller p14 were rendered
+and inspected. This differs from E002's 16-page Laird-branded provisional copy.
+The supplied p14 describes front-panel commands, factory target 10 °C and limits,
+and delegates controller details to a separate manufacturer's manual. It does
+not identify the controller model or provide wire commands. E041's attachment
+access limitation is now resolved, not attributed to the user failing to supply it.
+
+Official West-hosted CAL sources were retrieved and inspected:
+
+- CAL3393949500-Modbus-Document.pdf, issue 1.10 / Doc 33034 Iss 002, 25 pages;
+  SHA256 d4e802bf363631201ba6b7bf741b8e076c91709935d7975ea3a5d9baef4a3974.
+  Complete text read; register/security/response pages visually checked.
+- CAL3300-9300-9400-Manual-English.pdf;
+  SHA256 9213602574f655ba90e2886276201bdf046a451e706319fc31a626b8df47e24f.
+- Official CAL communications installation guide and product page establish
+  optional serial interfaces, level C and defaults; retrofit baud can differ.
+- Modbus.org serial specification §2.5.1.1 establishes the RTU silent interval.
+
+[Source links, printed-page references and subset](../docs/protocol.md).
+Downloaded manufacturer PDFs remain untracked scratch files, not redistributed.
+
+Conclusion: implement a documented CAL 3300/9300 candidate, not a claim that an
+MRC controller has been physically verified. Similar front-panel menus are a
+lead only. The actual controller/chiller identity question has no answer during
+this session. Physical identity, wiring, settings and coolant remain prerequisites.
+No hardware was enumerated or contacted.
+
+## D009
+
+Date: 2026-09-15. Source: prompt 21. Affected: REQ-005/016/020/023/024/025.
+
+Retain six modules, add Cal33xx protocol and CalSimulator endpoint to serial.py,
+and share the bounded transport with existing synthetic-codec regression tests.
+One lab configuration selects the documented protocol without requiring users to
+implement a codec. Default writes are off. Unknown controller/firmware/input/unit
+combinations fail closed. Support the source-backed RTD/Celsius, nonnegative
+subset; do not infer negative encoding, enable unrelated menu writes or claim
+full firmware simulation.
+
+CAL writes require security/enter, staged SP1 and security/exit, followed by
+readback. The controller does not validate remote values for the host. Check
+coolant bounds, scale, resolution, initialization, panel lock and mode; recheck
+after keypad lock. Exit saves and restarts, so failed writes must not trigger
+automatic retry or cleanup exit. Latch uncertain sessions, retain that state
+across disconnect/reconnect, and require human inspection before a new session.
+
+Protocol simulation models the staged/committed target and keeps modeled control
+running after serial close. Its 20 °C initial liquid, selected CAL register state
+and 30 s thermal constant are synthetic; the 10 °C initial target comes from the
+supplied MRC p14. Real restart delay and physical behavior remain unmodeled.
+
+Prompt 21 adds required functionality beyond the earlier v0.3 pruning pass.
+REQ-023 keeps the six-module/explicit-ownership criterion; the old class/line
+reduction target is superseded, not falsely counted as achieved at the old size.
+Prune obsolete missing-protocol wording, superseded screenshot/archive evidence;
+keep historical artifact links at immutable commit 26b9dd54f7f9774aac6f9ac051b461b3a45cfd76.
+
+## E043
+
+Date: 2026-09-15. Scope: v0.4.0 implementation and software validation.
+REQ-002–014/016–025; TEST-002–011/013–021. No TEST-012 physical execution.
+
+The installed package and a fresh non-editable pinned environment each pass
+**296 tests**: 32.06 s and 32.20 s respectively.
+[Installed JUnit](../outputs/tests.xml), [fresh JUnit](../outputs/fresh-tests.xml).
+Environment: Windows, Python 3.12.14, requirements-tested.txt constraints.
+
+Commands used: pip install -c requirements-tested.txt ".[gui,serial,dev]" in a
+fresh venv, followed by normal local reinstalls after source changes; pytest -q
+-p no:cacheprovider with unique temporary directories and JUnit files.
+Ruff check/format, mypy (six modules) and pip check PASS.
+
+New tests check the guide's literal 19.6 °C request/reply CRC vector, exact
+identity/read/security addresses, five-write order, configuration refusal,
+RTD/Celsius, limits/resolution/locks, post-lock recheck, every lost-ACK/bad-echo/
+interrupt stage, post-commit readback mismatch/timeout, FAIL display handling and
+all documented firmware codes. Generic serial fault, concurrency, lifecycle,
+signals, no-replay, CSV and example tests still pass.
+
+The CAL protocol soak uses an accelerated synthetic clock through the production
+transport, monitor, CSV and concurrent Dash callbacks:
+**60 s; 183 samples/CSV rows; 1,167 callbacks; history capped at 25; zero failed
+polls; clean shutdown.** [Log](../outputs/soak.txt).
+Command: TARK_SOAK_SECONDS=60 with
+tests/test_end_to_end.py::test_simulator_monitor_csv_dash[cal].
+Fresh README CAL headless run saves five simulator rows in five seconds.
+
+Failures found and resolved:
+- An early source-only run's subprocesses imported the old non-editable package.
+  Installing the candidate resolved all five import failures; both final installed
+  suites pass.
+- Reusing the thermal simulator's 25-polls-in-five-seconds assertion for CAL
+  incorrectly assumed identical timing despite multiple RTU frames/gaps. The
+  normal CAL integration test now requires samples without asserting that rate;
+  the 60-second run separately demonstrates the 25-entry history cap. No hardware
+  throughput claim is derived.
+- CAL diagnostic text was absent from the prior GUI, and read-only users could
+  click target controls. Detail is now visible; read-only controls and direct
+  callback submissions are disabled while backend guards remain independent.
+
+One or two upstream Plotly scattermapbox deprecation warnings occur per full suite;
+no temperature-trace validation fails.
+
+## E044
+
+Date: 2026-09-15. Scope: final software-side review, packaging, guides and pruning;
+TEST-001/010/011/017/019/020/021. Candidate phase: AWAITING_HUMAN_REVIEW.
+
+Reviewed the final implementation against the source map and failure contract.
+No remaining software defect was identified within the documented subset.
+The principal external condition is still actual-controller identification,
+followed by review of the physical setup. No candidate approval or physical PASS
+is inferred from software testing.
+
+- Read-only status includes scale, SP.LK, DISP and initialization so the human can
+  compare these interpretations against the panel before authorizing writes.
+- README and protocol Mermaid were rendered in the browser. Fixed a sequence
+  label's semicolon parse error, then confirmed the diagram renders. Inspected
+  the hardware SVG and refreshed the full-page, unedited CAL simulator screenshot.
+  Browser target submission confirmed 18 °C readback and zero failed polls.
+- Wheel/source archive build PASS. Both installed environments and the wheel
+  match all package source/assets. Source archive contains protocol docs, the new
+  screenshot, CAL tests and fresh-install evidence; obsolete JPEG/archive-test
+  output is absent.
+- Release audit checks 93 local links and anchors before this record, plus
+  installed/wheel integrity, 296-test JUnit results and the five-row Quick Start.
+  [Audit](../outputs/validation.json) captures 6 package modules, 13 classes,
+  1,609 Python lines and one researcher script. This is the explicit D009 scope
+  increase, not a claim of retaining the old line/class counts.
+- Obsolete missing-protocol instructions are replaced by concrete configuration,
+  source citations, read-first testing, write side effects and uncertain-write
+  recovery. Historical output/screenshot references resolve at the prior commit.
+- Manufacturer manuals and temporary renders/environments are not tracked.
+  The current checkout retains only current release evidence and useful guides.
+
+Ready for a human to review the CAL candidate and identify the actual equipment.
+If the installed controller differs, this implementation must not be used to probe
+it. Follow the single resumption request in STATE.md and TEST-012 in hardware.md.

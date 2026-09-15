@@ -4,7 +4,11 @@
 
 | Symptom | What to do |
 | --- | --- |
-| Hardware not configured / protocol missing | Supply verified settings and a documented codec in `examples/lab.py`. No port was opened. Do not copy test commands or guess values. |
+| Hardware not configured | Supply verified SERIAL_SETTINGS and CAL_ADDRESS in `examples/lab.py` after review. No port was opened. |
+| Unsupported identity / RTD / Celsius | Compare actual controller/firmware/input/units with the supported CAL profile. Do not bypass checks or automatically reconfigure the unit. |
+| Writes disabled | Keep read-only until approved; then enter observed expected identity codes and enable ALLOW_WRITES. |
+| Write outcome uncertain | Keypad may be locked or target staged/saved; follow the [human recovery procedure](hardware.md#uncertain-write-or-shutdown). No automatic unlock or retry. |
+| CAL Modbus exception 6 | Front-panel menu may be in use. Inspect the unit and review state before a new session. |
 | Python/install failure | Use Python 3.12+ and install/run with the same environment's Python. |
 | No module named examples.lab | Run API snippets from the repository root. This helper is checkout code, not part of the installed package. |
 | GUI import failure | Install the `gui` and `serial` extras. |

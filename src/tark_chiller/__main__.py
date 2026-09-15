@@ -17,6 +17,9 @@ def _interrupt(signum: int, frame: FrameType | None) -> None:
 def main(argv: list[str] | None = None) -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--headless", action="store_true", help="Monitor without a browser")
+    parser.add_argument(
+        "--cal", action="store_true", help="Use the memory-only CAL byte-protocol simulator"
+    )
     parser.add_argument("--duration", type=float, help="Headless seconds; omit to run until Ctrl+C")
     parser.add_argument("--interval", type=float, default=1.0, help="Sampling interval in seconds")
     parser.add_argument("--csv", help="New output CSV path; existing files are never overwritten")
@@ -28,7 +31,12 @@ def main(argv: list[str] | None = None) -> None:
             _seconds(args.duration, "duration")
             if not args.headless:
                 raise ValueError("--duration requires --headless")
-        chiller = Chiller(Simulator())
+        if args.cal:
+            from .serial import CalSimulator
+
+            chiller = Chiller(CalSimulator().device())
+        else:
+            chiller = Chiller(Simulator())
     except ValueError as exc:
         parser.error(str(exc))
     if not args.headless:
