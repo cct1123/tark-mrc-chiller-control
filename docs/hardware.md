@@ -35,6 +35,12 @@ No verified serial signal establishes coolant presence, leaks, flow or level.
 `None` until verified. `create_chiller()` creates a fresh codec and disconnected
 Chiller each time; it never falls back to a simulator.
 
+The README uses a normal package installation: edits under `src/tark_chiller`
+require rerunning its pip install command before they take effect. Edits to
+`examples/lab.py` are read directly the next time the script starts.
+Run only one program against a physical chiller at a time; stop monitoring or
+the dashboard before opening a second lab session.
+
 ### SerialSettings fields
 
 Identify the verified adapter's OS port; Windows Device Manager shows names under

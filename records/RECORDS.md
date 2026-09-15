@@ -1407,3 +1407,112 @@ No real interface was enumerated or opened. Next: obtain the matching source and
 unit/controller identity, implement cited codec fixtures, configure the lab script,
 rerun software acceptance, then review the concrete physical candidate. Prompt 15
 is recorded verbatim. Commit/push authorization comes from that same request.
+
+## E037
+
+Date: 2026-09-15. Source: prompt 16. Scope: first-time-user README review and
+rewrite; REQ-001/014/020/021/022, TEST-001/017/018/019. No implementation change.
+
+Reviewed entry points, public API, lab configuration, serial/codec boundaries,
+GUI labels, monitor/CSV behavior, tests and current validation records. All
+normalized source/configuration/test hashes in outputs/validation.json still match
+the checkout, so E036 remains applicable to implementation and sustained-run claims.
+
+README now leads with purpose and software-versus-physical status, followed by a
+three-command simulator Quick Start, dashboard demonstration, staged hardware setup,
+basic hardware Python example, safety and troubleshooting. The existing simulator
+screenshot is accurately labeled; the architecture Mermaid is at the bottom.
+The old hardware-quick-start anchor remains for links from other guides. No settings,
+wire commands, telemetry, hardware compatibility or physical success were invented.
+
+Verification on Windows / Python 3.12.14:
+
+- Copied the 43 tracked working files to ignored outputs/release-check/readme-20260915.
+  With Python 3.12 selected on PATH, executed the README Quick Start there verbatim:
+  `python -m venv .venv`, then
+  `.\.venv\Scripts\python -m pip install -c requirements-tested.txt ".[gui]"`, then
+  `.\.venv\Scripts\python -m tark_chiller --headless --duration 5 --csv outputs/demo.csv`.
+  Fresh normal wheel installation PASS; run exited 0 with five samples retained.
+  CSV inspection: five rows, backend simulator, temperature/setpoint both 20 Celsius,
+  no poll errors. The test host's default Python is 3.9.12; the documented 3.12+
+  prerequisite must be satisfied before creating the environment.
+- `.\.venv\Scripts\python -m pytest -q -p no:cacheprovider
+  --basetemp=outputs/release-check/readme-pytest-final
+  --junitxml=outputs/release-check/readme-final-tests.xml --tb=short`:
+  **218 PASS in 16.37 s**. Includes README/API Python blocks through production serial
+  code with in-memory endpoints, all lab commands, dashboard callbacks and cleanup.
+  Initial sandboxed attempts hit Windows temporary-directory access errors
+  (149 passed, 69 fixture errors), not assertion failures. Retrying with normal
+  filesystem access and a fresh project-local test directory resolved them.
+  The same sandbox restriction initially prevented ensurepip during venv creation;
+  the fresh installation above completed with normal filesystem access.
+- Freshly installed module running unconfigured `examples/lab.py read`: exit 1,
+  explicit missing-configuration/manual message and no port opening, as documented.
+- All 16 README links/images checked, including local anchors. The existing JPEG
+  was visually inspected against the GUI source. Rendered README tables, headings,
+  screenshot reference and final Mermaid were inspected in a local browser preview;
+  diagram labels are legible and the missing physical protocol is explicit.
+- `git diff --check`: PASS. Product code, dependencies and hardware examples unchanged.
+
+No physical ports were enumerated or opened. Hardware remains blocked by EXT-001/003;
+the next engineering action remains obtaining the matching controller documentation
+and unit identity before codec implementation and candidate review.
+
+## E038
+
+Date: 2026-09-15. Source: prompt 17. Scope: hardware-first README revision;
+REQ-001/020/021/022, TEST-001/017/018/019. Implementation unchanged.
+
+The primary path now installs gui/serial extras, identifies/configures the actual
+unit, performs an approved read, records a short check and continuous experiment,
+submits an operator-approved target, and launches the hardware dashboard. Reused
+the existing hardware connection drawing and labeled simulator screenshot. Moved
+the simulator demo below hardware use, safety and troubleshooting; preserved the
+hardware-quick-start anchor and the previously rendered architecture Mermaid.
+Matching protocol, verified setup and authorization remain prerequisites, not
+claims of available or validated hardware support.
+
+Rechecked commands/settings against examples/lab.py, pyproject.toml and the hardware
+guide. Ran `.\.venv\Scripts\python -m pytest tests/test_examples.py -q
+-p no:cacheprovider --basetemp=outputs/release-check/hardware-readme-pytest --tb=short`:
+**30 PASS in 10.34 s**, covering the hardware workflows and README/API Python blocks
+with production serial code and in-memory endpoints. Verified all 15 README
+links/images, preserved anchor, install extras and hardware-first command order.
+`git diff --check` PASS. The unchanged implementation retains E036/E037 software
+validation; no new full-suite or physical validation is claimed. No physical
+ports were enumerated or opened. EXT-001/003 and the resumption action are unchanged.
+
+## E039
+
+Date: 2026-09-15. Source: prompt 18. Scope: final review, corrections and authorized
+commit/push of prompts 16–18; REQ-001/014/020/021/022, TEST-001/010/017/018/019.
+
+Repository-wide documentation review found an API-guide backlink to the removed
+optional-dashboard heading. Restored its anchor in README. Clarified that the
+normal installation must be repeated after driver-source changes and that only
+one program should use a physical chiller at a time. Repaired the blank line that
+split REQ-023 out of the requirements table. Updated the report to distinguish
+software setpoint limits from physical validation and link the revised user guide.
+No product code, dependencies or example behavior changed; all 22 source/config/test
+hashes in the E036 audit still match.
+
+Validation on Windows / Python 3.12.14:
+
+- `.\.venv\Scripts\python -m pytest -q -p no:cacheprovider
+  --basetemp=outputs/release-check/readme-final-review-pytest --tb=short
+  --junitxml=outputs/release-check/readme-final-review-tests.xml`:
+  **218 PASS in 15.86 s**, including documentation blocks and hardware workflows
+  with production serial code and in-memory endpoints.
+- `python -m ruff check src tests examples`, `python -m ruff format --check src tests examples`,
+  `python -m mypy`, and `python -m pip check`, all using `.venv/Scripts/python`: PASS.
+- All 94 local links/anchors across 11 Markdown files PASS, including the restored
+  dashboard backlink. All 23 requirements now form one table. Installed package
+  bytes match the unchanged checkout. Final README installation/configuration
+  layout, hardware drawing and Mermaid rendering checked in a local browser;
+  no clipped labels or broken images observed. `git diff --check`: PASS.
+
+Fetched origin before publication; main matched origin/main with no divergence.
+Prompt 18 explicitly authorizes the documentation commit and push to that existing
+remote/branch. Physical hardware remains unvalidated and blocked by EXT-001/003;
+no real port was enumerated or opened. The protocol/manual and candidate-review
+requirements remain in force.

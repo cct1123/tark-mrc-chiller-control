@@ -733,3 +733,36 @@ Prioritize:
 Treat lower code/module/data-structure count as an explicit objective, provided functionality, safety, and maintainability are preserved.
 
 When complete, run the full validation suite, inspect the final repository for additional pruning opportunities, remove remaining unnecessary scaffolding, then commit and push the cleaned implementation.
+
+## Prompt 16
+
+Review the repository and rewrite `README.md` as a **simple, visual, first-time-user guide**.
+
+Prioritize:
+
+- what the project does
+- current implementation/validation status
+- shortest copy-paste Quick Start
+- simulator/demo workflow if available
+- one basic usage example
+- real-hardware setup
+- key safety/limitations
+- short troubleshooting section
+
+Use **screenshots, Mermaid diagrams, small tables, terminal examples, and short code snippets** where helpful.
+
+Keep explanations concise and practical. Put developer/architecture details near the bottom.
+
+Verify all commands, interfaces, hardware support, limits, and validation claims against the repository. **Do not invent missing information.**
+
+Goal: a new lab user should quickly understand:
+
+**What is it? → Install → Test → Connect hardware → Use safely**
+
+## Prompt 17
+
+more focus on using with real hardware
+
+## Prompt 18
+
+review fix issues commit push

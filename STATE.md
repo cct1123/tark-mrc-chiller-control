@@ -10,15 +10,22 @@ was enumerated or opened and no device operation was performed.
 
 [PROJECT](PROJECT.md) defines acceptance. [D008/E035/E036](records/RECORDS.md#d008)
 record the consolidation and validation; [REPORT](outputs/REPORT.md) gives operation
-and resumption instructions. Prompt 15 is preserved in the [prompt log](prompt%20log.md).
+and resumption instructions. [E037](records/RECORDS.md#e037) verifies the initial
+README rewrite; [E038](records/RECORDS.md#e038) verifies the hardware-first revision
+requested in [prompt 17](prompt%20log.md#prompt-17).
+[E039](records/RECORDS.md#e039) records the final review and fixes authorized for
+commit/push in [prompt 18](prompt%20log.md#prompt-18).
 
 ## Requirements status
 
 E036 supersedes older software PASS results for the current implementation.
+E037 adds documentation, fresh Quick Start and regression checks against unchanged code.
+E038 supersedes the README organization and rechecks the hardware example workflows.
+E039 verifies the final documentation and unchanged implementation before publication.
 
 | ID | Short criterion | Method | Current result | Evidence |
 | --- | --- | --- | --- | --- |
-| REQ-001 | Workspace, prompts and traceability | TEST-001 | PASS | D008/E035/E036; current links checked |
+| REQ-001 | Workspace, prompts and traceability | TEST-001 | PASS | D008/E035/E036/E039; current links checked |
 | REQ-002 | Common synchronous Chiller API | TEST-002/012 | Software PASS; physical BLOCKED | Controller and fake serial tests; EXT-001/003 |
 | REQ-003 | 2–40 °C validation before backend access | TEST-003 | PASS | Controller/serial/GUI/example adversarial tests |
 | REQ-004 | Explicit coolant bounds and source | TEST-003 | PASS | Configuration rejection and boundary tests |
@@ -37,7 +44,7 @@ E036 supersedes older software PASS results for the current implementation.
 | REQ-017 | Finite read recovery, no write replay | TEST-014 | PASS | Exhaustion/cancellation, malformed replies and uncertain writes |
 | REQ-018 | Exclusive CSV, no overwrite | TEST-015/019 | PASS | Existing-file rejection and writer ownership tests |
 | REQ-019 | Sustained whole-stack operation | TEST-016 | PASS | 60 s, 1,732 rows, 1,527 callbacks, clean shutdown |
-| REQ-020 | Hardware-oriented guides and examples | TEST-017 | Software PASS; physical execution BLOCKED | Lab workflows, documented Python blocks and diagram review; EXT-001/003 |
+| REQ-020 | Hardware-oriented guides and examples | TEST-017 | Software PASS; physical execution BLOCKED | E036–E039: lab workflows, Python blocks, guide links and visuals; EXT-001/003 |
 | REQ-021 | Bootstrap client and researcher workflow | TEST-018 | PASS | GUI tests, one lab script, current links and two SVGs |
 | REQ-022 | Install, lifecycle and explicit lab configuration | TEST-019 | PASS | Installed/archive suites, signals, physical-backend fixtures |
 | REQ-023 | Compact reusable driver | TEST-020 | PASS | 8→6 modules, 13→11 classes, 1,311→1,220 lines; no compatibility shims |
@@ -58,6 +65,18 @@ E036 supersedes older software PASS results for the current implementation.
 - The independent final review found no consequential migration defect or useful
   further pruning. The revised architecture SVG was inspected in a browser.
   The unchanged GUI screenshot is explicitly labeled as simulator data.
+- **README review, 2026-09-15 (E037):** all audited implementation/configuration/test
+  hashes still match E036. Fresh Python 3.12.14 Quick Start install and five-second
+  simulator CSV run PASS; existing 218-test suite PASS in 16.37 s. README links,
+  screenshot and rendered Mermaid checked. No hardware interaction occurred.
+- **Hardware-first README, 2026-09-15 (E038):** install/configuration, connection
+  verification, recording, approved writes and the physical-backend dashboard now
+  lead; simulator demo is optional near the bottom. All 30 example/documentation
+  tests PASS in 10.34 s with fake serial endpoints; 15 links/images checked.
+- **Final documentation review, 2026-09-15 (E039):** fixed the dashboard backlink,
+  clarified reinstalling driver changes and one program per physical unit, repaired
+  the requirements table and refreshed the report. All 218 tests PASS in 15.86 s;
+  Ruff lint/format, mypy and pip check PASS. Hardware status is unchanged.
 
 Chiller owns its connection and optional worker. Monitoring derives running state
 from the thread and publishes bounded immutable snapshots. The codec returns

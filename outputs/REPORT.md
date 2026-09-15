@@ -5,12 +5,17 @@
 Provide a compact, reusable Python chiller driver that a researcher can understand
 and integrate into an existing experiment. This pass reduces the package from
 **8 to 6 Python files**, **13 to 11 classes**, and **1,311 to 1,220 lines**. One lab
-script replaces six example files; five guides replace eight. Two diagrams remain.
+script replaces six example files; five guides replace eight. Two SVG diagrams remain.
 Superseded output artifacts are linked at their committed revision in the records.
 
 All hardware-independent acceptance passes. The matching controller protocol is
 still missing; no physical port was opened and real MRC operation is not validated.
 [STATE](../STATE.md) maps every requirement to current evidence.
+
+The [README](../README.md) now leads with hardware installation/configuration,
+verified reads, recording, approved target changes and dashboard use. Simulator
+practice is optional. [E039](../records/RECORDS.md#e039) records the documentation
+review and corrections; the hardware prerequisites and validation scope are unchanged.
 
 ## Architecture
 
@@ -95,8 +100,8 @@ $targetC = Read-Host "Approved target in Celsius"
 ```
 
 The script reads the original, writes once and compares readback exactly. A mismatch
-is unconfirmed, with no inferred rounding tolerance or retry. Default validated
-limits are 2–40 °C; custom coolant bounds need a name and documented source.
+is unconfirmed, with no inferred rounding tolerance or retry. Default
+software limits are 2–40 °C; custom coolant bounds need a name and documented source.
 
 For hardware-free development, the separate module launcher always selects the simulator:
 

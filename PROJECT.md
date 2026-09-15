@@ -51,6 +51,15 @@ internal interfaces without compatibility shims. Historical generated evidence
 remains accessible at immutable Git revisions instead of accumulating in outputs.
 Safety, serial recovery, monitoring, logging and GUI behavior remain required.
 
+[Prompt 16](prompt%20log.md#prompt-16) requests a concise, visual first-time-user
+README: purpose, verified status, install/test/demo, hardware setup, basic use,
+safety and troubleshooting. This documentation update preserves the implementation
+and hardware review boundary; simulator demos are explicitly labeled.
+[Prompt 17](prompt%20log.md#prompt-17) makes real-hardware use the primary README
+workflow, with simulation retained only as an optional demo near the bottom.
+[Prompt 18](prompt%20log.md#prompt-18) requests review, corrections, commit and push
+of the resulting documentation.
+
 ## Requirements / acceptance criteria
 
 All requirements are mandatory for the eventual system. Numeric software defaults
@@ -82,7 +91,6 @@ belong in [records/RECORDS.md](records/RECORDS.md).
 | REQ-020 | Concise guides teach installation, explicit hardware configuration, reads, operator-selected setpoint changes, CSV and Dash. Hardware examples use the production serial path with no simulator fallback and clearly refuse incomplete configuration. Their software behavior is exercised with fake serial I/O; physical execution stays blocked pending protocol and equipment. Screenshots and validation scopes are labeled accurately; local links and diagrams render. | TEST-017 documentation examples, links and visual review |
 | REQ-021 | A responsive dash-bootstrap-components dashboard shows separate temperature/setpoint, connection/fault/recording status and live history. Styling works offline after installation. One lab example provides read, set, log, monitor and gui workflows through the common API; API reference and illustrated hardware guide identify unsupported steps. Developer fixtures and records stay outside the researcher path. Simplification preserves safety/recovery coverage. | TEST-018 example commands, packaged assets, browser layout, source review and full regression |
 | REQ-022 | Normal non-editable source/wheel installation passes in a fresh environment. Hardware examples provide read-only recording, continuous monitoring and a direct Dash client with Ctrl-C cleanup. Module/console launchers remain explicitly labeled simulator development tools. Interrupted startup/transactions/writes preserve ownership or refuse uncertain reuse. One lab configuration file uses real types, no guessed settings and blocks incomplete setup. Guides give exact operation and staged hardware resumption. | TEST-019 release audit, signals, package/install and template tests |
-
 | REQ-023 | Reduce the 0.2.2 baseline of 8 package modules, 13 classes and 1,311 Python lines without compressing readable code or weakening required behavior. Retain at most 6 package modules, no compatibility shims, global registries or implicit workers. A few lines of synchronous Python create/use/close a controller without GUI, serial package or service dependencies. Monitoring/CSV remain optional and ownership explicit. | TEST-020 comparative inventory, import isolation, multi-controller and public API tests |
 
 ## Constraints
