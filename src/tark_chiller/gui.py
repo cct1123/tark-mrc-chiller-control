@@ -6,7 +6,7 @@ import dash_bootstrap_components as dbc
 import plotly.graph_objects as go
 from dash import Dash, Input, Output, State, dcc, html
 
-from .controller import Chiller, ProtocolError, _seconds
+from .controller import ProtocolError, TarkChiller, _seconds
 from .monitor import Monitor, Snapshot
 
 
@@ -153,7 +153,11 @@ def render_snapshot(
 
 
 def create_app(
-    chiller: Chiller, monitor: Monitor, *, stale_after_s: float = 3.0, allow_setpoints: bool = True
+    chiller: TarkChiller,
+    monitor: Monitor,
+    *,
+    stale_after_s: float = 3.0,
+    allow_setpoints: bool = True,
 ) -> Dash:
     """The caller connects the chiller, starts monitoring and owns shutdown."""
     stale_after_s = _seconds(stale_after_s, "stale_after_s")
@@ -162,7 +166,7 @@ def create_app(
     app = Dash(
         __name__, meta_tags=[{"name": "viewport", "content": "width=device-width, initial-scale=1"}]
     )
-    app.title = "Tark MRC · Temperature monitor"
+    app.title = "Chiller · Temperature monitor"
     low, high = chiller.setpoint_range
     controls = dbc.Card(
         [
@@ -214,7 +218,7 @@ def create_app(
                     [
                         html.Div(
                             [
-                                html.P("TARK MRC150 / 300", className="instrument-name"),
+                                html.P("LABORATORY CHILLER", className="instrument-name"),
                                 html.H1("Temperature monitor"),
                                 html.P(
                                     "Local laboratory session · Celsius · UTC", className="subtitle"
@@ -249,8 +253,8 @@ def create_app(
                     className="instrument-panels",
                 ),
                 html.Footer(
-                    "Coolant presence, leaks, flow and fluid level: telemetry unavailable. "
-                    "Controller display codes are diagnostic only. "
+                    "Physical flow/leak telemetry unavailable; verify coolant and setup independently. "
+                    "Reported controller/alarm flags are diagnostic only. "
                     "Software connection status does not establish physical safety.",
                     className="safety-note",
                 ),

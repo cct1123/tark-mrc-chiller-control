@@ -5,7 +5,7 @@ from collections.abc import Callable
 from dataclasses import dataclass
 from numbers import Real
 from pathlib import Path
-from threading import TIMEOUT_MAX, Event, Lock, RLock
+from threading import TIMEOUT_MAX, Event, Lock
 from time import monotonic
 from typing import TYPE_CHECKING
 
@@ -53,11 +53,11 @@ class Status:
     detail: str = ""
 
 
-class Chiller:
+class TarkChiller:
     """Own one backend and optional monitor. Never share a backend between drivers.
 
     Temperatures are Celsius. Custom limits need a coolant name and source.
-    Read recovery is bounded per outage; writes are never retried or replayed.
+    Read recovery is bounded per operation; writes are never retried or replayed.
     """
 
     def __init__(
@@ -91,9 +91,8 @@ class Chiller:
         self._coolant = coolant
         self._coolant_source = coolant_source or "MRC150/300 User Manual Rev 13, p7"
         self._reconnect_attempts = reconnect_attempts
-        self._reconnects_remaining = reconnect_attempts
         self._reconnect_delay_s = delay
-        self._lock = RLock()
+        self._lock = Lock()
         self._intent_lock = Lock()
         self._cancel = Event()
         self._cancel.set()
@@ -130,20 +129,21 @@ class Chiller:
 
     def _require_connected(self) -> None:
         self._check_cancel(self._cancel)
-        if self._fault:
-            raise ConnectionError(self._fault)
-        if not self._backend.is_connected:
-            raise ConnectionError("Chiller is disconnected")
+        if self._fault or not self._backend.is_connected:
+            raise ConnectionError(self._fault or "TarkChiller is disconnected")
 
     def connect(self) -> None:
         token = self._intent(connected=True)
         with self._lock:
             self._check_cancel(token)
-            self._reconnects_remaining = self._reconnect_attempts
             self._fault = ""
-            self._read(self._open, token, connecting=True)
+            self._read(lambda: self._open(token), token, connecting=True)
 
-    def _open(self) -> None:
+    def _open(self, token: Event) -> None:
+        # Protocol recovery may need a quiet period. Make that wait cancellable
+        # before opening/taking control, rather than sleeping inside a handshake.
+        token.wait(getattr(self._backend, "reconnect_wait_s", 0.0))
+        self._check_cancel(token)
         self._backend.connect()
         if not self._backend.is_connected:
             raise ConnectionError("Backend connect returned without an active connection")
@@ -176,25 +176,22 @@ class Chiller:
 
     def _read[T](self, operation: Callable[[], T], token: Event, *, connecting: bool = False) -> T:
         """Recover reads and connection attempts; writes never enter this loop."""
-        retry = False
-        while True:
+        for attempt in range(self._reconnect_attempts + 1):
             try:
                 self._check_cancel(token)
                 if self._fault:
                     raise ConnectionError(self._fault)
-                if retry:
+                if attempt:
                     self._backend.disconnect()
                     token.wait(self._reconnect_delay_s)
                     self._check_cancel(token)
                     if not connecting:
-                        self._open()
+                        self._open(token)
                         self._check_cancel(token)
                 elif not connecting:
                     self._require_connected()
                 result = operation()
                 self._check_cancel(token)
-                if not connecting:
-                    self._reconnects_remaining = self._reconnect_attempts
                 return result
             except ProtocolError as exc:
                 self._suspend(f"Protocol failure; recovery suspended: {exc}", exc)
@@ -203,12 +200,10 @@ class Chiller:
                 self._check_cancel(token)
                 if self._fault or self._reconnect_attempts == 0:
                     raise
-                if self._reconnects_remaining:
-                    self._reconnects_remaining -= 1
-                    retry = True
-                    continue
-                self._suspend(f"Recovery exhausted: {exc}; call connect() explicitly", exc)
-                raise ConnectionError(self._fault) from exc
+                if attempt == self._reconnect_attempts:
+                    self._suspend(f"Recovery exhausted: {exc}; call connect() explicitly", exc)
+                    raise ConnectionError(self._fault) from exc
+        raise AssertionError("Unreachable recovery state")
 
     def read_temperature(self) -> float:
         with self._lock:
@@ -287,7 +282,7 @@ class Chiller:
             if self._monitor is not None:
                 self._monitor._join(timeout_s)
 
-    def __enter__(self) -> "Chiller":
+    def __enter__(self) -> "TarkChiller":
         self.connect()
         return self
 
@@ -296,7 +291,7 @@ class Chiller:
 
 
 class Simulator:
-    """Use through Chiller, which owns access and setpoint validation.
+    """Use through TarkChiller, which owns access and setpoint validation.
 
     This uncalibrated model starts at 20 Celsius. It has no worker, GUI dependency
     or physical coolant/flow model. An injected clock makes tests repeatable.

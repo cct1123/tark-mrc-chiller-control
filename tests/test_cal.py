@@ -1,6 +1,6 @@
 """CAL guide byte vectors and production driver ↔ memory controller acceptance.
 
-Sources/pages and the deliberately restricted candidate are in docs/protocol.md.
+Sources/pages and the supported protocol subset are in docs/protocol.md.
 No OS serial endpoint is used. Simulator agreement alone is not protocol proof:
 the published PV vector and literal register/sequence assertions are independent.
 """
@@ -11,7 +11,7 @@ from time import sleep
 
 import pytest
 
-from tark_chiller import Chiller, ProtocolError
+from tark_chiller import ProtocolError, TarkChiller
 from tark_chiller.serial import Cal33xx, CalSimulator, SerialDevice, _rtu
 
 
@@ -32,7 +32,7 @@ def setup(*, writable=True, timeout=0.03, endpoint=None):
         serial_factory=endpoint.factory,
         timeout_s=timeout,
     )
-    return Chiller(device), endpoint, requests
+    return TarkChiller(device), endpoint, requests
 
 
 def words(requests, function):
@@ -129,7 +129,7 @@ def test_invalid_cal_settings_stop_before_port_creation(changes):
     def forbidden(**kwargs):
         pytest.fail("Port creation attempted")
 
-    c = Chiller(
+    c = TarkChiller(
         SerialDevice(replace(d.settings, **changes), codec=Cal33xx(1), serial_factory=forbidden)
     )
     with pytest.raises(ProtocolError, match="CAL needs"):
@@ -305,7 +305,7 @@ def test_simulator_stages_until_commit_and_keeps_controlling_after_serial_close(
     assert endpoint._model._read_setpoint() == 18
     endpoint.close()
     now[0] = 30
-    with Chiller(endpoint.device()) as c:
+    with TarkChiller(endpoint.device()) as c:
         assert c.read_temperature() == pytest.approx(18 + 2 / math.e, abs=0.05)
 
 
@@ -356,7 +356,7 @@ def test_fail_display_invalidates_measurement_but_status_is_diagnostic():
 def test_documented_firmware_codes_are_accepted_read_only(firmware):
     s = CalSimulator()
     s.registers[0x04FD] = firmware
-    with Chiller(
+    with TarkChiller(
         SerialDevice(s.device().settings, codec=Cal33xx(1), serial_factory=s.factory)
     ) as c:
         assert f"firmware=0x{firmware:04x}" in c.read_status().detail

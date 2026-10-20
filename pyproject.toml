@@ -4,15 +4,14 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "tark-mrc-chiller"
-version = "0.4.0"
-description = "Laboratory chiller driver with CAL 3300/9300 protocol and simulator"
+version = "0.6.1"
+description = "Laboratory chiller driver with CAL 3300/9300 and ThermoTek T255P protocols"
 readme = "README.md"
 requires-python = ">=3.12"
-dependencies = []
+dependencies = ["pyserial>=3.5,<4"]
 
 [project.optional-dependencies]
 gui = ["dash>=3.0.4,<5", "plotly>=6,<7", "dash-bootstrap-components>=2.0.4,<3"]
-serial = ["pyserial>=3.5,<4"]
 dev = ["pytest>=8,<10", "ruff>=0.11,<1", "build>=1,<2", "mypy>=1.15,<2", "types-pyserial>=3.5"]
 
 [project.scripts]

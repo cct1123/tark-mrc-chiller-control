@@ -9,7 +9,7 @@ from pathlib import Path
 from threading import Event, Lock, Thread, current_thread
 from typing import TextIO
 
-from .controller import Chiller, ProtocolError, Status, _seconds
+from .controller import ProtocolError, Status, TarkChiller, _seconds
 
 
 @dataclass(frozen=True)
@@ -40,11 +40,11 @@ class Snapshot:
 
 
 class Monitor:
-    """Created by Chiller.start_monitoring(); read snapshot() from any client."""
+    """Created by TarkChiller.start_monitoring(); read snapshot() from any client."""
 
     def __init__(
         self,
-        chiller: Chiller,
+        chiller: TarkChiller,
         *,
         interval_s: float,
         csv_path: str | Path | None,

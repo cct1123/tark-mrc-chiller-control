@@ -1,199 +1,154 @@
-# Tark MRC150/300 chiller controller
+# TarkChiller
 
-Read chiller temperature from Python, change an approved target, record CSV data,
-and watch a live dashboard. Start real-equipment sessions with
-[examples/lab.py](examples/lab.py).
+A Python controller for **ThermoTek T255P** chillers and **CAL 3300/9300**
+controllers. Read temperature and setpoint, change targets, and optionally record
+CSV or display a dashboard. The public class is `TarkChiller`.
 
-**Version 0.4.0 — software candidate for human hardware review.** CAL 3300/9300
-commands and a byte-protocol simulator are implemented. **No physical chiller has
-been tested, and the controller fitted to your unit has not been confirmed.**
-The supplied MRC manual does not name it. Use this driver only after a human
-confirms a supported CAL controller, its interface and the setup below.
+The protocols and simulators are tested in software. **Physical hardware has not
+been tested.** Confirm your unit, wiring, serial settings and coolant limits before
+connecting. T255P connection takes serial control and can change AUTO START to RUN.
 
-| Available now | Still needs a human hardware test |
-| --- | --- |
-| CAL identity, temperature, target and display-state reads | Installed controller/firmware, wiring and adapter |
-| Checked target changes; writes disabled initially | Readback, restart behavior and physical temperature response |
-| Protocol simulator, CSV and dashboard | Flow, leaks, coolant suitability and calibration |
+## Install
 
-**Install → Test without hardware → Identify and connect → Read → Record → Approved control**
+Requires Python **3.12+**. From this checkout:
+
+```sh
+python -m pip install .
+```
+
+Or install directly from the repository (requires Git and repository access):
+
+```sh
+python -m pip install "git+https://github.com/cct1123/tark-mrc-chiller-control.git"
+```
+
+Serial support is included. For the optional dashboard, install `".[gui]"` from
+this checkout, or `"tark-mrc-chiller[gui] @ git+https://github.com/cct1123/tark-mrc-chiller-control.git"`.
+You can also install a built wheel with `python -m pip install path/to/package.whl`.
+Use the Python API directly from your own application.
 
 <a id="hardware-quick-start"></a>
 
-## 1. Install and test without hardware
+## ThermoTek T255P
 
-In **Windows PowerShell**, from this repository, use Python **3.12+**:
-
-```powershell
-python -m venv .venv
-.\.venv\Scripts\python -m pip install -c requirements-tested.txt ".[gui,serial]"
-.\.venv\Scripts\python -m tark_chiller --cal --headless --duration 5 --csv outputs/demo.csv
-```
-
-Expected: simulator starts, records samples, then stops. The CSV contains
-**simulator** rows. Use a new filename on repeat runs. --cal exercises the actual
-CAL commands through a memory-only controller; it opens no physical port.
-Windows / Python 3.12.14 is the tested platform.
-
-## 2. Prepare your real chiller
-
-![Hardware setup and first connection](docs/assets/hardware-setup.svg)
-
-1. **Identify it.** Record the full MRC model, controller label and firmware.
-   Supported candidate: **CAL 3300/9300**, RTD input, Celsius. Other controllers,
-   Fahrenheit, linear input and sub-zero operation are not enabled.
-2. **Prepare plumbing and power using your unit manual.** Fill/purge the coolant
-   circuit, check leaks and flow, and provide the specified clearance and grounding.
-3. **Verify the serial link.** Confirm RS-232/RS-485, the cable pinout, adapter and
-   OS port. Rev 13 lists **DH2 as RS-232**; generic RS-485 support does not prove
-   that your chiller has RS-485. Do not infer wiring from the connector shape.
-4. **Edit [examples/lab.py](examples/lab.py)** using the
-   [configuration tutorial](docs/hardware.md#configure-the-lab-script):
-
-   | Setting | Enter |
-   | --- | --- |
-   | SERIAL_SETTINGS | Verified port, baud, framing and adapter line settings |
-   | CAL_ADDRESS | Address shown in the communication menu, 1–247 |
-   | ALLOW_WRITES | Leave False for first connection |
-   | EXPECTED_MODEL, EXPECTED_FIRMWARE | Initially None; record read results before enabling writes |
-   | RS485_MODE | Adapter-specific native direction settings, only if required |
-
-5. **Have the lab reviewer approve the candidate and setup** before connection.
-   Use the [human test checklist](docs/hardware.md#human-hardware-test).
-
-The CAL communication guide is now linked and implemented. You no longer need to
-write a codec. The shipped script leaves your port and address unset: running it
-now reports **Hardware not configured / No port was opened**.
-
-## 3. Read and verify
-
-After setup and read-only approval, run one program per chiller:
-
-```powershell
-.\.venv\Scripts\python examples/lab.py read
-```
-
-Connection first reads CAL model/firmware, input type and units; incompatible
-replies stop the session. The command then prints temperature, target and status.
-Confirm **hardware**, record the identity codes, and compare readings with the
-front panel and an approved reference. Codes distinguish the CAL family/output
-configuration; they cannot distinguish a 3300 from a 9300 chassis.
-
-One basic Python example, run from the repository root:
+Use the actual RS-232 port and verified adapter RTS/DTR levels in place of the
+example values below. T255P requires 9600 baud, 8N1 and XON/XOFF. Connect only to a
+prepared, filled system: the startup U exchange can start an AUTO START unit.
 
 ```python
-from examples.lab import create_chiller
+from tark_chiller import TarkChiller
+from tark_chiller.serial import T255P, SerialDevice, SerialSettings
 
-with create_chiller() as chiller:
+settings = SerialSettings(
+    port="COM5", baudrate=9600, bytesize=8, parity="N", stopbits=1,
+    xonxoff=True, rtscts=False, dsrdtr=False, rts=False, dtr=False,
+)
+with TarkChiller(
+    SerialDevice(settings, codec=T255P()),
+    setpoint_range=(5.0, 45.0),
+    coolant_source="ThermoTek T255P Rev C pp9/20; distilled water",
+) as chiller:
     print(chiller.read_temperature())  # Celsius
-    print(chiller.read_setpoint())     # Reported target, Celsius
+    print(chiller.read_setpoint())
     print(chiller.read_status())
 ```
 
-The context closes the software connection on exit.
+`T255P()` disables target writes. After checking the setup and operating limits,
+use `T255P(allow_writes=True)` and call `chiller.set_setpoint(target_c)` inside the
+context. Water targets are limited to **5–45 °C in 0.1 °C steps**. Run/standby,
+sensor selection and sub-zero writes are not exposed. A successful target readback
+does not mean the liquid has reached that temperature.
 
-## 4. Record data
+Normal one-second monitoring supplies watchdog traffic. There is no hidden
+keepalive worker. After more than ten seconds without valid traffic, the unit can
+return to local control; the next API operation sends U again to reacquire it.
 
-Five-second read-only check, then continuous monitoring if approved:
+## CAL 3300/9300
 
-```powershell
-.\.venv\Scripts\python examples/lab.py log --csv outputs/check.csv
-.\.venv\Scripts\python examples/lab.py monitor --csv outputs/experiment.csv
+Match the actual controller address, baud rate, parity and adapter line levels.
+The following values illustrate a 9600/8N1 unit at address 1; they are not discovery
+results. The driver verifies supported identity codes, RTD input and Celsius.
+
+```python
+from tark_chiller import TarkChiller
+from tark_chiller.serial import Cal33xx, SerialDevice, SerialSettings
+
+settings = SerialSettings(
+    port="COM5", baudrate=9600, bytesize=8, parity="N", stopbits=1,
+    xonxoff=False, rtscts=False, dsrdtr=False, rts=False, dtr=False,
+)
+with TarkChiller(SerialDevice(settings, codec=Cal33xx(address=1))) as chiller:
+    print(chiller.read_temperature())
+    print(chiller.read_setpoint())
+    print(chiller.read_status())  # Includes model/firmware codes
 ```
 
-Check saved rows and failed polls. CSV includes UTC time, elapsed time,
-temperature/target in °C, status and errors. Failed readings are blank.
-**Ctrl+C** ends continuous monitoring. Existing CSV files are never overwritten.
+For writes, construct `Cal33xx(address=1, allow_writes=True,
+expected_model=..., expected_firmware=...)` using the actual read codes. The
+default water profile is **2–40 °C**. CAL writes lock the keypad, stage the target,
+then save/restart the controller and check readback. See the
+[hardware guide](docs/hardware.md) before enabling them.
 
-## 5. Change an approved target
+## Recording and dashboard
 
-After successful read tests, the reviewer must approve writes, including the
-controller restart they cause. Enter the observed EXPECTED_MODEL and
-EXPECTED_FIRMWARE codes in lab.py, then set ALLOW_WRITES = True.
-
-```powershell
-$targetC = Read-Host "Approved target in Celsius"
-.\.venv\Scripts\python examples/lab.py set $targetC
-```
-
-The driver checks coolant bounds, controller limits, lock, initialization, mode
-and resolution. It sends the documented lock → target → save/restart sequence,
-then verifies target readback. **A confirmed target does not mean the liquid has
-reached it.** A failed sequence is never retried or automatically unlocked.
-
-## 6. Dashboard and shutdown
+Inside either controller context, use `monitor = chiller.start_monitoring(
+csv_path="temperature.csv")`. Read `monitor.snapshot()` for bounded history,
+latest readings, sample counts and errors. Call `chiller.stop_monitoring()` to
+close the CSV and stop acquisition while keeping synchronous access available.
+Existing CSV files are refused. Failed samples have blank readings and an error.
+See the [API reference](docs/api.md#monitoring) for a complete recording example.
 
 <a id="optional-dashboard"></a>
 
-```powershell
-.\.venv\Scripts\python examples/lab.py gui --csv outputs/dashboard.csv
+With the GUI extra installed, pass the controller and monitor to
+`tark_chiller.gui.create_app(chiller, monitor, allow_setpoints=False)` and run the
+returned app with `app.run(debug=False, use_reloader=False)`. Browser refresh or
+closure does not stop acquisition; exit the host program to close its context.
+
+![Dashboard using T255P simulator data](docs/assets/dashboard.png)
+
+*Simulator screenshot; no physical measurement.*
+
+## Simulation
+
+These commands use memory-only protocol endpoints and never open a hardware port:
+
+```sh
+python -m tark_chiller --t255p --headless --duration 5 --csv demo.csv
+python -m tark_chiller --cal --headless --duration 5
 ```
 
-Open [127.0.0.1:8050](http://127.0.0.1:8050). Check the **hardware** badge, fresh
-readings and recording count. Target controls work only when writes are enabled.
-Closing the browser leaves acquisition running; **Ctrl+C in the terminal** stops it.
+Omit `--headless` for the optional dashboard. Omitting both protocol flags selects
+the simple thermal model. Simulated dynamics do not predict physical cooling.
 
-![Dashboard preview using simulator data](docs/assets/dashboard.png)
+## Hardware use and recovery
 
-*Simulator screenshot; it is not a hardware measurement.*
+Use one owning process per device. Construction opens nothing; context entry
+connects and context exit stops monitoring, closes CSV and disconnects.
+**Disconnecting software does not stop the chiller or pump.** Follow the equipment
+shutdown procedure separately.
 
-**Software disconnect does not stop the chiller, pump or cooling.** Follow the
-equipment shutdown procedure separately. No power-off command is implemented.
+Writes are never retried. An uncertain write closes and latches the backend;
+inspect the actual panel/target before starting a new read-only session or
+considering a corrective target. Alarm flags do not establish flow, leak freedom,
+coolant suitability or calibration. Read the [setup and first-use checklist](docs/hardware.md),
+[protocol sources and limits](docs/protocol.md), and [API reference](docs/api.md).
 
-## Safety and limitations
+[examples/lab.py](examples/lab.py) is an optional checkout helper for read, set,
+log, monitor and GUI commands. Direct API use needs no edits to that file.
 
-- Default software target bounds: **2–40 °C**, distilled-water profile. Confirm
-  applicability to your coolant and unit. The [hardware guide](docs/hardware.md)
-  records conflicting manufacturer coolant guidance that needs resolution.
-- CAL targets must match DISP: **0.1 °C** in high resolution or **1 °C** in low
-  resolution. Values are rejected, never silently rounded.
-- Display/alarm codes are diagnostic information. Flow, coolant level and leaks
-  remain **unknown** to the software. Connection is not proof of safety.
-- A lost write reply can leave the keypad locked or a target staged/saved.
-  Stop, inspect the unit, and follow the [recovery procedure](docs/hardware.md#uncertain-write-or-shutdown).
-- No unattended control, physical calibration or cooling-performance claim has
-  been validated. Simulator dynamics are illustrative.
+## Development
 
-## Troubleshooting
-
-| Message / symptom | Next step |
-| --- | --- |
-| Hardware not configured | Fill verified settings and CAL_ADDRESS; no port opened. |
-| Unsupported identity / RTD / Celsius | Compare the actual controller with the supported profile; do not bypass the check. |
-| Port missing, denied or busy | Check the approved adapter's port and close other control programs. |
-| Timeout / CRC error | Check wiring, address, baud and parity; stop using stale readings. |
-| Writes disabled / target rejected | Check approval, identity codes, limits, SP.LK and DISP. |
-| Write outcome uncertain | Human inspection required; no blind retry or automatic unlock. |
-| CSV exists | Choose a new filename. |
-| Import error after source update | Rerun the install command in step 1. |
-
-[More troubleshooting](docs/troubleshooting.md) · [API and CSV](docs/api.md)
-
-## Optional simulator practice
-
-```powershell
-.\.venv\Scripts\python -m tark_chiller --cal
+```sh
+python -m pip install -c requirements-tested.txt ".[gui,dev]"
+python -m pytest -q -p no:cacheprovider
+python -m ruff check src examples tests
+python -m ruff format --check src examples tests
+python -m mypy
+python -m pip check
+python -m build
 ```
 
-Open the local dashboard and verify **simulator**. Try an 18 °C target: the
-synthetic liquid starts at 20 °C, with the manual's 10 °C factory target, and moves
-gradually toward the requested value. Ctrl+C stops the demo. Omitting --cal
-selects the simpler thermal simulator. Neither launcher can select hardware.
-
-## Implementation and validation
-
-```mermaid
-flowchart LR
-    U[Python / Dashboard] --> C[Chiller API]
-    C --> P[CAL commands + serial transport]
-    P --> M[Memory controller simulator]
-    P --> H[Confirmed CAL controller]
-```
-
-The same transport and command sequence run in the protocol simulator and hardware
-path. Automated tests cover published bytes, identity/configuration rejection,
-each interrupted write stage, monitoring and cleanup. Physical testing remains
-pending. See the [current validation report](outputs/REPORT.md).
-
-[Hardware tutorial](docs/hardware.md) · [Protocol sources and scope](docs/protocol.md) ·
-[Development](development/README.md) · [Current state](STATE.md)
+Tests use memory transports, including error, cancellation, shutdown, recovery
+and no-write-replay paths for both protocols. Normal installation is intentional:
+subprocess tests exercise the installed package. Reinstall after source edits.

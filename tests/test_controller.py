@@ -9,7 +9,35 @@ from time import sleep
 
 import pytest
 
-from tark_chiller import Chiller, ProtocolError, Simulator
+from tark_chiller import ProtocolError, Simulator, TarkChiller
+
+
+def test_public_controller_name_has_no_legacy_alias():
+    import tark_chiller
+    from tark_chiller import controller
+
+    assert TarkChiller.__name__ == "TarkChiller"
+    assert "TarkChiller" in tark_chiller.__all__
+    assert not hasattr(tark_chiller, "Chiller") and not hasattr(controller, "Chiller")
+
+
+def test_read_recovery_budget_is_per_operation(monkeypatch):
+    backend = Simulator()
+    original = backend._read_temperature
+    calls = 0
+
+    def intermittent_read():
+        nonlocal calls
+        calls += 1
+        if calls % 2:
+            raise OSError("Transient read failure")
+        return original()
+
+    monkeypatch.setattr(backend, "_read_temperature", intermittent_read)
+    with TarkChiller(backend, reconnect_attempts=1, reconnect_delay_s=0.001) as chiller:
+        assert chiller.read_temperature() == 20
+        assert chiller.read_temperature() == 20
+        assert calls == 4 and chiller.is_connected
 
 
 def test_core_import_and_construction_have_no_optional_imports_or_worker():
@@ -19,9 +47,9 @@ def test_core_import_and_construction_have_no_optional_imports_or_worker():
             "-c",
             """
 import sys, threading
-from tark_chiller import Chiller, Simulator
+from tark_chiller import TarkChiller, Simulator
 before = threading.active_count()
-chiller = Chiller(Simulator())
+chiller = TarkChiller(Simulator())
 assert not chiller.is_connected
 assert not chiller.read_status().connected
 assert threading.active_count() == before
@@ -33,7 +61,7 @@ assert not {'dash', 'plotly', 'serial', 'tark_chiller.monitor'} & sys.modules.ke
 
 
 def test_explicit_connection_and_context_cleanup():
-    chiller = Chiller(Simulator())
+    chiller = TarkChiller(Simulator())
     for call in (
         chiller.read_temperature,
         chiller.read_setpoint,
@@ -78,14 +106,14 @@ def test_invalid_setpoints_never_touch_backend(value):
         def __getattribute__(self, name):
             pytest.fail(f"Invalid setpoint accessed backend {name}")
 
-    chiller = Chiller(Untouchable())
+    chiller = TarkChiller(Untouchable())
     with pytest.raises(ValueError):
         chiller.set_setpoint(value)
 
 
 @pytest.mark.parametrize("value", [2, 40])
 def test_default_bounds_inclusive(value):
-    with Chiller(Simulator()) as chiller:
+    with TarkChiller(Simulator()) as chiller:
         chiller.set_setpoint(value)
         assert chiller.read_setpoint() == value
 
@@ -108,11 +136,11 @@ def test_default_bounds_inclusive(value):
 )
 def test_custom_bounds_need_valid_limits_and_provenance(config):
     with pytest.raises(ValueError):
-        Chiller(Simulator(), **config)
+        TarkChiller(Simulator(), **config)
 
 
 def test_custom_coolant_explicit_immutable_configuration():
-    with Chiller(
+    with TarkChiller(
         Simulator(),
         setpoint_range=(-5, 30),
         coolant="test mixture",
@@ -132,7 +160,7 @@ def test_custom_coolant_explicit_immutable_configuration():
 def test_bad_backend_reading_suspends_without_retry(value, operation, monkeypatch):
     backend = Simulator()
     monkeypatch.setattr(backend, f"_read_{operation}", lambda: value)
-    with Chiller(backend, reconnect_attempts=2) as chiller:
+    with TarkChiller(backend, reconnect_attempts=2) as chiller:
         with pytest.raises(ProtocolError):
             getattr(chiller, f"read_{operation}")()
         assert not chiller.is_connected
@@ -145,7 +173,7 @@ def test_outside_write_limits_reading_is_visible(monkeypatch):
     backend = Simulator()
     monkeypatch.setattr(backend, "_read_temperature", lambda: -3)
     monkeypatch.setattr(backend, "_read_setpoint", lambda: 45)
-    with Chiller(backend) as chiller:
+    with TarkChiller(backend) as chiller:
         assert chiller.read_temperature() == -3
         assert chiller.read_setpoint() == 45
 
@@ -171,7 +199,7 @@ def test_multiple_instruments_and_serialized_reads_writes():
             super()._write_setpoint(value)
 
     backend = SlowSimulator()
-    with Chiller(backend) as chiller, Chiller(Simulator()) as other:
+    with TarkChiller(backend) as chiller, TarkChiller(Simulator()) as other:
         with ThreadPoolExecutor(max_workers=8) as pool:
             list(
                 pool.map(
@@ -186,7 +214,7 @@ def test_multiple_instruments_and_serialized_reads_writes():
 
 def test_simulator_thermal_response_and_disconnected_pause():
     now = [0.0]
-    with Chiller(Simulator(clock=lambda: now[0], time_constant_s=10)) as chiller:
+    with TarkChiller(Simulator(clock=lambda: now[0], time_constant_s=10)) as chiller:
         chiller.set_setpoint(10)
         now[0] = 10
         expected = 10 + 10 * math.exp(-1)
@@ -205,7 +233,7 @@ def test_simulator_thermal_response_and_disconnected_pause():
 )
 def test_recovery_configuration_is_bounded(config):
     with pytest.raises(ValueError):
-        Chiller(Simulator(), **config)
+        TarkChiller(Simulator(), **config)
 
 
 def test_cancelled_queued_setpoint_does_not_cross_reconnect(monkeypatch):
@@ -221,7 +249,7 @@ def test_cancelled_queued_setpoint_does_not_cross_reconnect(monkeypatch):
         return original_read()
 
     monkeypatch.setattr(backend, "_read_temperature", blocking_read)
-    chiller = Chiller(backend)
+    chiller = TarkChiller(backend)
     chiller.connect()
     lock, intent = chiller._lock, chiller._intent
 

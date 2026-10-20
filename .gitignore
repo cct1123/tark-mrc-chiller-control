@@ -4,7 +4,6 @@
 !.env.example
 *.pem
 *.key
-inputs/private/
 
 # Common local caches and editor/OS artifacts.
 __pycache__/
@@ -22,7 +21,4 @@ build/
 dist/
 .ruff_cache/
 .mypy_cache/
-outputs/*.csv
-outputs/*-screenshot.png
-outputs/*-trajectory.html
-outputs/release-check/
+outputs/

@@ -11,7 +11,7 @@ from time import monotonic, sleep
 import pytest
 from plotly.utils import PlotlyJSONEncoder
 
-from tark_chiller import Chiller, Simulator
+from tark_chiller import Simulator, TarkChiller
 from tark_chiller.gui import create_app, render_snapshot
 
 
@@ -28,7 +28,7 @@ def wait_for(predicate):
 
 @pytest.fixture
 def dashboard(tmp_path):
-    with Chiller(Simulator(time_constant_s=0.1)) as chiller:
+    with TarkChiller(Simulator(time_constant_s=0.1)) as chiller:
         path = tmp_path / "session.csv"
         monitor = chiller.start_monitoring(interval_s=0.02, csv_path=path)
         wait_for(lambda: monitor.snapshot().sample_count > 0)

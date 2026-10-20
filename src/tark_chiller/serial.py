@@ -1,6 +1,6 @@
-"""Explicit serial configuration and one protocol-driven device, owned by Chiller.
+"""Explicit serial configuration and one protocol-driven device, owned by TarkChiller.
 
-CAL 3300/9300 commands follow the manufacturer's guide; see docs/protocol.md.
+CAL 3300/9300 and ThermoTek T255P follow their manuals; see docs/protocol.md.
 Actual controller, wiring and settings require confirmation before physical use.
 """
 
@@ -96,6 +96,126 @@ def _rtu_complete(response: bytes) -> bool:
 
 
 RegisterIO = Callable[[int, int, int], int]
+AsciiIO = Callable[[bytes, bytes], bytes]
+
+
+def _t255p_frame(payload: bytes) -> bytes:
+    """Rev C section 16: printable payload, additive checksum and CR."""
+    return payload + f"{sum(payload) & 0xFF:02X}\r".encode("ascii")
+
+
+def _t255p_payload(frame: bytes, prefix: bytes) -> bytes:
+    if (
+        len(frame) < 5
+        or not frame.startswith(prefix)
+        or not frame.endswith(b"\r")
+        or any(not 32 <= byte <= 126 for byte in frame[:-1])
+        or any(byte not in b"0123456789abcdefABCDEF" for byte in frame[-3:-1])
+    ):
+        raise ProtocolError("Malformed T255P ASCII frame")
+    if int(frame[-3:-1], 16) != sum(frame[:-3]) & 0xFF:
+        raise ProtocolError("T255P checksum mismatch")
+    return frame[1:-3]
+
+
+@dataclass(frozen=True)
+class T255P:
+    """ThermoTek Rev C water protocol; explicitly select for an identified unit.
+
+    U establishes remote communication and can change AUTO START to RUN. Every
+    operation starts with U, including after idle expiry; no hidden worker runs.
+    No identity query exists in the documented subset: selection is human-owned.
+    """
+
+    allow_writes: bool = False
+
+    def __post_init__(self) -> None:
+        if type(self.allow_writes) is not bool:
+            raise ValueError("allow_writes must be boolean")
+
+    @staticmethod
+    def is_complete(response: bytes) -> bool:
+        if response[:1] != b"#" or any(not 32 <= byte <= 126 for byte in response.rstrip(b"\r")):
+            raise ProtocolError("Unexpected T255P response framing")
+        return response.endswith(b"\r")
+
+    @staticmethod
+    def reply(command: bytes, response: bytes) -> bytes:
+        payload = _t255p_payload(response, b"#")
+        if len(payload) < 2 or payload[:1] != command:
+            raise ProtocolError("T255P command echo mismatch")
+        error = payload[1:2]
+        if error != b"0":
+            message = {b"1": "checksum", b"2": "bad command", b"3": "qualifier out of bounds"}
+            raise ProtocolError(f"T255P communication error: {message.get(error, 'unknown code')}")
+        return payload[2:]
+
+    @staticmethod
+    def _signed(data: bytes, digits: int) -> float:
+        if len(data) != digits + 1 or data[:1] not in (b"+", b"-") or not data[1:].isdigit():
+            raise ProtocolError("Malformed T255P signed temperature")
+        return int(data) / (100 if digits == 4 else 10)
+
+    @staticmethod
+    def _watchdog(data: bytes) -> str:
+        if len(data) != 4 or data[:1] not in b"0123" or any(c not in b"01" for c in data[1:]):
+            raise ProtocolError("Malformed T255P watchdog state")
+        return data.decode("ascii")
+
+    @staticmethod
+    def _alarms(data: bytes) -> str:
+        if len(data) != 6 or any(c not in b"01" for c in data):
+            raise ProtocolError("Malformed T255P alarm flags")
+        return data.decode("ascii")
+
+    def _memory(self, data: bytes) -> float:
+        if len(data) != 9 or data[:1] != b"0" or data[5:6] != b"," or not data[6:].isdigit():
+            raise ProtocolError("Malformed T255P memory response")
+        target = self._signed(data[1:5], 3)
+        if not -5 <= target <= 45:
+            raise ProtocolError("T255P reported target outside documented -5..45 C range")
+        return target
+
+    def verify(self, io: AsciiIO) -> str:
+        return self._watchdog(io(b"U", b""))
+
+    def execute(self, operation: Operation, value: float | None, io: AsciiIO) -> float | str | None:
+        target = b""
+        if operation == "set_setpoint":
+            if not self.allow_writes:
+                raise ProtocolError(
+                    "T255P writes disabled; enable with T255P(allow_writes=True) after checking setup"
+                )
+            number = _finite(value, "Setpoint")
+            if not 5 <= number <= 45:
+                raise ProtocolError("T255P water protocol supports targets from 5 to 45 C only")
+            if abs(number * 10 - round(number * 10)) > 1e-8:
+                raise ProtocolError("T255P targets require 0.1 C resolution; no rounding")
+            target = f"{round(number * 10):+04d}".encode("ascii")
+        state = self.verify(io)
+        if operation == "get_setpoint":
+            return self._memory(io(b"H", b"0"))
+        alarms = self._alarms(io(b"J", b""))
+        if operation == "get_status":
+            mode = ("AUTO START", "STANDBY", "RUN", "SAFETY DEFAULT")[int(state[0])]
+            names = ("float_switch", "high_temp", "low_temp", "sensor", "eeprom", "watchdog")
+            flags = " ".join(f"{name}={flag}" for name, flag in zip(names, alarms, strict=True))
+            return (
+                f"T255P (human-selected; identity not queried); mode={mode}; "
+                f"summary_alarm={state[1]} chiller_on={state[2]} dryer_on={state[3]}; "
+                f"reported alarms: {flags}; flow/leak unknown; last serial reply, not safety proof"
+            )
+        if operation == "get_temperature":
+            if alarms[3] == "1":
+                raise ProtocolError("T255P sensor alarm; temperature unavailable")
+            return self._signed(io(b"I", b""), 4)
+        if state[0] != "2" or state[1] != "0" or "1" in alarms:
+            raise ProtocolError("T255P must report RUN with no active alarms before a target write")
+        if io(b"M", target) != target:
+            raise ProtocolError("T255P target echo mismatch; outcome uncertain")
+        if self._memory(io(b"H", b"0")) != int(target) / 10:
+            raise ProtocolError("T255P target readback mismatch; outcome uncertain")
+        return None
 
 
 @dataclass(frozen=True)
@@ -104,7 +224,7 @@ class Cal33xx:
 
     Reads verify supported family/firmware, RTD input and Celsius units.
     Writes need explicit opt-in and exact expected identity codes from a prior read.
-    This candidate accepts nonnegative temperatures only; negative wire encoding
+    This driver accepts nonnegative temperatures only; negative wire encoding
     is not specified by the source. Each instance belongs to one SerialDevice.
     """
 
@@ -142,7 +262,7 @@ class Cal33xx:
     def _units(io: RegisterIO) -> None:
         if io(3, 0x0198, 1) != 10 or io(3, 0x0199, 1) != 1:
             raise ProtocolError(
-                "This CAL candidate requires Inpt=RTD and Unit=C; no settings were changed"
+                "This CAL driver requires Inpt=RTD and Unit=C; no settings were changed"
             )
 
     @staticmethod
@@ -217,7 +337,7 @@ class Cal33xx:
             )
         target = _finite(value, "Setpoint")
         if not 0 <= target <= 40:
-            raise ProtocolError("This CAL candidate supports targets from 0 to 40 C only")
+            raise ProtocolError("This CAL driver supports targets from 0 to 40 C only")
         self.verify(io)
         self._write_checks(io, target)
         # No retries or finally-unlock: exiting can commit an uncertain staged value.
@@ -243,7 +363,10 @@ def _serial_factory(**settings: Any) -> Any:
     try:
         from serial import Serial
     except ImportError as exc:
-        raise OSError("Install the serial extra for serial communication") from exc
+        raise OSError(
+            "pyserial is required for hardware communication; reinstall tark-mrc-chiller "
+            "with its dependencies or run: python -m pip install pyserial"
+        ) from exc
     return Serial(**settings)
 
 
@@ -261,7 +384,7 @@ def _io_error(error: Exception) -> OSError:
 
 
 class SerialDevice:
-    """One endpoint; Chiller serializes access and validates all public writes.
+    """One endpoint; TarkChiller serializes access and validates all public writes.
 
     Private read/write hooks are backend operations, not user control methods.
     One write attempt per transaction; timeouts never cause a write replay.
@@ -273,8 +396,8 @@ class SerialDevice:
         settings: SerialSettings,
         *,
         rs485: RS485Mode | None = None,
-        codec: Codec | Cal33xx | None = None,
-        timeout_s: float = 1.0,
+        codec: Codec | Cal33xx | T255P | None = None,
+        timeout_s: float | None = None,
         max_response_bytes: int = 4096,
         serial_factory: Callable[..., Any] | None = None,
     ) -> None:
@@ -286,13 +409,17 @@ class SerialDevice:
             raise ValueError("max_response_bytes must be a positive integer")
         self._settings = settings
         self._rs485 = rs485
-        self._timeout_s = _seconds(timeout_s, "timeout_s")
+        self._timeout_s = _seconds(
+            (3.0 if isinstance(codec, T255P) else 1.0) if timeout_s is None else timeout_s,
+            "timeout_s",
+        )
         self._max_response_bytes = max_response_bytes
         self._codec = codec
         self._factory = serial_factory if serial_factory is not None else _serial_factory
         self._endpoint: Any = None
         self._usable = False
         self._write_uncertain = False
+        self._t255p_next_command_at = 0.0
 
     @property
     def settings(self) -> SerialSettings:
@@ -311,17 +438,23 @@ class SerialDevice:
         return self._max_response_bytes
 
     @property
+    def reconnect_wait_s(self) -> float:
+        """Remaining incomplete-response quarantine; no device access."""
+        return max(0.0, self._t255p_next_command_at - perf_counter())
+
+    @property
     def is_connected(self) -> bool:
         return self._usable and self._endpoint is not None and bool(self._endpoint.is_open)
 
     def connect(self) -> None:
         if self._write_uncertain:
             raise ProtocolError(
-                "CAL write outcome uncertain; inspect hardware before creating a new session"
+                "Device write outcome uncertain; inspect hardware before creating a new session"
             )
         if self._codec is None:
             raise ProtocolError(
-                "Controller communication manual is required; no codec is configured"
+                "No protocol configured; pass codec=Cal33xx(...) or codec=T255P() "
+                "for your identified controller. No port was opened."
             )
         if self.is_connected:
             return
@@ -337,6 +470,19 @@ class SerialDevice:
                 or s.dsrdtr
             ):
                 raise ProtocolError("CAL needs documented baud, 8N1/8E1/8O1 and no flow control")
+        if isinstance(self._codec, T255P):
+            s = self.settings
+            if (
+                s.baudrate != 9600
+                or s.bytesize != 8
+                or s.parity != "N"
+                or s.stopbits != 1
+                or not s.xonxoff
+                or s.rtscts
+                or s.dsrdtr
+                or self.rs485 is not None
+            ):
+                raise ProtocolError("T255P needs RS-232, 9600/8N1 and XON/XOFF only")
         self.disconnect()
         try:
             config = asdict(self.settings)
@@ -359,6 +505,8 @@ class SerialDevice:
             self._usable = True
             if isinstance(self._codec, Cal33xx):
                 self._codec.verify(self._cal_io)
+            elif isinstance(self._codec, T255P):
+                self._codec.verify(self._t255p_io)
         except BaseException as exc:
             self._failed(exc)
             if not isinstance(exc, Exception) or isinstance(exc, ProtocolError):
@@ -455,6 +603,25 @@ class SerialDevice:
             raise ProtocolError("CAL byte register returned a nonzero high byte")
         return raw
 
+    def _t255p_io(self, command: bytes, data: bytes = b"") -> bytes:
+        assert isinstance(self._codec, T255P)
+        # Even a short host timeout must not permit another command before 3 s.
+        # Preserve this quarantine across close/reopen on this owned endpoint.
+        delay = self._t255p_next_command_at - perf_counter()
+        if delay > 0:
+            sleep(delay)
+        self._endpoint.reset_input_buffer()
+        request = _t255p_frame(b"." + command + data)
+        self._t255p_next_command_at = perf_counter() + 3.0
+        if command == b"M":
+            self._write_uncertain = True
+        response = self._transfer(request, self._codec.is_complete)
+        result = self._codec.reply(command, response)
+        if self._endpoint.in_waiting:
+            raise ProtocolError("Unexpected trailing T255P response bytes")
+        self._t255p_next_command_at = 0.0
+        return result
+
     def _exchange(self, operation: Operation, value: float | None = None) -> float | Status | None:
         if not self.is_connected:
             raise ConnectionError("Serial device is disconnected")
@@ -462,6 +629,10 @@ class SerialDevice:
         try:
             if isinstance(self._codec, Cal33xx):
                 result = self._codec.execute(operation, value, self._cal_io)
+                if operation == "set_setpoint":
+                    self._write_uncertain = False
+            elif isinstance(self._codec, T255P):
+                result = self._codec.execute(operation, value, self._t255p_io)
                 if operation == "set_setpoint":
                     self._write_uncertain = False
             else:
@@ -482,7 +653,7 @@ class SerialDevice:
             if operation == "get_status":
                 if not isinstance(result, str):
                     raise ProtocolError("Codec returned invalid hardware status")
-                simulated = isinstance(self._endpoint, CalSimulator)
+                simulated = isinstance(self._endpoint, (CalSimulator, T255PSimulator))
                 return Status(
                     connected=True,
                     backend="simulator" if simulated else "hardware",
@@ -494,9 +665,10 @@ class SerialDevice:
         except BaseException as exc:
             self._failed(exc)
             if self._write_uncertain and isinstance(exc, Exception):
+                device = "T255P" if isinstance(self._codec, T255P) else "CAL"
                 raise ProtocolError(
-                    "CAL write outcome uncertain; keypad may be locked or settings staged/saved. "
-                    "No retry or automatic unlock. Human inspection required. " + str(exc)
+                    f"{device} write outcome uncertain; target/control state may have changed. "
+                    "No retry or automatic recovery write. Human inspection required. " + str(exc)
                 ) from exc
             if not isinstance(exc, Exception) or isinstance(exc, ProtocolError):
                 raise
@@ -632,5 +804,173 @@ class CalSimulator:
             self.remote_program_mode = False
             self.applied_writes += 1
         else:
-            return error(2)  # Deliberately implement only the candidate's subset.
+            return error(2)  # Deliberately implement only the supported subset.
         return request
+
+
+class T255PSimulator:
+    """Memory-only Rev C endpoint, not a calibrated thermal/electrical model.
+
+    State is evaluated lazily against an injected clock. Target retention, serial
+    watchdog and control continue after port close. Exposed mode/alarms/flow pause
+    are deliberate test controls; they never contact hardware. The optional G
+    behavior is modeled for tests, but the production T255P driver never sends G.
+    """
+
+    def __init__(self, *, clock: Callable[[], float] = monotonic) -> None:
+        self._clock = clock
+        self._updated = clock()
+        self._control_s = 0.0
+        self._model = Simulator(clock=lambda: self._control_s)
+        self._model.connect()
+        self.mode = "0"  # AUTO START; the manual's default retained target is 20 C.
+        self.alarms = "000000"  # float, high, low, sensor, EEPROM, watchdog
+        self.dryer_on = False  # Synthetic choice, not an installed-unit assertion.
+        self.max_power = 100  # Synthetic read-only field, not a power calibration.
+        self.applied_writes = 0
+        self._remote = False
+        self._last_valid = self._updated
+        self._next_xon = self._updated
+        self.is_open = False
+        self.timeout = self.write_timeout = 3.0
+        self.port: str | None = None
+        self.rts = self.dtr = False
+        self.xonxoff = True
+        self.flow_paused = False
+        self._buffer = b""
+
+    def device(self, *, allow_writes: bool = True) -> SerialDevice:
+        settings = SerialSettings("MEMORY-ONLY", 9600, 8, "N", 1, True, False, False, False, False)
+        return SerialDevice(settings, codec=T255P(allow_writes), serial_factory=self.factory)
+
+    def factory(self, **settings: Any) -> "T255PSimulator":
+        if self.is_open:
+            raise OSError("Simulated endpoint already open")
+        self.timeout, self.write_timeout = settings["timeout"], settings["write_timeout"]
+        self.xonxoff = settings["xonxoff"]
+        return self
+
+    def _sync(self) -> None:
+        now = self._clock()
+        if self.mode in ("0", "2"):
+            self._control_s += max(0.0, now - self._updated)
+        self._updated = now
+        if self.alarms[3] == "1":
+            self.mode = "1"  # Sensor failure enters standby (printed p8).
+        if self._remote and now - self._last_valid > 10:
+            self._remote = False
+            self._next_xon = now
+        if not self._remote and self.is_open and now >= self._next_xon:
+            self._buffer += b"\x11"
+            self._next_xon = now + 0.5
+
+    @property
+    def remote_active(self) -> bool:
+        self._sync()
+        return self._remote
+
+    def power_cycle(self) -> None:
+        """Synthetic reset retains target; there is no corresponding driver API."""
+        self._sync()
+        self.mode, self._remote = "0", False
+        self._buffer = b""
+        self._next_xon = self._clock()
+
+    def open(self) -> None:
+        self.is_open = True
+        self._sync()
+
+    def close(self) -> None:
+        self._sync()
+        self.is_open = False
+        self._buffer = b""
+
+    def reset_input_buffer(self) -> None:
+        self._sync()
+        self._buffer = b""
+
+    def set_flow_paused(self, paused: bool) -> None:
+        self.flow_paused = paused
+        self._buffer += b"\x13" if paused else b"\x11"
+
+    @property
+    def in_waiting(self) -> int:
+        self._sync()
+        data = self._buffer.translate(None, b"\x11\x13") if self.xonxoff else self._buffer
+        return len(data)
+
+    def write(self, request: bytes) -> int:
+        if not self.is_open:
+            raise OSError("Simulated endpoint closed")
+        self._sync()
+        if self.xonxoff and self.flow_paused:
+            sleep(self.write_timeout)
+            raise TimeoutError("Simulated T255P XOFF write timeout")
+        self._buffer += self._respond(request)
+        return len(request)
+
+    def read(self, size: int = 1) -> bytes:
+        if not self.is_open:
+            raise OSError("Simulated endpoint closed")
+        self._sync()
+        if self.xonxoff:
+            self._buffer = self._buffer.translate(None, b"\x11\x13")
+        if not self._buffer:
+            sleep(self.timeout)
+        result, self._buffer = self._buffer[:size], self._buffer[size:]
+        return result
+
+    def _respond(self, request: bytes) -> bytes:
+        command = request[1:2]
+
+        def reply(data: bytes = b"", error: bytes = b"0") -> bytes:
+            return _t255p_frame(b"#" + command + error + data)
+
+        try:
+            payload = _t255p_payload(request, b".")
+        except ProtocolError:
+            return reply(error=b"1")
+        command, data = payload[:1], payload[1:]
+        if command not in (b"U", b"G", b"H", b"I", b"J", b"M"):
+            return reply(error=b"2")
+        if not self._remote and command != b"U":
+            return b""  # U is required to establish/re-establish a serial session.
+        if command in (b"U", b"I", b"J") and data:
+            return reply(error=b"3")
+        if command == b"U":
+            if self.mode == "0":
+                self.mode = "2"
+            self._remote = True
+            response = (
+                self.mode
+                + str(int("1" in self.alarms))
+                + str(int(self.mode in ("0", "2")))
+                + str(int(self.dryer_on))
+            ).encode("ascii")
+        elif command == b"G":
+            if data not in (b"0", b"1"):
+                return reply(error=b"3")
+            self.mode = "1" if data == b"0" else "2"
+            response = data
+        elif command == b"H":
+            if data != b"0":
+                return reply(error=b"3")
+            response = (
+                f"0{round(self._model._read_setpoint() * 10):+04d},{self.max_power:03d}"
+            ).encode("ascii")
+        elif command == b"I":
+            response = f"{round(self._model._read_temperature() * 100):+05d}".encode("ascii")
+        elif command == b"J":
+            response = self.alarms.encode("ascii")
+        else:
+            try:
+                target = T255P._signed(data, 3)
+            except ProtocolError:
+                return reply(error=b"3")
+            if not -5 <= target <= 45:
+                return reply(error=b"3")
+            self._model._write_setpoint(target)
+            self.applied_writes += 1
+            response = data
+        self._last_valid = self._clock()
+        return reply(response)

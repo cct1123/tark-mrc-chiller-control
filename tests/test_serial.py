@@ -1,5 +1,6 @@
-"""Production Chiller/serial behavior with synthetic memory endpoints only."""
+"""Production TarkChiller/serial behavior with synthetic memory endpoints only."""
 
+import builtins
 import errno
 import math
 from concurrent.futures import ThreadPoolExecutor
@@ -9,14 +10,14 @@ from time import perf_counter
 import pytest
 from fakes import FakeCodec, FakeSerial, fake_settings, make_serial
 
-from tark_chiller.controller import Chiller, ProtocolError, Status
+from tark_chiller.controller import ProtocolError, Status, TarkChiller
 from tark_chiller.serial import RS485Mode, SerialDevice, SerialSettings
 
 
 def test_absent_protocol_prevents_endpoint_creation():
     endpoint = FakeSerial()
-    chiller = Chiller(SerialDevice(fake_settings(), serial_factory=endpoint.factory))
-    with pytest.raises(ProtocolError, match="manual"):
+    chiller = TarkChiller(SerialDevice(fake_settings(), serial_factory=endpoint.factory))
+    with pytest.raises(ProtocolError, match="codec=Cal33xx.*codec=T255P"):
         chiller.connect()
     assert endpoint.factory_arguments == []
     assert endpoint.open_count == endpoint.write_count == 0
@@ -24,10 +25,26 @@ def test_absent_protocol_prevents_endpoint_creation():
     chiller.disconnect()
 
 
+def test_missing_pyserial_explains_required_dependency_without_creating_port(monkeypatch):
+    original_import = builtins.__import__
+
+    def without_pyserial(name, *args, **kwargs):
+        if name == "serial":
+            raise ModuleNotFoundError("No module named 'serial'")
+        return original_import(name, *args, **kwargs)
+
+    monkeypatch.setattr(builtins, "__import__", without_pyserial)
+    chiller = TarkChiller(SerialDevice(fake_settings(), codec=FakeCodec()))
+    with pytest.raises(OSError, match="python -m pip install pyserial"):
+        chiller.connect()
+    assert not chiller.is_connected
+    chiller.disconnect()
+
+
 @pytest.mark.parametrize("rs485", [False, True])
 def test_common_api_uses_explicit_settings_and_no_startup_writes(rs485):
     device, endpoint = make_serial(rs485=rs485)
-    chiller = Chiller(device)
+    chiller = TarkChiller(device)
     try:
         chiller.connect()
         chiller.connect()
@@ -68,7 +85,7 @@ def test_common_api_uses_explicit_settings_and_no_startup_writes(rs485):
 def test_public_guard_rejects_before_codec_or_endpoint_access(value):
     device, endpoint = make_serial()
     with pytest.raises(ValueError):
-        Chiller(device).set_setpoint(value)
+        TarkChiller(device).set_setpoint(value)
     assert device._codec.request_id == 0
     assert endpoint.factory_arguments == []
     assert endpoint.applied_writes == endpoint.write_count == 0
@@ -132,7 +149,7 @@ def test_serial_configuration_is_read_only_before_and_after_connect(name, value)
     original = getattr(device, name)
     with pytest.raises(AttributeError):
         setattr(device, name, value)
-    with Chiller(device):
+    with TarkChiller(device):
         with pytest.raises(AttributeError):
             setattr(device, name, value)
         assert getattr(device, name) == original
@@ -150,7 +167,7 @@ def test_serial_configuration_is_read_only_before_and_after_connect(name, value)
 def test_port_failures_keep_reason_and_exhaust_finite_recovery(rs485, error):
     device, endpoint = make_serial(rs485=rs485)
     endpoint.open_error = error
-    chiller = Chiller(device, reconnect_attempts=2, reconnect_delay_s=0.001)
+    chiller = TarkChiller(device, reconnect_attempts=2, reconnect_delay_s=0.001)
     with pytest.raises(OSError, match=str(error.args[-1])):
         chiller.connect()
     assert endpoint.open_count == 3
@@ -173,7 +190,7 @@ def test_port_failures_keep_reason_and_exhaust_finite_recovery(rs485, error):
 )
 def test_malformed_or_unexpected_reply_suspends_recovery(reply):
     device, endpoint = make_serial(endpoint=FakeSerial(reply))
-    chiller = Chiller(device, reconnect_attempts=2, reconnect_delay_s=0.001)
+    chiller = TarkChiller(device, reconnect_attempts=2, reconnect_delay_s=0.001)
     chiller.connect()
     with pytest.raises(ProtocolError):
         chiller.read_temperature()
@@ -191,7 +208,7 @@ def test_codec_cannot_supply_application_connection_state(decoded_status):
             return decoded_status
 
     device, endpoint = make_serial(codec=BadStatusCodec())
-    with Chiller(device, reconnect_attempts=2) as chiller:
+    with TarkChiller(device, reconnect_attempts=2) as chiller:
         with pytest.raises(ProtocolError, match="invalid hardware status"):
             chiller.read_status()
         assert not chiller.read_status().connected
@@ -203,7 +220,7 @@ def test_codec_cannot_supply_application_connection_state(decoded_status):
 @pytest.mark.parametrize("reply", [b"", b"TEST|1|get_temperature|20"])
 def test_absent_or_truncated_reply_times_out(reply):
     device, endpoint = make_serial(endpoint=FakeSerial(reply), timeout_s=0.02)
-    chiller = Chiller(device)
+    chiller = TarkChiller(device)
     chiller.connect()
     with pytest.raises(TimeoutError):
         chiller.read_temperature()
@@ -215,7 +232,7 @@ def test_exact_response_byte_budget_and_overflow():
     reply = b"TEST|1|get_temperature|20\n"
     for budget, succeeds in ((len(reply), True), (len(reply) - 1, False)):
         device, endpoint = make_serial(endpoint=FakeSerial(reply), max_response_bytes=budget)
-        chiller = Chiller(device)
+        chiller = TarkChiller(device)
         chiller.connect()
         with pytest.raises(AttributeError):
             device.max_response_bytes = math.inf
@@ -233,7 +250,7 @@ def test_exact_response_byte_budget_and_overflow():
 @pytest.mark.parametrize("kind", ["write", "partial", "read", "pyserial_timeout"])
 def test_io_failure_closes_endpoint_and_never_retries_write(kind):
     device, endpoint = make_serial()
-    chiller = Chiller(device, reconnect_attempts=2, reconnect_delay_s=0.001)
+    chiller = TarkChiller(device, reconnect_attempts=2, reconnect_delay_s=0.001)
     chiller.connect()
     if kind == "write":
         endpoint.write_error = OSError("fake write failure")
@@ -254,7 +271,7 @@ def test_io_failure_closes_endpoint_and_never_retries_write(kind):
 
 def test_lost_acknowledgement_is_not_replayed_on_read_recovery():
     device, endpoint = make_serial(timeout_s=0.02)
-    chiller = Chiller(device, reconnect_attempts=2, reconnect_delay_s=0.001)
+    chiller = TarkChiller(device, reconnect_attempts=2, reconnect_delay_s=0.001)
     chiller.connect()
     endpoint.response = b""
     with pytest.raises(TimeoutError):
@@ -277,7 +294,7 @@ def test_mid_run_partial_reply_disconnect_recovers_only_reads():
             return super().read(size)
 
     device, endpoint = make_serial(endpoint=UnpluggedEndpoint())
-    chiller = Chiller(device, reconnect_attempts=1, reconnect_delay_s=0.001)
+    chiller = TarkChiller(device, reconnect_attempts=1, reconnect_delay_s=0.001)
     chiller.connect()
     assert chiller.read_temperature() == 20
     endpoint.unplug_after = endpoint.read_count + 5
@@ -297,7 +314,7 @@ def test_old_reply_after_reconnect_is_not_accepted_as_new_read():
             return result
 
     device, endpoint = make_serial(endpoint=LateReply(), timeout_s=0.02)
-    chiller = Chiller(device, reconnect_attempts=1, reconnect_delay_s=0.001)
+    chiller = TarkChiller(device, reconnect_attempts=1, reconnect_delay_s=0.001)
     chiller.connect()
     with pytest.raises(ProtocolError, match="identity"):
         chiller.read_temperature()
@@ -310,7 +327,7 @@ def test_old_reply_after_reconnect_is_not_accepted_as_new_read():
 def test_delayed_complete_reply_respects_transaction_budget(delay, succeeds):
     device, endpoint = make_serial(timeout_s=0.04)
     endpoint.delay_s = delay
-    chiller = Chiller(device)
+    chiller = TarkChiller(device)
     chiller.connect()
     with pytest.raises(AttributeError):
         device.timeout_s = math.nan
@@ -327,7 +344,7 @@ def test_delayed_complete_reply_respects_transaction_budget(delay, succeeds):
 
 def test_pending_read_shutdown_cancels_recovery_without_reopening():
     device, endpoint = make_serial(endpoint=FakeSerial(b""), timeout_s=0.08)
-    chiller = Chiller(device, reconnect_attempts=2, reconnect_delay_s=5)
+    chiller = TarkChiller(device, reconnect_attempts=2, reconnect_delay_s=5)
     chiller.connect()
     with ThreadPoolExecutor(max_workers=1) as workers:
         pending = workers.submit(chiller.read_temperature)
@@ -343,7 +360,7 @@ def test_pending_read_shutdown_cancels_recovery_without_reopening():
 
 def test_close_failure_disables_io_and_retains_handle_for_cleanup():
     device, endpoint = make_serial()
-    chiller = Chiller(device)
+    chiller = TarkChiller(device)
     chiller.connect()
     endpoint.close_error = OSError("fake close failure")
     with pytest.raises(OSError, match="close failure"):
@@ -382,7 +399,7 @@ def test_interruption_closes_endpoint_and_preserves_exception(stage, interruptio
     device, _ = make_serial(
         endpoint=endpoint, codec=InterruptedCodec() if stage == "decode" else None
     )
-    chiller = Chiller(device)
+    chiller = TarkChiller(device)
     try:
         with pytest.raises(interruption, match="fake interruption"):
             chiller.connect()
@@ -396,7 +413,7 @@ def test_interruption_closes_endpoint_and_preserves_exception(stage, interruptio
 
 def test_interruption_survives_failed_cleanup_and_handle_can_be_closed_later():
     device, endpoint = make_serial()
-    chiller = Chiller(device)
+    chiller = TarkChiller(device)
     chiller.connect()
     endpoint.read_error = KeyboardInterrupt("fake interrupted read")
     endpoint.close_error = OSError("fake close failure")
@@ -418,6 +435,6 @@ def test_unsupported_native_rs485_stops_before_port_open():
 
     device, endpoint = make_serial(endpoint=UnsupportedMode(), rs485=True)
     with pytest.raises(OSError, match="unsupported native mode"):
-        Chiller(device).connect()
+        TarkChiller(device).connect()
     assert endpoint.open_count == endpoint.write_count == 0
     assert endpoint.close_count == 1

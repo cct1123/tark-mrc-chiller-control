@@ -9,7 +9,7 @@ from time import monotonic, sleep
 
 import pytest
 
-from tark_chiller import Chiller, Simulator
+from tark_chiller import Simulator, TarkChiller
 
 
 def wait_for(condition, timeout=2):
@@ -21,7 +21,7 @@ def wait_for(condition, timeout=2):
 
 def test_monitor_csv_bounded_history_and_restart(tmp_path):
     path = tmp_path / "run.csv"
-    with Chiller(Simulator()) as chiller:
+    with TarkChiller(Simulator()) as chiller:
         monitor = chiller.start_monitoring(interval_s=0.01, csv_path=path, history_size=3)
         wait_for(lambda: monitor.snapshot().sample_count >= 5)
         with pytest.raises(RuntimeError, match="already"):
@@ -49,7 +49,7 @@ def test_monitor_csv_bounded_history_and_restart(tmp_path):
     assert all(r["connected"] == "True" and r["backend"] == "simulator" for r in rows)
     assert [float(r["elapsed_s"]) for r in rows] == sorted(float(r["elapsed_s"]) for r in rows)
     original = path.read_bytes()
-    with Chiller(Simulator()) as chiller, pytest.raises(FileExistsError):
+    with TarkChiller(Simulator()) as chiller, pytest.raises(FileExistsError):
         chiller.start_monitoring(csv_path=path)
     assert path.read_bytes() == original
     path.unlink()  # File handles must be closed on Windows.
@@ -64,7 +64,7 @@ def test_failure_rows_are_blank_and_recover_on_explicit_connect(tmp_path, monkey
         backend, read_method, lambda: (_ for _ in ()).throw(TimeoutError("cable lost"))
     )
     path = tmp_path / "fault.csv"
-    with Chiller(backend) as chiller:
+    with TarkChiller(backend) as chiller:
         monitor = chiller.start_monitoring(interval_s=0.01, csv_path=path)
         wait_for(lambda: monitor.snapshot().failed_samples >= 2)
         snapshot = monitor.snapshot()
@@ -87,7 +87,7 @@ def test_failure_rows_are_blank_and_recover_on_explicit_connect(tmp_path, monkey
 )
 def test_invalid_monitor_settings_do_not_create_files_or_workers(config, tmp_path):
     path = tmp_path / "bad.csv"
-    with Chiller(Simulator()) as chiller, pytest.raises(ValueError):
+    with TarkChiller(Simulator()) as chiller, pytest.raises(ValueError):
         chiller.start_monitoring(csv_path=path, **config)
     assert not path.exists()
 
@@ -103,7 +103,7 @@ def test_running_monitor_interval_is_read_only_and_worker_stays_paced(monkeypatc
         return original_read()
 
     monkeypatch.setattr(backend, "_read_temperature", paused_read)
-    with Chiller(backend) as chiller:
+    with TarkChiller(backend) as chiller:
         monitor = chiller.start_monitoring(interval_s=10)
         waits = []
         original_wait = monitor._stop.wait
@@ -158,7 +158,7 @@ def test_disk_full_stops_recording_but_keeps_sampling(tmp_path, monkeypatch):
         return FailingFile(stream)
 
     monkeypatch.setattr(Path, "open", wrapped_open)
-    with Chiller(Simulator()) as chiller:
+    with TarkChiller(Simulator()) as chiller:
         monitor = chiller.start_monitoring(interval_s=0.01, csv_path=tmp_path / "full.csv")
         wait_for(lambda: monitor.snapshot().sample_count >= 5)
         snapshot = monitor.snapshot()
@@ -174,7 +174,7 @@ def test_unexpected_worker_exit_is_visible_and_csv_closed(error, monkeypatch, tm
     backend = Simulator()
     monkeypatch.setattr(backend, "_read_temperature", lambda: (_ for _ in ()).throw(error))
     path = tmp_path / "fatal.csv"
-    with Chiller(backend) as chiller:
+    with TarkChiller(backend) as chiller:
         monitor = chiller.start_monitoring(interval_s=0.01, csv_path=path)
         wait_for(lambda: not monitor.running)
         assert type(error).__name__ in monitor.snapshot().service_error
@@ -192,7 +192,7 @@ def test_pending_read_stop_timeout_retains_worker_until_join(monkeypatch, tmp_pa
         return 20
 
     monkeypatch.setattr(backend, "_read_temperature", slow_read)
-    with Chiller(backend) as chiller:
+    with TarkChiller(backend) as chiller:
         monitor = chiller.start_monitoring(csv_path=tmp_path / "pending.csv")
         assert entered.wait(1)
         try:
@@ -214,7 +214,7 @@ def test_thread_start_failure_leaves_new_run_possible(tmp_path, monkeypatch):
     def fail_start(thread):
         raise RuntimeError("cannot start thread")
 
-    with Chiller(Simulator()) as chiller:
+    with TarkChiller(Simulator()) as chiller:
         monkeypatch.setattr(Thread, "start", fail_start)
         path = tmp_path / "start.csv"
         with pytest.raises(RuntimeError, match="cannot start"):
@@ -232,7 +232,7 @@ def test_interrupted_start_after_launch_is_joined_without_polling(tmp_path, monk
         original(thread)
         raise KeyboardInterrupt
 
-    with Chiller(Simulator()) as chiller:
+    with TarkChiller(Simulator()) as chiller:
         monkeypatch.setattr(Thread, "start", interrupted_start)
         path = tmp_path / "interrupt.csv"
         with pytest.raises(KeyboardInterrupt):
@@ -250,7 +250,7 @@ def test_thread_construction_interruption_closes_csv(tmp_path, monkeypatch):
 
     monkeypatch.setattr(module, "Thread", interrupted_constructor)
     path = tmp_path / "constructor.csv"
-    with Chiller(Simulator()) as chiller, pytest.raises(KeyboardInterrupt):
+    with TarkChiller(Simulator()) as chiller, pytest.raises(KeyboardInterrupt):
         chiller.start_monitoring(csv_path=path)
     path.unlink()
 
@@ -269,7 +269,7 @@ def test_start_gate_interruption_closes_csv(tmp_path, monkeypatch):
 
     monkeypatch.setattr(module, "Event", interrupted_event)
     path = tmp_path / "gate.csv"
-    with Chiller(Simulator()) as chiller, pytest.raises(KeyboardInterrupt):
+    with TarkChiller(Simulator()) as chiller, pytest.raises(KeyboardInterrupt):
         chiller.start_monitoring(csv_path=path)
     path.unlink()
 
@@ -284,7 +284,7 @@ def test_slow_setpoint_read_does_not_make_temperature_look_fresh(monkeypatch):
         return 20
 
     monkeypatch.setattr(backend, "_read_setpoint", slow_setpoint)
-    with Chiller(backend) as chiller:
+    with TarkChiller(backend) as chiller:
         monitor = chiller.start_monitoring(interval_s=10)
         assert entered.wait(1)
         sampled_before = monotonic()
@@ -321,7 +321,7 @@ def test_blocked_csv_close_does_not_block_snapshots_or_stop_timeout(tmp_path, mo
         return SlowClose(stream) if target == path else stream
 
     monkeypatch.setattr(Path, "open", open_file)
-    with Chiller(Simulator()) as chiller, ThreadPoolExecutor(2) as pool:
+    with TarkChiller(Simulator()) as chiller, ThreadPoolExecutor(2) as pool:
         monitor = chiller.start_monitoring(interval_s=0.01, csv_path=path)
         wait_for(lambda: monitor.snapshot().sample_count > 0)
         pending_stop = pool.submit(chiller.stop_monitoring, 0.02)

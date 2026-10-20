@@ -2,52 +2,74 @@
 
 [Home / quick start](../README.md#hardware-quick-start) · [Hardware setup](hardware.md)
 
-Use one Chiller per backend and share it with your experiment code.
+Use one TarkChiller per backend and share it with your experiment code.
 [examples/lab.py](../examples/lab.py) provides an editable checkout helper,
-not an installed API or required integration layer. Missing settings or address
-raise `ProtocolError` before port creation.
+not an installed API or required integration layer. Missing model/settings or CAL
+address raise `ProtocolError` before port creation.
 
-External applications can import `Chiller` from `tark_chiller` and
-`SerialDevice`, `SerialSettings`, `Cal33xx` and `RS485Mode` from
+External applications can import `TarkChiller` from `tark_chiller` and
+`SerialDevice`, `SerialSettings`, `Cal33xx`, `T255P` and `RS485Mode` from
 `tark_chiller.serial`, then construct
-`Chiller(SerialDevice(settings, codec=codec, rs485=mode))` directly.
+`TarkChiller(SerialDevice(settings, codec=codec, rs485=mode))` directly.
 Each backend needs its own codec instance. Native RS-485 mode does not select the
 electrical interface; follow the verified adapter's requirements.
+Backend/codec hooks must not re-enter their owning TarkChiller's public methods;
+one plain I/O lock serializes those operations.
 
-For the supported CAL candidate, use `Cal33xx(address)` for reads. Enabling writes
+For the supported CAL driver, use `Cal33xx(address)` for reads. Enabling writes
 requires `Cal33xx(address, allow_writes=True, expected_model=..., expected_firmware=...)`
 with actual reviewed identity codes. Do not copy simulator codes into a hardware
 profile. [Protocol scope](protocol.md) lists supported models and restrictions.
 The generic `Codec` interface remains available for separately reviewed protocols.
 
+For T255P use `T255P()` for reads or `T255P(allow_writes=True)` for approved
+targets, and `TarkChiller(SerialDevice(settings, codec=protocol),
+setpoint_range=(5.0, 45.0), coolant_source="ThermoTek T255P Rev C pp9/20; verified water")`.
+The protocol independently restricts writes to 5-45 °C in 0.1 °C steps.
+The lab factory supplies this profile; direct clients must explicitly supply
+their approved application bounds. The generic TarkChiller default remains the MRC
+2-40 °C policy and does not expand automatically to the T255P's full range.
+Use the [T255P configuration and first-use procedure](hardware.md#configure-a-t255p).
+No remote identity query exists in this subset.
+
 ## Functions
 
 | Function or property | Purpose |
 | --- | --- |
-| `connect()` | Open the backend; CAL verifies identity, RTD and Celsius with read commands |
+| `connect()` | Open backend; CAL checks identity/input/units; T255P sends U, a control-state interaction |
 | `disconnect()` | Cancel recovery, close connection, stop monitoring and close CSV |
 | `is_connected` | Check driver connection state; not physical safety |
 | `read_temperature()` | Return a finite Celsius measurement |
 | `read_setpoint()` | Return the device's reported Celsius target |
-| `set_setpoint(value_c)` | Validate target; CAL performs the five-write sequence and readback |
+| `set_setpoint(value_c)` | Validate target; CAL saves/restarts; T255P checks state, sends one M and checks echo/H readback |
 | `read_status()` | Return `Status(connected, backend, detail)` |
 | `start_monitoring(interval_s=1, csv_path=None, history_size=3600)` | Start one worker and return its snapshot handle |
 | `stop_monitoring(timeout_s=5)` | Join the worker and close CSV, keeping the connection |
 
-A Chiller context connects on entry and disconnects on exit, including after an
+A TarkChiller context connects on entry and disconnects on exit, including after an
 exception. Construction starts no I/O or threads. A second active monitor is
 refused. Backend methods beginning with an underscore are internal I/O hooks;
-use Chiller's public methods for safe control.
+use TarkChiller's public methods for safe control.
 
 ## Monitoring
 
-After lab configuration and approved read-only validation, run from the repository root:
+After confirming the T255P setup, use the installed package directly:
 
 ```python
 from time import sleep
-from examples.lab import create_chiller
+from tark_chiller import TarkChiller
+from tark_chiller.serial import T255P, SerialDevice, SerialSettings
 
-with create_chiller() as chiller:
+# Replace COM5 and RTS/DTR with your actual port and verified line levels.
+settings = SerialSettings(
+    port="COM5", baudrate=9600, bytesize=8, parity="N", stopbits=1,
+    xonxoff=True, rtscts=False, dsrdtr=False, rts=False, dtr=False,
+)
+with TarkChiller(
+    SerialDevice(settings, codec=T255P()),
+    setpoint_range=(5.0, 45.0),
+    coolant_source="ThermoTek T255P Rev C pp9/20; distilled water",
+) as chiller:
     monitor = chiller.start_monitoring(interval_s=0.5, csv_path="temperature.csv")
     sleep(3)
     chiller.stop_monitoring()
@@ -94,13 +116,34 @@ readings; the console monitor exits on recording/service errors.
 Defaults are `setpoint_range=(2.0, 40.0)`, `coolant="distilled water"`, with
 automatic recovery disabled. Targets must be finite numeric Celsius values;
 strings, booleans, NaN, infinity and out-of-range values raise `ValueError`.
-No unit conversion occurs. The CAL candidate additionally requires RTD/Celsius,
+No unit conversion occurs. The CAL driver additionally requires RTD/Celsius,
 0–40 °C targets, the controller's scale bounds and its 0.1/1 °C resolution.
 Custom bounds need a coolant name and `coolant_source`
 documenting applicability to the actual setup.
 
+T255P reads signed manifold temperature at 0.01 °C resolution and target at
+0.1 °C resolution. Status includes last-reported mode, summary/chiller/dryer bits
+and six alarm flags. Sensor alarm invalidates temperature. Reported float-switch
+state does not measure flow or establish coolant suitability; flow/leaks remain
+unknown. Run/standby, sensor selection and sub-zero writes are not exposed.
+
+T255P begins every operation with U, re-establishing communication after idle
+expiry or reconnection. Normal one-second monitoring supplies the manual's
+five-second traffic cadence; there is no separate keepalive worker. Arbitrary
+poll intervals, process stalls and idle synchronous sessions can relinquish
+remote control after >10 s. An open port / `is_connected=True` is transport state,
+not an enduring remote lease. Stopping monitoring intentionally stops its traffic.
+The next operation may take serial control again, within the reviewed scope.
+
+SerialDevice defaults to 3 s per T255P frame and 1 s for other codecs. T255P
+preserves a 3 s incomplete-response quarantine on the same backend even if a
+shorter timeout is configured. Quarantine, buffer clearing and command echo checks
+cannot uniquely identify a valid delayed same-command reply; there are no
+transaction IDs. See [protocol limits](protocol.md#thermotek-t255p-rev-c).
+
 Set `reconnect_attempts` to 1–10 for bounded read/connect recovery;
-`reconnect_delay_s` defaults to 0.05 s. A successful read resets the budget.
+`reconnect_delay_s` defaults to 0.05 s. Each operation has its own finite recovery
+budget.
 Protocol errors suspend recovery; exhaustion requires explicit `connect()`.
 No write is retried or replayed. Resolve an uncertain write by documented readback
 before considering another request.
@@ -108,7 +151,13 @@ before considering another request.
 For CAL, an interrupted write latches the backend unusable even across explicit
 connect calls. It may have locked the panel or staged/saved a target. Follow the
 [human recovery procedure](hardware.md#uncertain-write-or-shutdown); the driver
-does not send an automatic exit-program command. A new session needs human review.
+does not send an automatic exit-program command. Inspect the actual panel and
+target before starting a fresh read-only session.
+
+T255P similarly latches after starting M until echo and H readback both succeed.
+A failed reply can mean the target was applied. Neither reconnect nor a new
+object authorizes a retry: inspect actual state and follow the T255P recovery
+procedure. Disconnect sends no G command and does not stop an operating chiller.
 
 | Error | Meaning |
 | --- | --- |
@@ -125,7 +174,7 @@ it neither connects nor starts acquisition. The lab script's `gui` command owns
 their lifecycle and uses one process with its reloader disabled.
 It passes `allow_setpoints=ALLOW_WRITES` to disable target controls during
 read-only review. Other clients can pass `allow_setpoints=False` as well; the
-CAL backend independently enforces its write permission.
+CAL and T255P backends independently enforce their write permissions.
 
 The display shows temperature, reported target, sample age, controller detail, faults and recording
 status. The [README screenshot](../README.md#optional-dashboard) illustrates it

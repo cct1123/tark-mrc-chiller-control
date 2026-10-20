@@ -37,6 +37,7 @@ def hardware(lab, monkeypatch):
     endpoint = FakeSerial()
     monkeypatch.setattr("tark_chiller.serial._serial_factory", endpoint.factory)
     monkeypatch.setattr(lab, "SERIAL_SETTINGS", fake_settings())
+    monkeypatch.setattr(lab, "DEVICE_MODEL", "cal")
     monkeypatch.setattr(lab, "CAL_ADDRESS", 1)
     monkeypatch.setattr(lab, "Cal33xx", lambda *args: FakeCodec())
     return endpoint
@@ -67,12 +68,44 @@ def test_configured_lab_uses_serial_backend(lab, hardware, monkeypatch, rs485):
     assert hardware.applied_writes == 0
 
 
-@pytest.mark.parametrize("missing", ["SERIAL_SETTINGS", "CAL_ADDRESS"])
+@pytest.mark.parametrize("missing", ["SERIAL_SETTINGS", "CAL_ADDRESS", "DEVICE_MODEL"])
 def test_incomplete_configuration_never_creates_port(lab, hardware, monkeypatch, missing):
     monkeypatch.setattr(lab, missing, None)
-    with pytest.raises(ProtocolError, match="human review"):
+    with pytest.raises(ProtocolError, match="Hardware not configured"):
         lab.create_chiller()
     assert not hardware.factory_arguments
+
+
+def test_t255p_lab_selection_bounds_reads_and_opt_in(lab, monkeypatch, capsys):
+    from tark_chiller.serial import T255PSimulator
+
+    endpoint = T255PSimulator()
+    monkeypatch.setattr(lab, "DEVICE_MODEL", "t255p")
+    monkeypatch.setattr(lab, "SERIAL_SETTINGS", endpoint.device().settings)
+    monkeypatch.setattr("tark_chiller.serial._serial_factory", endpoint.factory)
+    chiller = lab.create_chiller()
+    assert chiller.setpoint_range == (5, 45) and not endpoint.is_open
+    lab.main(["read"])
+    assert "T255P" in capsys.readouterr().out and not endpoint.applied_writes
+    with pytest.raises(ProtocolError, match="writes disabled"):
+        lab.main(["set", "20"])
+    monkeypatch.setattr(lab, "ALLOW_WRITES", True)
+    lab.main(["set", "45"])
+    assert "Reported setpoint: 45.00" in capsys.readouterr().out
+    assert endpoint.applied_writes == 1 and not endpoint.is_open
+    with pytest.raises(ValueError):
+        lab.main(["set", "4.9"])
+    assert endpoint.applied_writes == 1
+
+
+def test_t255p_lab_rejects_leftover_cal_settings(lab, monkeypatch):
+    from tark_chiller.serial import T255PSimulator
+
+    monkeypatch.setattr(lab, "DEVICE_MODEL", "t255p")
+    monkeypatch.setattr(lab, "SERIAL_SETTINGS", T255PSimulator().device().settings)
+    monkeypatch.setattr(lab, "CAL_ADDRESS", 1)
+    with pytest.raises(ProtocolError, match="clear them"):
+        lab.create_chiller()
 
 
 def test_separate_example_controllers_do_not_share_protocol_state(lab, hardware, monkeypatch):
@@ -119,7 +152,7 @@ def test_unconfigured_commands_explain_dependency_without_simulator_or_traceback
     )
     assert result.returncode == 1
     assert "Hardware not configured" in result.stderr
-    assert "human review" in result.stderr
+    assert "actual CAL_ADDRESS" in result.stderr or "identifying your equipment" in result.stderr
     assert "No port was opened" in result.stderr
     assert "Traceback" not in result.stderr
     assert list(tmp_path.iterdir()) == []
@@ -307,13 +340,19 @@ def test_csv_example_reports_disk_failure(lab, hardware, tmp_path, monkeypatch):
 
 
 @pytest.mark.parametrize("document", ["README.md", "docs/api.md"])
-def test_documented_python_blocks_use_serial_driver(lab, hardware, document, tmp_path, monkeypatch):
+def test_documented_python_blocks_use_serial_driver(document, tmp_path, monkeypatch):
+    from tark_chiller.serial import CalSimulator, T255PSimulator
+
     blocks = re.findall(r"```python\n(.*?)```", (ROOT / document).read_text(encoding="utf-8"), re.S)
     assert blocks
     for index, source in enumerate(blocks):
         directory = tmp_path / str(index)
         directory.mkdir()
         monkeypatch.chdir(directory)
+        # Only the OS endpoint is replaced. Documented imports, settings, codecs,
+        # serial driver and controller execute unchanged, outside the checkout.
+        endpoint = T255PSimulator() if "T255P" in source else CalSimulator()
+        monkeypatch.setattr("tark_chiller.serial._serial_factory", endpoint.factory)
         exec(compile(source, document, "exec"), {})
-        assert not hardware.is_open
-    assert hardware.open_count > 0
+        assert not endpoint.is_open
+        assert endpoint.applied_writes == 0

@@ -1,35 +1,49 @@
 """Hardware examples: read, set, log, monitor or gui. No simulator fallback.
 
-Configure the lab connection after confirming a CAL 3300/9300 and reviewing the
-hardware procedure. Construction and import open no port and start no worker.
+Select an identified CAL 3300/9300 or ThermoTek T255P after reviewing the hardware
+procedure. T255P connection changes serial control state. Import opens nothing.
 """
 
 import argparse
 from pathlib import Path
 from time import monotonic, sleep
+from typing import Literal
 
-from tark_chiller import Chiller, ProtocolError
-from tark_chiller.serial import Cal33xx, RS485Mode, SerialDevice, SerialSettings
+from tark_chiller import ProtocolError, TarkChiller
+from tark_chiller.serial import T255P, Cal33xx, RS485Mode, SerialDevice, SerialSettings
 
 # Fill from the identified controller and adapter; see docs/hardware.md.
+DEVICE_MODEL: Literal["cal", "t255p"] | None = None
 SERIAL_SETTINGS: SerialSettings | None = None
 CAL_ADDRESS: int | None = None
-ALLOW_WRITES = False  # Enable only after the human read-only review.
-EXPECTED_MODEL: int | None = None  # Exact hex codes printed by the approved read.
+ALLOW_WRITES = False  # Enable only after checking readback and operating limits.
+EXPECTED_MODEL: int | None = None  # Exact hex codes printed by the initial read.
 EXPECTED_FIRMWARE: int | None = None
 RS485_MODE: RS485Mode | None = None  # Native direction settings only if required.
 
 
-def create_chiller() -> Chiller:
+def create_chiller() -> TarkChiller:
     """Return a disconnected hardware controller owned by the calling program."""
-    if SERIAL_SETTINGS is None or CAL_ADDRESS is None:
+    if SERIAL_SETTINGS is None or DEVICE_MODEL not in ("cal", "t255p"):
         raise ProtocolError(
-            "Hardware not configured: edit examples/lab.py with verified serial settings "
-            "and CAL_ADDRESS after controller identification and human review. "
+            "Hardware not configured: edit examples/lab.py with DEVICE_MODEL, verified "
+            "serial settings and model-specific values after identifying your equipment. "
             "See docs/hardware.md. No port was opened."
         )
+    if DEVICE_MODEL == "t255p":
+        if CAL_ADDRESS is not None or EXPECTED_MODEL is not None or EXPECTED_FIRMWARE is not None:
+            raise ProtocolError("T255P does not use CAL identity/address settings; clear them")
+        return TarkChiller(
+            SerialDevice(SERIAL_SETTINGS, codec=T255P(ALLOW_WRITES), rs485=RS485_MODE),
+            setpoint_range=(5.0, 45.0),
+            coolant_source="ThermoTek T255P Rev C, printed pp9/20; verify installed water",
+        )
+    if CAL_ADDRESS is None:
+        raise ProtocolError(
+            "Hardware not configured: enter the actual CAL_ADDRESS. No port was opened."
+        )
     protocol = Cal33xx(CAL_ADDRESS, ALLOW_WRITES, EXPECTED_MODEL, EXPECTED_FIRMWARE)
-    return Chiller(SerialDevice(SERIAL_SETTINGS, codec=protocol, rs485=RS485_MODE))
+    return TarkChiller(SerialDevice(SERIAL_SETTINGS, codec=protocol, rs485=RS485_MODE))
 
 
 def main(argv: list[str] | None = None) -> None:

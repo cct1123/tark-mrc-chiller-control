@@ -6,7 +6,7 @@ import time
 from threading import current_thread, main_thread
 from types import FrameType
 
-from . import Chiller, Simulator
+from . import Simulator, TarkChiller
 from .controller import _seconds
 
 
@@ -17,8 +17,12 @@ def _interrupt(signum: int, frame: FrameType | None) -> None:
 def main(argv: list[str] | None = None) -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--headless", action="store_true", help="Monitor without a browser")
-    parser.add_argument(
+    models = parser.add_mutually_exclusive_group()
+    models.add_argument(
         "--cal", action="store_true", help="Use the memory-only CAL byte-protocol simulator"
+    )
+    models.add_argument(
+        "--t255p", action="store_true", help="Use the memory-only T255P byte-protocol simulator"
     )
     parser.add_argument("--duration", type=float, help="Headless seconds; omit to run until Ctrl+C")
     parser.add_argument("--interval", type=float, default=1.0, help="Sampling interval in seconds")
@@ -31,12 +35,20 @@ def main(argv: list[str] | None = None) -> None:
             _seconds(args.duration, "duration")
             if not args.headless:
                 raise ValueError("--duration requires --headless")
-        if args.cal:
+        if args.t255p:
+            from .serial import T255PSimulator
+
+            chiller = TarkChiller(
+                T255PSimulator().device(),
+                setpoint_range=(5.0, 45.0),
+                coolant_source="ThermoTek T255P Rev C, printed pp9/20 (simulation)",
+            )
+        elif args.cal:
             from .serial import CalSimulator
 
-            chiller = Chiller(CalSimulator().device())
+            chiller = TarkChiller(CalSimulator().device())
         else:
-            chiller = Chiller(Simulator())
+            chiller = TarkChiller(Simulator())
     except ValueError as exc:
         parser.error(str(exc))
     if not args.headless:
@@ -44,7 +56,8 @@ def main(argv: list[str] | None = None) -> None:
             from .gui import create_app
         except ImportError as exc:
             parser.error(
-                f'Dashboard unavailable: {exc}. Install with: python -m pip install ".[gui]"'
+                f"Dashboard unavailable: {exc}. Install the gui extra from the same source "
+                "or wheel used to install tark-mrc-chiller."
             )
     previous_handlers = {}
     monitor = None

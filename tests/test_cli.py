@@ -9,18 +9,21 @@ from pathlib import Path
 import pytest
 
 import tark_chiller
-from tark_chiller import Chiller
+from tark_chiller import TarkChiller
 from tark_chiller import __main__ as cli
 
 
 @pytest.mark.parametrize("name", ["SIGINT", "SIGTERM", "SIGBREAK"])
-def test_continuous_cli_signal_joins_worker_closes_csv_and_disconnects(name, tmp_path, monkeypatch):
+@pytest.mark.parametrize("model", [[], ["--cal"], ["--t255p"]])
+def test_continuous_cli_signal_joins_worker_closes_csv_and_disconnects(
+    name, model, tmp_path, monkeypatch
+):
     sig = getattr(signal, name, None)
     if sig is None:
         pytest.skip(f"{name} is not available on this platform")
     previous_handler = signal.getsignal(sig)
     monitors = []
-    real_start, real_sleep = Chiller.start_monitoring, cli.time.sleep
+    real_start, real_sleep = TarkChiller.start_monitoring, cli.time.sleep
 
     def capture_monitor(self, *args, **kwargs):
         monitor = real_start(self, *args, **kwargs)
@@ -37,10 +40,10 @@ def test_continuous_cli_signal_joins_worker_closes_csv_and_disconnects(name, tmp
         if monitors[0].snapshot().sample_count >= 3:
             signal.raise_signal(sig)
 
-    monkeypatch.setattr(Chiller, "start_monitoring", capture_monitor)
+    monkeypatch.setattr(TarkChiller, "start_monitoring", capture_monitor)
     monkeypatch.setattr(cli.time, "sleep", interrupt_after_samples)
     path = tmp_path / "continuous.csv"
-    cli.main(["--headless", "--interval", "0.01", "--csv", str(path)])
+    cli.main([*model, "--headless", "--interval", "0.01", "--csv", str(path)])
     monitor = monitors[0]
     snapshot = monitor.snapshot()
     assert snapshot.sample_count >= 3
@@ -49,6 +52,12 @@ def test_continuous_cli_signal_joins_worker_closes_csv_and_disconnects(name, tmp
     assert not snapshot.logging_enabled
     assert signal.getsignal(sig) is previous_handler
     path.unlink()  # Windows refuses this when a writer handle is still open.
+
+
+def test_protocol_simulator_selection_is_exclusive_and_refuses_before_io(tmp_path):
+    with pytest.raises(SystemExit) as error:
+        cli.main(["--cal", "--t255p", "--headless", "--csv", str(tmp_path / "unused.csv")])
+    assert error.value.code == 2 and not list(tmp_path.iterdir())
 
 
 @pytest.mark.parametrize("headless", [False, True])
@@ -74,7 +83,7 @@ def test_installed_core_without_optional_packages(headless, tmp_path):
         assert "Stopped simulator" in result.stdout
     else:
         assert result.returncode == 2
-        assert "Dashboard unavailable" in result.stderr and '".[gui]"' in result.stderr
+        assert "Dashboard unavailable" in result.stderr and "gui extra" in result.stderr
         assert "Traceback" not in result.stderr
     assert (tmp_path / "core.csv").exists() is headless
 
@@ -89,7 +98,7 @@ def test_invalid_duration_is_rejected_before_creating_csv(args, tmp_path):
 
 
 def test_headless_csv_failure_exits_promptly_and_releases_resources(tmp_path, monkeypatch):
-    original_open, original_start = Path.open, Chiller.start_monitoring
+    original_open, original_start = Path.open, TarkChiller.start_monitoring
     original_sleep = cli.time.sleep
     streams, monitors = [], []
 
@@ -131,7 +140,7 @@ def test_headless_csv_failure_exits_promptly_and_releases_resources(tmp_path, mo
         original_sleep(seconds)
 
     monkeypatch.setattr(Path, "open", open_csv)
-    monkeypatch.setattr(Chiller, "start_monitoring", start_monitoring)
+    monkeypatch.setattr(TarkChiller, "start_monitoring", start_monitoring)
     monkeypatch.setattr(cli.time, "sleep", bounded_sleep)
     path = tmp_path / "full.csv"
     with pytest.raises(SystemExit, match="simulated disk full"):

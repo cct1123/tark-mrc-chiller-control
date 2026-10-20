@@ -9,22 +9,23 @@ from time import monotonic, sleep
 import pytest
 from fakes import make_serial
 
-from tark_chiller import Chiller, Simulator
+from tark_chiller import Simulator, TarkChiller
 from tark_chiller.gui import create_app
-from tark_chiller.serial import CalSimulator
+from tark_chiller.serial import CalSimulator, T255PSimulator
 
 
-@pytest.mark.parametrize("backend", ["thermal", "cal"])
+@pytest.mark.parametrize("backend", ["thermal", "cal", "t255p"])
 def test_simulator_monitor_csv_dash(tmp_path, backend):
     duration = float(os.environ.get("TARK_SOAK_SECONDS", "5" if backend == "cal" else "2"))
     path = tmp_path / "integration.csv"
     # Accelerated synthetic clock gives both models a short test trajectory.
-    device = (
-        CalSimulator(clock=lambda: monotonic() * 60).device()
-        if backend == "cal"
-        else Simulator(time_constant_s=0.5)
-    )
-    with Chiller(device) as chiller:
+    if backend == "cal":
+        device = CalSimulator(clock=lambda: monotonic() * 60).device()
+    elif backend == "t255p":
+        device = T255PSimulator(clock=lambda: monotonic() * 60).device()
+    else:
+        device = Simulator(time_constant_s=0.5)
+    with TarkChiller(device) as chiller:
         monitor = chiller.start_monitoring(interval_s=0.02, csv_path=path, history_size=25)
         chiller.set_setpoint(18)
         app = create_app(chiller, monitor)
@@ -95,7 +96,7 @@ def test_simulator_monitor_csv_dash(tmp_path, backend):
 def test_fake_serial_monitor_reports_outage_and_recovers(tmp_path):
     device, endpoint = make_serial()
     path = tmp_path / "serial.csv"
-    with Chiller(device, reconnect_attempts=1, reconnect_delay_s=0.001) as chiller:
+    with TarkChiller(device, reconnect_attempts=1, reconnect_delay_s=0.001) as chiller:
         monitor = chiller.start_monitoring(interval_s=0.01, csv_path=path)
         # Inject a cable fault while polling, then leave it until the budget is exhausted.
         endpoint.read_error = OSError("synthetic cable unplugged")
