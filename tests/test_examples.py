@@ -1,358 +1,271 @@
-"""Exercise human examples through production serial I/O with test-only bytes."""
+"""Hardware tutorials exercised through production protocols and memory endpoints."""
 
+import ast
 import csv
 import importlib.util
 import re
 import subprocess
 import sys
-from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
-from threading import Event
-from time import monotonic, sleep
 
 import pytest
-from fakes import FakeCodec, FakeSerial, fake_settings
 
 from tark_chiller import ProtocolError
-from tark_chiller.serial import RS485Mode
+from tark_chiller.serial import CalSimulator, T255PSimulator
 
 ROOT = Path(__file__).resolve().parents[1]
 EXAMPLES = ROOT / "examples"
+TUTORIALS = sorted(path.name for path in EXAMPLES.glob("[0-9][0-9]_*.py"))
 
 
 @pytest.fixture
-def lab(monkeypatch):
-    spec = importlib.util.spec_from_file_location("lab", EXAMPLES / "lab.py")
+def configuration(monkeypatch):
+    spec = importlib.util.spec_from_file_location("hardware", EXAMPLES / "hardware.py")
     module = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(module)
-    monkeypatch.setitem(sys.modules, "lab", module)
-    monkeypatch.setitem(sys.modules, "examples.lab", module)
-    monkeypatch.syspath_prepend(str(ROOT))
+    monkeypatch.setitem(sys.modules, "hardware", module)
     return module
 
 
+@pytest.fixture(params=["cal", "t255p"])
+def hardware(configuration, monkeypatch, request):
+    endpoint = CalSimulator() if request.param == "cal" else T255PSimulator()
+    monkeypatch.setattr(configuration, "DEVICE_MODEL", request.param)
+    monkeypatch.setattr(configuration, "SERIAL_SETTINGS", endpoint.device().settings)
+    if request.param == "cal":
+        monkeypatch.setattr(configuration, "CAL_ADDRESS", 1)
+        monkeypatch.setattr(configuration, "EXPECTED_MODEL", 1)
+        monkeypatch.setattr(configuration, "EXPECTED_FIRMWARE", 2)
+    monkeypatch.setattr("tark_chiller.serial._serial_factory", endpoint.factory)
+    return configuration, endpoint
+
+
 @pytest.fixture
-def hardware(lab, monkeypatch):
-    """Replace only documented configuration and the OS endpoint, not the driver."""
-    endpoint = FakeSerial()
-    monkeypatch.setattr("tark_chiller.serial._serial_factory", endpoint.factory)
-    monkeypatch.setattr(lab, "SERIAL_SETTINGS", fake_settings())
-    monkeypatch.setattr(lab, "DEVICE_MODEL", "cal")
-    monkeypatch.setattr(lab, "CAL_ADDRESS", 1)
-    monkeypatch.setattr(lab, "Cal33xx", lambda *args: FakeCodec())
-    return endpoint
+def run_tutorial(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+
+    def run(name, **constants):
+        # Edit only tutorial constants to shorten runs and choose test CSV names.
+        # Imports, serial settings, codecs, controller and cleanup run unchanged.
+        tree = ast.parse((EXAMPLES / name).read_text(encoding="utf-8"))
+        for node in tree.body:
+            if isinstance(node, ast.Assign):
+                for target in node.targets:
+                    if isinstance(target, ast.Name) and target.id in constants:
+                        node.value = ast.Constant(constants[target.id])
+        namespace = {"__name__": "__main__", "__file__": str(EXAMPLES / name)}
+        exec(compile(ast.fix_missing_locations(tree), name, "exec"), namespace)
+        return namespace
+
+    return run
 
 
-def wait_for_rows(path, minimum=1):
-    deadline = monotonic() + 3
-    while monotonic() < deadline:
-        with path.open(newline="", encoding="utf-8") as stream:
-            rows = list(csv.DictReader(stream))
-        if len(rows) >= minimum:
-            return rows
-        sleep(0.01)
-    pytest.fail(f"Recording did not produce {minimum} rows")
+def rows(path):
+    with path.open(newline="", encoding="utf-8") as stream:
+        return list(csv.DictReader(stream))
 
 
-@pytest.mark.parametrize("rs485", [False, True])
-def test_configured_lab_uses_serial_backend(lab, hardware, monkeypatch, rs485):
-    mode = RS485Mode(True, False, False, None, None) if rs485 else None
-    monkeypatch.setattr(lab, "RS485_MODE", mode)
-    chiller = lab.create_chiller()
-    assert not hardware.factory_arguments  # Construction has no I/O.
-    with chiller:
-        assert chiller.read_status().backend == "hardware"
-        assert chiller.read_temperature() == 20
-        assert bool(hardware.rs485_mode) == rs485
-    assert not hardware.is_open
-    assert hardware.applied_writes == 0
+def test_setup_import_and_construction_do_not_open_hardware(hardware):
+    configuration, endpoint = hardware
+    first, second = configuration.create_chiller(), configuration.create_chiller()
+    assert not endpoint.is_open
+    assert not first.is_connected and not second.is_connected
+    assert first._backend is not second._backend
+    assert first._backend._codec is not second._backend._codec
+    with first:
+        assert first.read_temperature() == 20
+        with pytest.raises(ProtocolError, match="writes disabled"):
+            first.set_setpoint(20)
+    assert not endpoint.is_open and not endpoint.applied_writes
 
 
-@pytest.mark.parametrize("missing", ["SERIAL_SETTINGS", "CAL_ADDRESS", "DEVICE_MODEL"])
-def test_incomplete_configuration_never_creates_port(lab, hardware, monkeypatch, missing):
-    monkeypatch.setattr(lab, missing, None)
-    with pytest.raises(ProtocolError, match="Hardware not configured"):
-        lab.create_chiller()
-    assert not hardware.factory_arguments
-
-
-def test_t255p_lab_selection_bounds_reads_and_opt_in(lab, monkeypatch, capsys):
-    from tark_chiller.serial import T255PSimulator
-
-    endpoint = T255PSimulator()
-    monkeypatch.setattr(lab, "DEVICE_MODEL", "t255p")
-    monkeypatch.setattr(lab, "SERIAL_SETTINGS", endpoint.device().settings)
-    monkeypatch.setattr("tark_chiller.serial._serial_factory", endpoint.factory)
-    chiller = lab.create_chiller()
-    assert chiller.setpoint_range == (5, 45) and not endpoint.is_open
-    lab.main(["read"])
-    assert "T255P" in capsys.readouterr().out and not endpoint.applied_writes
-    with pytest.raises(ProtocolError, match="writes disabled"):
-        lab.main(["set", "20"])
-    monkeypatch.setattr(lab, "ALLOW_WRITES", True)
-    lab.main(["set", "45"])
-    assert "Reported setpoint: 45.00" in capsys.readouterr().out
-    assert endpoint.applied_writes == 1 and not endpoint.is_open
-    with pytest.raises(ValueError):
-        lab.main(["set", "4.9"])
-    assert endpoint.applied_writes == 1
-
-
-def test_t255p_lab_rejects_leftover_cal_settings(lab, monkeypatch):
-    from tark_chiller.serial import T255PSimulator
-
-    monkeypatch.setattr(lab, "DEVICE_MODEL", "t255p")
-    monkeypatch.setattr(lab, "SERIAL_SETTINGS", T255PSimulator().device().settings)
-    monkeypatch.setattr(lab, "CAL_ADDRESS", 1)
-    with pytest.raises(ProtocolError, match="clear them"):
-        lab.create_chiller()
-
-
-def test_separate_example_controllers_do_not_share_protocol_state(lab, hardware, monkeypatch):
-    second_endpoint = FakeSerial()
-    endpoints = iter([hardware, second_endpoint])
+@pytest.mark.parametrize("missing", ["DEVICE_MODEL", "SERIAL_SETTINGS"])
+def test_missing_configuration_refuses_before_endpoint_creation(
+    configuration, monkeypatch, missing
+):
+    monkeypatch.setattr(configuration, "DEVICE_MODEL", "t255p")
+    monkeypatch.setattr(configuration, "SERIAL_SETTINGS", T255PSimulator().device().settings)
+    monkeypatch.setattr(configuration, missing, None)
     monkeypatch.setattr(
         "tark_chiller.serial._serial_factory",
-        lambda **settings: next(endpoints).factory(**settings),
+        lambda **kwargs: pytest.fail("Incomplete configuration reached OS endpoint factory"),
     )
-    second_read_done = Event()
-    original_read = hardware.read
-
-    def delayed_read(size=1):
-        hardware.read_pending.set()
-        assert second_read_done.wait(2)
-        return original_read(size)
-
-    monkeypatch.setattr(hardware, "read", delayed_read)
-    with lab.create_chiller() as first, lab.create_chiller() as second:
-        with ThreadPoolExecutor(max_workers=1) as pool:
-            pending = pool.submit(first.read_temperature)
-            try:
-                assert hardware.read_pending.wait(1)
-                assert second.read_temperature() == 20
-            finally:
-                second_read_done.set()
-            assert pending.result(timeout=2) == 20
-    assert not hardware.is_open and not second_endpoint.is_open
+    with pytest.raises(ProtocolError, match="No port was opened"):
+        configuration.create_chiller()
 
 
-@pytest.mark.parametrize("command", ["read", "set", "log", "monitor", "gui"])
-def test_unconfigured_commands_explain_dependency_without_simulator_or_traceback(command, tmp_path):
-    args = [command]
-    if command == "set":
-        args.append("18")
-    elif command == "log":
-        args.extend(["--csv", "run.csv"])
+def test_cal_needs_address_and_t255p_refuses_leftover_cal_fields(configuration, monkeypatch):
+    monkeypatch.setattr(configuration, "SERIAL_SETTINGS", CalSimulator().device().settings)
+    monkeypatch.setattr(configuration, "DEVICE_MODEL", "cal")
+    with pytest.raises(ProtocolError, match="CAL_ADDRESS"):
+        configuration.create_chiller()
+    monkeypatch.setattr(configuration, "DEVICE_MODEL", "t255p")
+    monkeypatch.setattr(configuration, "CAL_ADDRESS", 1)
+    with pytest.raises(ProtocolError, match="clear them"):
+        configuration.create_chiller()
+
+
+@pytest.mark.parametrize("name", TUTORIALS)
+def test_unconfigured_tutorials_never_open_a_port_or_write_data(name, tmp_path):
     result = subprocess.run(
-        [sys.executable, str(EXAMPLES / "lab.py"), *args],
+        [sys.executable, str(EXAMPLES / name)],
         cwd=tmp_path,
-        text=True,
         capture_output=True,
+        text=True,
         timeout=15,
     )
-    assert result.returncode == 1
+    assert result.returncode != 0
     assert "Hardware not configured" in result.stderr
-    assert "actual CAL_ADDRESS" in result.stderr or "identifying your equipment" in result.stderr
     assert "No port was opened" in result.stderr
-    assert "Traceback" not in result.stderr
     assert list(tmp_path.iterdir()) == []
 
 
-def test_read_example_is_read_only(lab, hardware, capsys):
-    lab.main(["read"])
+def test_read_tutorial_uses_real_codec_and_closes(hardware, run_tutorial, capsys):
+    _, endpoint = hardware
+    run_tutorial("01_read_status.py")
     output = capsys.readouterr().out
-    assert "Temperature: 20.00 Celsius" in output
-    assert "hardware" in output
-    assert hardware.applied_writes == 0
-    assert not hardware.is_open
+    assert "Temperature:       20.00 C" in output
+    assert "Reported setpoint:" in output and "Details:" in output
+    assert not endpoint.is_open and not endpoint.applied_writes
 
 
-def test_setpoint_example_sends_one_explicit_target(lab, hardware, capsys):
-    lab.main(["set", "19.5"])
-    output = capsys.readouterr().out
-    assert "Original setpoint: 20.00 Celsius" in output
-    assert "Reported setpoint: 19.50 Celsius" in output
-    assert hardware.applied_writes == 1
-    assert not hardware.is_open
+def test_target_tutorial_applies_one_request(hardware, run_tutorial, monkeypatch, capsys):
+    _, endpoint = hardware
+    monkeypatch.setattr("builtins.input", lambda prompt: "")
+    run_tutorial("02_set_temperature.py", TARGET_C=19.5)
+    assert "Reported setpoint: 19.50 C" in capsys.readouterr().out
+    assert endpoint.applied_writes == 1 and not endpoint.is_open
 
 
-@pytest.mark.parametrize("target", ["nan", "inf", "1", "41", "68"])
-def test_setpoint_example_uses_public_safety_check(lab, hardware, target):
+@pytest.mark.parametrize("target", [float("nan"), float("inf"), True, -1, 46])
+def test_target_tutorial_keeps_public_value_guards(hardware, run_tutorial, monkeypatch, target):
+    _, endpoint = hardware
+    monkeypatch.setattr("builtins.input", lambda prompt: "")
     with pytest.raises(ValueError):
-        lab.main(["set", target])
-    assert hardware.applied_writes == 0
-    assert not hardware.is_open
+        run_tutorial("02_set_temperature.py", TARGET_C=target)
+    assert not endpoint.is_open and not endpoint.applied_writes
 
 
-def test_setpoint_example_requires_operator_input(lab, hardware):
-    with pytest.raises(SystemExit) as error:
-        lab.main(["set"])
-    assert error.value.code == 2
-    assert hardware.factory_arguments == []
+def test_target_tutorial_cancellation_sends_no_target(hardware, run_tutorial, monkeypatch):
+    _, endpoint = hardware
+
+    def cancel(prompt):
+        raise KeyboardInterrupt
+
+    monkeypatch.setattr("builtins.input", cancel)
+    with pytest.raises(KeyboardInterrupt):
+        run_tutorial("02_set_temperature.py")
+    assert not endpoint.is_open and not endpoint.applied_writes
 
 
-@pytest.mark.parametrize("args", [["log"], ["read", "20"], ["set", "20", "--csv", "run.csv"]])
-def test_invalid_lab_commands_do_not_open_hardware(lab, hardware, args):
-    with pytest.raises(SystemExit) as error:
-        lab.main(args)
-    assert error.value.code == 2
-    assert hardware.factory_arguments == []
+def test_uncertain_target_is_never_replayed(hardware, run_tutorial, monkeypatch):
+    configuration, endpoint = hardware
+    write = endpoint.write
+    commits = []
+
+    def lost_ack(request):
+        count = write(request)
+        commit = (
+            request[1:2] == b"M"
+            if configuration.DEVICE_MODEL == "t255p"
+            else (request[1] == 6 and request[2:4] == b"\x16\x00")
+        )
+        if commit:
+            commits.append(request)
+            raise TimeoutError("Lost write acknowledgement")
+        return count
+
+    monkeypatch.setattr(endpoint, "write", lost_ack)
+    monkeypatch.setattr("builtins.input", lambda prompt: "")
+    with pytest.raises(ProtocolError, match="uncertain"):
+        run_tutorial("02_set_temperature.py", TARGET_C=19.5)
+    assert len(commits) == endpoint.applied_writes == 1
+    assert not endpoint.is_open
 
 
-def test_setpoint_example_reports_different_readback_without_retry(lab, hardware, capsys):
-    original_write = hardware.write
-
-    def write(request):
-        result = original_write(request)
-        if b"set_setpoint" in request:
-            hardware.setpoint = 19.0
-        return result
-
-    hardware.write = write
-    with pytest.raises(RuntimeError, match="Target not confirmed"):
-        lab.main(["set", "19.5"])
-    assert "Readback matches" not in capsys.readouterr().out
-    assert hardware.applied_writes == 1
-    assert not hardware.is_open
-
-
-def test_setpoint_example_does_not_replay_uncertain_write(lab, hardware):
-    # Permit the initial setpoint read, then corrupt the write acknowledgement.
-    original_write = hardware.write
-
-    def write(request):
-        hardware.response = b"bad\n" if b"set_setpoint" in request else None
-        return original_write(request)
-
-    hardware.write = write
-    with pytest.raises(ProtocolError, match="response identity"):
-        lab.main(["set", "19.5"])
-    assert hardware.applied_writes == 1
-    assert not hardware.is_open
-
-
-def test_csv_example_records_physical_path_and_refuses_overwrite(
-    lab, hardware, tmp_path, monkeypatch, capsys
-):
-    monkeypatch.chdir(tmp_path)
-    main = lab.main
-    main(["log", "--csv", "outputs/temperature.csv"])
-    path = tmp_path / "outputs" / "temperature.csv"
-    rows = wait_for_rows(path, 4)
-    assert all(row["backend"] == "hardware" and not row["error"] for row in rows)
+def test_csv_tutorial_records_and_refuses_existing_file(hardware, run_tutorial, tmp_path, capsys):
+    _, endpoint = hardware
+    constants = dict(DURATION_S=0.1, INTERVAL_S=0.01, stamp="test")
+    run_tutorial("03_record_csv.py", **constants)
+    path = tmp_path / "outputs/hardware_test.csv"
+    samples = rows(path)
+    assert samples and all(row["temperature_c"] and not row["error"] for row in samples)
     assert "saved rows:" in capsys.readouterr().out
     before = path.read_bytes()
     with pytest.raises(FileExistsError):
-        main(["log", "--csv", "outputs/temperature.csv"])
+        run_tutorial("03_record_csv.py", **constants)
     assert path.read_bytes() == before
-    assert hardware.applied_writes == 0
-    assert not hardware.is_open
+    assert not endpoint.is_open and not endpoint.applied_writes
+    path.unlink()  # Closed writer handle, including on Windows.
 
 
-@pytest.mark.parametrize("record", [False, True])
-def test_continuous_example_stops_on_ctrl_c(lab, hardware, tmp_path, monkeypatch, record):
-    monkeypatch.chdir(tmp_path)
-    main = lab.main
-    path = tmp_path / "outputs" / "experiment.csv"
+def test_csv_tutorial_reports_a_poll_failure(hardware, run_tutorial, monkeypatch):
+    configuration, endpoint = hardware
+    write = endpoint.write
 
-    def interrupt(_seconds):
-        if record:
-            wait_for_rows(path, 2)
-        else:
-            assert hardware.read_pending.wait(2)
+    def disconnected_during_temperature_read(request):
+        temperature = (
+            request[1:2] == b"I"
+            if configuration.DEVICE_MODEL == "t255p"
+            else (request[1] == 3 and request[2:4] == b"\x00\x1c")
+        )
+        if temperature:
+            raise OSError("Test endpoint disconnected")
+        return write(request)
+
+    monkeypatch.setattr(endpoint, "write", disconnected_during_temperature_read)
+    with pytest.raises(RuntimeError, match="poll failed"):
+        run_tutorial("03_record_csv.py", DURATION_S=0.1, INTERVAL_S=0.01)
+    assert not endpoint.is_open and not endpoint.applied_writes
+
+
+def test_csv_tutorial_ctrl_c_closes_worker_file_and_port(
+    hardware, run_tutorial, monkeypatch, tmp_path
+):
+    _, endpoint = hardware
+
+    def cancel(seconds):
         raise KeyboardInterrupt
 
-    monkeypatch.setitem(main.__globals__, "sleep", interrupt)
-    main(["monitor", "--csv", "outputs/experiment.csv"] if record else ["monitor"])
-    assert hardware.applied_writes == 0
-    assert not hardware.is_open
-    if record:
-        assert all(row["backend"] == "hardware" for row in wait_for_rows(path, 2))
-        path.unlink()  # Windows permits this only after the file is closed.
-    else:
-        assert list(tmp_path.iterdir()) == []
+    monkeypatch.setattr("time.sleep", cancel)
+    with pytest.raises(KeyboardInterrupt):
+        run_tutorial("03_record_csv.py", stamp="cancelled")
+    assert not endpoint.is_open and not endpoint.applied_writes
+    (tmp_path / "outputs/hardware_cancelled.csv").unlink()
 
 
-def test_dashboard_example_uses_real_app_and_owns_shutdown(lab, hardware, tmp_path, monkeypatch):
+def test_dashboard_tutorial_is_read_only_and_joins_on_ctrl_c(
+    hardware, run_tutorial, monkeypatch, tmp_path
+):
     from dash import Dash
 
-    monkeypatch.chdir(tmp_path)
-    path = tmp_path / "outputs" / "dashboard.csv"
+    _, endpoint = hardware
 
-    def run(app, **kwargs):
-        assert kwargs == dict(host="127.0.0.1", port=8050, debug=False, use_reloader=False)
-        wait_for_rows(path)
-        client = app.server.test_client()
-        assert client.get("/").status_code == 200
-        layout = client.get("/_dash-layout")
-        assert layout.status_code == 200
-        assert "hardware" in layout.get_data(as_text=True)
+    def run(app, **settings):
+        assert settings == dict(host="127.0.0.1", port=8050, debug=False, use_reloader=False)
+        assert app.server.test_client().get("/").status_code == 200
+        layout = app.server.test_client().get("/_dash-layout").get_data(as_text=True)
+        assert "Read-only session" in layout
         raise KeyboardInterrupt
 
     monkeypatch.setattr(Dash, "run", run)
-    lab.main(["gui", "--csv", "outputs/dashboard.csv"])
-    assert not hardware.is_open
-    assert hardware.applied_writes == 0
+    result = run_tutorial("04_dashboard.py", CSV_PATH="outputs/dashboard.csv", INTERVAL_S=0.01)
+    assert not result["monitor"].snapshot().running
+    assert not endpoint.is_open and not endpoint.applied_writes
+    path = tmp_path / "outputs/dashboard.csv"
+    assert path.is_file()
     path.unlink()
-
-
-def test_csv_example_reports_disk_failure(lab, hardware, tmp_path, monkeypatch):
-    original_open = Path.open
-    failed = Event()
-    opened = []
-
-    class FullDisk:
-        def __init__(self, stream):
-            self.stream = stream
-            self.writes = 0
-
-        def write(self, value):
-            self.writes += 1
-            if self.writes > 1:
-                failed.set()
-                raise OSError("test disk full")
-            return self.stream.write(value)
-
-        def flush(self):
-            self.stream.flush()
-
-        def close(self):
-            self.stream.close()
-
-    def open_file(path, *args, **kwargs):
-        stream = original_open(path, *args, **kwargs)
-        if path.name == "temperature.csv" and args and args[0] == "x":
-            opened.append(stream)
-            return FullDisk(stream)
-        return stream
-
-    def wait_for_failure(_seconds):
-        assert failed.wait(2), "The worker never attempted its CSV row"
-
-    monkeypatch.chdir(tmp_path)
-    monkeypatch.setattr(Path, "open", open_file)
-    main = lab.main
-    monkeypatch.setitem(main.__globals__, "sleep", wait_for_failure)
-    with pytest.raises(RuntimeError, match="test disk full"):
-        main(["log", "--csv", "outputs/temperature.csv"])
-    assert opened[0].closed
-    assert not hardware.is_open
 
 
 @pytest.mark.parametrize("document", ["README.md", "docs/api.md"])
 def test_documented_python_blocks_use_serial_driver(document, tmp_path, monkeypatch):
-    from tark_chiller.serial import CalSimulator, T255PSimulator
-
     blocks = re.findall(r"```python\n(.*?)```", (ROOT / document).read_text(encoding="utf-8"), re.S)
     assert blocks
     for index, source in enumerate(blocks):
         directory = tmp_path / str(index)
         directory.mkdir()
         monkeypatch.chdir(directory)
-        # Only the OS endpoint is replaced. Documented imports, settings, codecs,
-        # serial driver and controller execute unchanged, outside the checkout.
         endpoint = T255PSimulator() if "T255P" in source else CalSimulator()
         monkeypatch.setattr("tark_chiller.serial._serial_factory", endpoint.factory)
         exec(compile(source, document, "exec"), {})
-        assert not endpoint.is_open
-        assert endpoint.applied_writes == 0
+        assert not endpoint.is_open and not endpoint.applied_writes

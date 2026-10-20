@@ -1,4 +1,5 @@
 include requirements-tested.txt
 recursive-include examples *.py
+include examples/README.md
 recursive-include tests *.py
 recursive-include docs *.md *.png

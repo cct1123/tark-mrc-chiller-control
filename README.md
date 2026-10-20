@@ -134,8 +134,9 @@ considering a corrective target. Alarm flags do not establish flow, leak freedom
 coolant suitability or calibration. Read the [setup and first-use checklist](docs/hardware.md),
 [protocol sources and limits](docs/protocol.md), and [API reference](docs/api.md).
 
-[examples/lab.py](examples/lab.py) is an optional checkout helper for read, set,
-log, monitor and GUI commands. Direct API use needs no edits to that file.
+The [hardware tutorials](examples/README.md) teach reading status, setting one
+target, recording CSV and opening a dashboard with four plain scripts. Configure
+[examples/hardware.py](examples/hardware.py) once; direct API use remains independent.
 
 ## Development
 

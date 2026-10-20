@@ -3,9 +3,9 @@
 [Home / quick start](../README.md#hardware-quick-start) · [Hardware setup](hardware.md)
 
 Use one TarkChiller per backend and share it with your experiment code.
-[examples/lab.py](../examples/lab.py) provides an editable checkout helper,
-not an installed API or required integration layer. Missing model/settings or CAL
-address raise `ProtocolError` before port creation.
+The [four hardware tutorials](../examples/README.md) use a shared
+[hardware setup module](../examples/hardware.py), separate from the installed API.
+Missing model/settings or CAL address raise `ProtocolError` before port creation.
 
 External applications can import `TarkChiller` from `tark_chiller` and
 `SerialDevice`, `SerialSettings`, `Cal33xx`, `T255P` and `RS485Mode` from
@@ -26,7 +26,7 @@ For T255P use `T255P()` for reads or `T255P(allow_writes=True)` for approved
 targets, and `TarkChiller(SerialDevice(settings, codec=protocol),
 setpoint_range=(5.0, 45.0), coolant_source="ThermoTek T255P Rev C pp9/20; verified water")`.
 The protocol independently restricts writes to 5-45 °C in 0.1 °C steps.
-The lab factory supplies this profile; direct clients must explicitly supply
+The tutorial setup supplies this profile; direct clients must explicitly supply
 their approved application bounds. The generic TarkChiller default remains the MRC
 2-40 °C policy and does not expand automatically to the T255P's full range.
 Use the [T255P configuration and first-use procedure](hardware.md#configure-a-t255p).
@@ -93,8 +93,9 @@ it. A stop timeout means work remains active, including possible CSV cleanup.
 
 ## CSV recording
 
-Supply `csv_path` to `start_monitoring()` or `--csv PATH` to a lab recording
-command. Each run creates a new file; existing paths are refused. There is no append.
+Supply `csv_path` to `start_monitoring()` as in the
+[CSV tutorial](../examples/03_record_csv.py). Each run creates a new file; existing
+paths are refused. There is no append.
 
 | Column | Meaning |
 | --- | --- |
@@ -107,7 +108,7 @@ command. Each run creates a new file; existing paths are refused. There is no ap
 
 Rows are flushed for readers; this is not a power-loss guarantee. CSV failure
 sets `logging_error`. Acquisition can continue in the API/GUI without saving new
-readings; the console monitor exits on recording/service errors.
+readings; the CSV tutorial exits on poll, recording or service errors.
 `stop_monitoring()` closes CSV while preserving the connection.
 `disconnect()` performs monitoring cleanup too.
 
@@ -170,10 +171,9 @@ procedure. Disconnect sends no G command and does not stop an operating chiller.
 ## GUI
 
 `create_app(chiller, monitor)` from `tark_chiller.gui` displays existing objects;
-it neither connects nor starts acquisition. The lab script's `gui` command owns
-their lifecycle and uses one process with its reloader disabled.
-It passes `allow_setpoints=ALLOW_WRITES` to disable target controls during
-read-only review. Other clients can pass `allow_setpoints=False` as well; the
+it neither connects nor starts acquisition. The
+[dashboard tutorial](../examples/04_dashboard.py) owns their lifecycle, disables
+the reloader and passes `allow_setpoints=False` for read-only operation. The
 CAL and T255P backends independently enforce their write permissions.
 
 The display shows temperature, reported target, sample age, controller detail, faults and recording

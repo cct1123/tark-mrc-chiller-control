@@ -127,13 +127,12 @@ reference calibration, physical timing and final state for your setup. The drive
 does not save raw wire traces. Do not induce physical faults solely to repeat
 software tests; memory endpoints cover those error paths.
 
-## Optional checkout helper
+## Hardware tutorials
 
-To use `examples/lab.py`, set `DEVICE_MODEL`, `SERIAL_SETTINGS` and the model-specific
-fields at its top. For CAL supply `CAL_ADDRESS`; for T255P leave CAL identity/address
-fields and `RS485_MODE` as `None`. Initially keep `ALLOW_WRITES=False`.
-
-Run `python examples/lab.py read`, `log --csv new.csv`, `monitor`, or `gui`.
-`set TARGET_C` takes an explicit target after writes are enabled. Ctrl+C stops
-monitoring; existing CSVs are never overwritten. The helper never falls back to
-simulation. It is optional; installed applications construct the API directly.
+The [four tutorials](../examples/README.md) show read/status, one target change,
+CSV recording and a read-only dashboard. Enter your verified setup in
+[examples/hardware.py](../examples/hardware.py), then run each numbered script.
+Only tutorial 02 enables writes; CAL needs actual expected identity codes first.
+These tutorials use the installed package's real serial path without a simulator
+fallback. Context exit / finally blocks close software resources; equipment
+shutdown remains a separate physical procedure.
