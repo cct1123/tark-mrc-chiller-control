@@ -1,7 +1,9 @@
 """Synchronous device access. Construction does not open or start anything."""
 
 import math
-from collections.abc import Callable
+from _thread import LockType
+from collections.abc import Callable, Iterator
+from contextlib import contextmanager
 from dataclasses import dataclass
 from numbers import Real
 from pathlib import Path
@@ -44,6 +46,23 @@ def _reading(value: object) -> float:
         return _finite(value, "Celsius reading")
     except ValueError as exc:
         raise ProtocolError(f"Invalid device reading: {value!r}") from exc
+
+
+@contextmanager
+def _locked_until(lock: LockType, deadline: float | None = None) -> Iterator[None]:
+    acquired = (
+        lock.acquire()
+        if deadline is None
+        else lock.acquire(timeout=min(TIMEOUT_MAX, max(0.0, deadline - monotonic())))
+    )
+    if not acquired:
+        raise TimeoutError(
+            "Shutdown timed out waiting for access; resources remain owned. Retry cleanup."
+        )
+    try:
+        yield
+    finally:
+        lock.release()
 
 
 @dataclass(frozen=True)
@@ -113,9 +132,9 @@ class TarkChiller:
     def coolant_source(self) -> str:
         return self._coolant_source
 
-    def _intent(self, connected: bool) -> Event:
+    def _intent(self, connected: bool, *, deadline: float | None = None) -> Event:
         """Cancel older requests before waiting for device I/O."""
-        with self._intent_lock:
+        with _locked_until(self._intent_lock, deadline):
             self._cancel.set()
             self._cancel = Event()
             if not connected:
@@ -148,19 +167,28 @@ class TarkChiller:
         if not self._backend.is_connected:
             raise ConnectionError("Backend connect returned without an active connection")
 
-    def disconnect(self) -> None:
-        """Cancel recovery, close the connection, join polling and close its CSV."""
-        token = self._intent(connected=False)
-        with self._monitor_lock:
+    def disconnect(self, timeout_s: float = 5.0) -> None:
+        """Cancel recovery and close resources; one budget covers locks and joining."""
+        deadline = monotonic() + _seconds(timeout_s, "Disconnect timeout")
+        token = self._intent(connected=False, deadline=deadline)
+        with _locked_until(self._monitor_lock, deadline):
             if self._monitor is not None:
                 self._monitor._stop.set()
             try:
-                with self._lock:
+                with _locked_until(self._lock, deadline):
                     if token is self._cancel:
                         self._backend.disconnect()
-            finally:
+            except BaseException as error:
                 if self._monitor is not None:
-                    self._monitor._join(5.0)
+                    try:
+                        self._monitor._join(max(0.0, deadline - monotonic()))
+                    except BaseException as cleanup:
+                        error.add_note(
+                            f"Monitor cleanup failed: {type(cleanup).__name__}: {cleanup}"
+                        )
+                raise
+            if self._monitor is not None:
+                self._monitor._join(max(0.0, deadline - monotonic()))
 
     @property
     def is_connected(self) -> bool:
@@ -277,17 +305,25 @@ class TarkChiller:
             return monitor
 
     def stop_monitoring(self, timeout_s: float = 5.0) -> None:
-        """Join polling and close its CSV; keep the connection for synchronous use."""
-        with self._monitor_lock:
+        """Bound lock wait plus worker join; keep the connection for synchronous use."""
+        deadline = monotonic() + _seconds(timeout_s, "Stop timeout")
+        with _locked_until(self._monitor_lock, deadline):
             if self._monitor is not None:
-                self._monitor._join(timeout_s)
+                self._monitor._join(max(0.0, deadline - monotonic()))
 
     def __enter__(self) -> "TarkChiller":
         self.connect()
         return self
 
-    def __exit__(self, *_exc: object) -> None:
-        self.disconnect()
+    def __exit__(self, _type: object, error: BaseException | None, _traceback: object) -> None:
+        try:
+            self.disconnect()
+        except BaseException as cleanup:
+            if error is None:
+                raise
+            error.add_note(
+                f"Disconnect cleanup failed: {type(cleanup).__name__}: {cleanup}. Retry disconnect()."
+            )
 
 
 class Simulator:

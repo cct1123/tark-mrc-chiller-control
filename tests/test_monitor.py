@@ -2,6 +2,7 @@
 
 import csv
 import math
+from concurrent.futures import ThreadPoolExecutor
 from dataclasses import FrozenInstanceError
 from pathlib import Path
 from threading import Event, Thread
@@ -295,8 +296,6 @@ def test_slow_setpoint_read_does_not_make_temperature_look_fresh(monkeypatch):
 
 
 def test_blocked_csv_close_does_not_block_snapshots_or_stop_timeout(tmp_path, monkeypatch):
-    from concurrent.futures import ThreadPoolExecutor
-
     closing, release = Event(), Event()
     original_open = Path.open
     path = tmp_path / "slow-close.csv"
@@ -339,3 +338,127 @@ def test_blocked_csv_close_does_not_block_snapshots_or_stop_timeout(tmp_path, mo
         assert not monitor.running
         assert not monitor.snapshot().logging_enabled
     path.unlink()
+
+
+def test_stop_timeout_includes_lock_wait_during_pending_disconnect(monkeypatch):
+    entered, release = Event(), Event()
+    backend = Simulator()
+
+    def pending_read():
+        entered.set()
+        assert release.wait(3)
+        return 20
+
+    monkeypatch.setattr(backend, "_read_temperature", pending_read)
+    chiller = TarkChiller(backend)
+    chiller.connect()
+    with ThreadPoolExecutor(2) as pool:
+        monitor = chiller.start_monitoring()
+        assert entered.wait(1)
+        closing = pool.submit(chiller.disconnect, 2)
+        try:
+            wait_for(monitor._stop.is_set)
+            stopping = pool.submit(chiller.stop_monitoring, 0.02)
+            with pytest.raises(TimeoutError, match="resources remain owned"):
+                stopping.result(timeout=0.5)
+            assert monitor.running
+        finally:
+            release.set()
+            closing.result(timeout=2)
+            chiller.disconnect()
+    assert not monitor.running and not chiller.is_connected
+
+
+def test_disconnect_timeout_retains_inflight_worker_and_csv_for_retry(tmp_path, monkeypatch):
+    entered, release = Event(), Event()
+    backend = Simulator()
+
+    def pending_read():
+        entered.set()
+        assert release.wait(3)
+        return 20
+
+    monkeypatch.setattr(backend, "_read_temperature", pending_read)
+    chiller = TarkChiller(backend)
+    chiller.connect()
+    path = tmp_path / "pending-disconnect.csv"
+    monitor = chiller.start_monitoring(csv_path=path)
+    try:
+        assert entered.wait(1)
+        with ThreadPoolExecutor(1) as pool:
+            with pytest.raises(TimeoutError, match="resources remain owned") as raised:
+                pool.submit(chiller.disconnect, 0.02).result(timeout=0.5)
+        assert monitor.running and monitor.snapshot().logging_enabled
+        assert chiller._cancel.is_set()
+        assert any("Monitor cleanup failed" in note for note in raised.value.__notes__)
+    finally:
+        release.set()
+        chiller.disconnect()
+    assert not monitor.running and not monitor.snapshot().logging_enabled
+    path.unlink()
+
+
+def test_stop_uses_one_budget_for_lock_wait_and_join(monkeypatch):
+    entered, release, holding = Event(), Event(), Event()
+    backend = Simulator()
+
+    def pending_read():
+        entered.set()
+        assert release.wait(3)
+        return 20
+
+    monkeypatch.setattr(backend, "_read_temperature", pending_read)
+    chiller = TarkChiller(backend)
+    chiller.connect()
+    monitor = chiller.start_monitoring()
+    assert entered.wait(1)
+
+    def hold_monitor_lock():
+        with chiller._monitor_lock:
+            holding.set()
+            sleep(0.15)
+
+    holder = Thread(target=hold_monitor_lock)
+    holder.start()
+    try:
+        assert holding.wait(1)
+        started = monotonic()
+        with pytest.raises(TimeoutError, match="still owned"):
+            chiller.stop_monitoring(0.2)
+        assert monotonic() - started < 0.3
+        assert monitor.running
+    finally:
+        release.set()
+        holder.join(1)
+        chiller.disconnect()
+
+
+def test_backend_close_error_survives_monitor_join_timeout(monkeypatch):
+    closing, release = Event(), Event()
+    backend = Simulator()
+    chiller = TarkChiller(backend)
+    chiller.connect()
+    monitor = chiller.start_monitoring()
+    close_csv, disconnect = monitor._close_csv, backend.disconnect
+
+    def pending_close():
+        closing.set()
+        assert release.wait(3)
+        close_csv()
+
+    def failed_disconnect():
+        raise OSError("Primary backend close failure")
+
+    monkeypatch.setattr(monitor, "_close_csv", pending_close)
+    monkeypatch.setattr(backend, "disconnect", failed_disconnect)
+    try:
+        with pytest.raises(OSError, match="Primary backend close failure") as raised:
+            chiller.disconnect(0.05)
+        assert closing.is_set()
+        assert any(
+            "Monitor cleanup failed: TimeoutError" in note for note in raised.value.__notes__
+        )
+    finally:
+        release.set()
+        monkeypatch.setattr(backend, "disconnect", disconnect)
+        chiller.disconnect()

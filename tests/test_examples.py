@@ -129,6 +129,38 @@ def test_read_tutorial_uses_real_codec_and_closes(hardware, run_tutorial, capsys
     assert not endpoint.is_open and not endpoint.applied_writes
 
 
+def test_read_tutorial_preserves_read_error_when_port_close_also_fails(
+    hardware, run_tutorial, monkeypatch
+):
+    configuration, endpoint = hardware
+    write, close = endpoint.write, endpoint.close
+    primary = ProtocolError("Invalid temperature reply")
+
+    def failed_read(request):
+        temperature = (
+            request[1:2] == b"I"
+            if configuration.DEVICE_MODEL == "t255p"
+            else (request[1] == 3 and request[2:4] == b"\x00\x1c")
+        )
+        if temperature:
+            raise primary
+        return write(request)
+
+    def failed_close():
+        raise OSError("Port close failed")
+
+    monkeypatch.setattr(endpoint, "write", failed_read)
+    monkeypatch.setattr(endpoint, "close", failed_close)
+    try:
+        with pytest.raises(ProtocolError) as raised:
+            run_tutorial("01_read_status.py")
+        assert raised.value is primary
+        assert any("Disconnect cleanup failed" in note for note in primary.__notes__)
+    finally:
+        monkeypatch.setattr(endpoint, "close", close)
+        endpoint.close()
+
+
 def test_target_tutorial_applies_one_request(hardware, run_tutorial, monkeypatch, capsys):
     _, endpoint = hardware
     monkeypatch.setattr("builtins.input", lambda prompt: "")

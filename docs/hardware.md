@@ -134,5 +134,8 @@ CSV recording and a read-only dashboard. Enter your verified setup in
 [examples/hardware.py](../examples/hardware.py), then run each numbered script.
 Only tutorial 02 enables writes; CAL needs actual expected identity codes first.
 These tutorials use the installed package's real serial path without a simulator
-fallback. Context exit / finally blocks close software resources; equipment
-shutdown remains a separate physical procedure.
+fallback. Controller contexts close software resources; equipment shutdown
+remains a separate physical procedure. If cleanup times out or closing the port
+fails, resources may still be owned: allow pending I/O to finish and retry
+`disconnect(timeout_s=...)`. A context preserves an existing error and attaches
+any cleanup failure as a note. See the [shutdown contract](api.md#shutdown-and-cleanup).

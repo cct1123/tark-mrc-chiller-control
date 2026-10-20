@@ -84,8 +84,9 @@ Use `RS485_MODE` only when your verified adapter requires native direction contr
 
 ## 1. Connect and read
 
-[`01_read_status.py`](01_read_status.py) connects explicitly, reads temperature,
-target and `Status`, then disconnects in `finally`, including after a read error.
+[`01_read_status.py`](01_read_status.py) constructs the driver, connects through its
+context, and reads temperature, target and `Status`. Context exit disconnects,
+including after a read error; a cleanup failure is attached to the original error.
 CAL diagnostics include actual model/firmware codes; T255P diagnostics report
 mode and alarms but do not identify the unit. Readings are sequential, not
 simultaneous, and temperatures are Celsius.

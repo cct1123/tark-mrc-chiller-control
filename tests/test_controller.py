@@ -254,6 +254,12 @@ def test_cancelled_queued_setpoint_does_not_cross_reconnect(monkeypatch):
     lock, intent = chiller._lock, chiller._intent
 
     class ObservedLock:
+        def acquire(self, *args, **kwargs):
+            return lock.acquire(*args, **kwargs)
+
+        def release(self):
+            lock.release()
+
         def __enter__(self):
             if current_thread().name.startswith("writer"):
                 queued.set()
@@ -262,8 +268,8 @@ def test_cancelled_queued_setpoint_does_not_cross_reconnect(monkeypatch):
         def __exit__(self, *args):
             return lock.__exit__(*args)
 
-    def observe_intent(connected):
-        token = intent(connected)
+    def observe_intent(connected, **kwargs):
+        token = intent(connected, **kwargs)
         if not connected:
             cancelled.set()
         return token
@@ -291,3 +297,29 @@ def test_cancelled_queued_setpoint_does_not_cross_reconnect(monkeypatch):
     chiller.connect()
     assert chiller.read_setpoint() == 20
     chiller.disconnect()
+
+
+@pytest.mark.parametrize("method", ["disconnect", "stop_monitoring"])
+@pytest.mark.parametrize("timeout", [0, -1, True, math.nan, math.inf])
+def test_invalid_shutdown_timeout_preserves_connection(method, timeout):
+    with TarkChiller(Simulator()) as chiller:
+        with pytest.raises(ValueError):
+            getattr(chiller, method)(timeout)
+        assert chiller.read_temperature() == 20
+
+
+@pytest.mark.parametrize("lock_name", ["_intent_lock", "_monitor_lock", "_lock"])
+def test_disconnect_timeout_includes_each_lock_and_allows_retry(lock_name):
+    chiller = TarkChiller(Simulator())
+    chiller.connect()
+    lock = getattr(chiller, lock_name)
+    with ThreadPoolExecutor(1) as pool:
+        lock.acquire()
+        try:
+            pending = pool.submit(chiller.disconnect, 0.02)
+            with pytest.raises(TimeoutError, match="resources remain owned"):
+                pending.result(timeout=0.5)
+        finally:
+            lock.release()
+            chiller.disconnect()
+    assert not chiller.is_connected

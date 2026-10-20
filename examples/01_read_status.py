@@ -4,11 +4,9 @@ from hardware import create_chiller
 
 # 1. Configure hardware.py first. Construction does not open the port.
 chiller = create_chiller()
-try:
-    # T255P connect sends U: it takes serial control and can start AUTO START.
-    # CAL connect checks the controller identity, RTD input and Celsius units.
-    chiller.connect()
-
+# T255P connect sends U: it takes serial control and can start AUTO START.
+# CAL connect checks the controller identity, RTD input and Celsius units.
+with chiller:
     # 2. Query the measured temperature and target separately, in Celsius.
     # Compare these values with the front panel and your temperature reference.
     print(f"Temperature:       {chiller.read_temperature():.2f} C")
@@ -20,6 +18,7 @@ try:
     print(f"Connected: {status.connected}")
     print(f"Backend:   {status.backend}")
     print(f"Details:   {status.detail}")
-finally:
-    # 4. Release the port even after a failed read. This does not stop equipment.
-    chiller.disconnect()
+
+# 4. Context exit releases the port, including after a failed read. If cleanup
+# also fails, the original error is preserved with a cleanup note. Retry cleanup
+# as needed; closing the software connection does not stop equipment.

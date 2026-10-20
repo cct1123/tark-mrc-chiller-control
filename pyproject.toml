@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "tark-mrc-chiller"
-version = "0.6.1"
+version = "0.6.2"
 description = "Laboratory chiller driver with CAL 3300/9300 and ThermoTek T255P protocols"
 readme = "README.md"
 requires-python = ">=3.12"

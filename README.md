@@ -125,6 +125,12 @@ the simple thermal model. Simulated dynamics do not predict physical cooling.
 
 Use one owning process per device. Construction opens nothing; context entry
 connects and context exit stops monitoring, closes CSV and disconnects.
+Shutdown lock waits and worker joining share one timeout budget, default five
+seconds: `disconnect(timeout_s=...)` or `stop_monitoring(timeout_s=...)`. A timeout
+can leave resources owned; let pending I/O finish and retry cleanup. OS port close
+is synchronous and can outlast the budget. Contexts preserve an existing exception
+and attach cleanup failures as notes. [Shutdown details](docs/api.md#shutdown-and-cleanup).
+
 **Disconnecting software does not stop the chiller or pump.** Follow the equipment
 shutdown procedure separately.
 

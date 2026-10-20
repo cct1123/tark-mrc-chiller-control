@@ -137,7 +137,7 @@ class Monitor:
                 ready.set()
 
     def _join(self, timeout_s: float) -> None:
-        timeout = _seconds(timeout_s, "Stop timeout")
+        timeout = _seconds(timeout_s, "Stop timeout", allow_zero=True)
         self._stop.set()
         thread = self._thread
         if thread is current_thread():

@@ -37,7 +37,7 @@ No remote identity query exists in this subset.
 | Function or property | Purpose |
 | --- | --- |
 | `connect()` | Open backend; CAL checks identity/input/units; T255P sends U, a control-state interaction |
-| `disconnect()` | Cancel recovery, close connection, stop monitoring and close CSV |
+| `disconnect(timeout_s=5)` | Cancel recovery, close connection and join monitoring within the lock/join budget |
 | `is_connected` | Check driver connection state; not physical safety |
 | `read_temperature()` | Return a finite Celsius measurement |
 | `read_setpoint()` | Return the device's reported Celsius target |
@@ -89,7 +89,34 @@ with TarkChiller(
 Failed samples have missing readings and an `error`. Check failed polls as well
 as service/recording errors. History is bounded by `history_size`; that limit does
 not truncate CSV. The interval is read-only; stop and start a new monitor to change
-it. A stop timeout means work remains active, including possible CSV cleanup.
+it. A stop timeout can leave work active, including possible CSV cleanup.
+
+## Shutdown and cleanup
+
+`stop_monitoring(timeout_s=5)` stops acquisition and joins its worker while keeping
+synchronous access available. `disconnect(timeout_s=5)` cancels the connection
+intent and read recovery, requests monitoring stop, closes the backend once I/O
+access is available, and joins the worker. Neither sends an equipment stop.
+
+Both require a positive finite timeout. One monotonic deadline covers all
+controller lock waits and worker joining; each step receives only the remaining
+budget. Concurrent shutdown calls do not gain another full wait at each lock.
+The backend's port close is synchronous: an uncooperative OS/backend close cannot
+be preempted and may outlast the budget. No extra shutdown worker is created.
+
+`TimeoutError` means cleanup may be incomplete. An in-flight operation or CSV
+close can still finish later; the controller retains ownership. Let pending I/O
+make progress, then retry `stop_monitoring()` or `disconnect()` as appropriate.
+A failed serial close retains its handle for another cleanup attempt and disables
+further use. Do not create a competing controller or replay an uncertain write.
+
+Use a controller context for normal ownership. If its body raises, the same
+exception propagates even when disconnect also fails; the cleanup failure is
+attached using `BaseException.add_note()`. With no prior exception, a cleanup
+failure propagates normally. If backend close and worker joining both fail,
+the backend close error remains primary and the join failure becomes a note.
+Inspect those notes and retry cleanup; an exception is not proof that resources
+were released.
 
 ## CSV recording
 

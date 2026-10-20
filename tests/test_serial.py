@@ -374,6 +374,41 @@ def test_close_failure_disables_io_and_retains_handle_for_cleanup():
     assert not endpoint.is_open and endpoint.close_count == 2
 
 
+@pytest.mark.parametrize("exception_type", [ProtocolError, KeyboardInterrupt, SystemExit])
+def test_context_preserves_primary_exception_when_close_fails(exception_type):
+    device, endpoint = make_serial()
+    chiller = TarkChiller(device)
+    primary = exception_type("Primary operation failed")
+    try:
+        with pytest.raises(exception_type) as raised:
+            with chiller:
+                endpoint.close_error = OSError("Endpoint close failed")
+                raise primary
+        assert raised.value is primary
+        assert any("Disconnect cleanup failed" in note for note in primary.__notes__)
+        assert any("Endpoint close failed" in note for note in primary.__notes__)
+        assert device._endpoint is endpoint and endpoint.is_open
+        assert not chiller.is_connected
+    finally:
+        endpoint.close_error = None
+        chiller.disconnect()
+    assert not endpoint.is_open
+
+
+def test_context_propagates_close_error_when_there_is_no_primary_exception():
+    device, endpoint = make_serial()
+    chiller = TarkChiller(device)
+    try:
+        with pytest.raises(OSError, match="Endpoint close failed"):
+            with chiller:
+                endpoint.close_error = OSError("Endpoint close failed")
+        assert device._endpoint is endpoint and endpoint.is_open
+        assert not chiller.is_connected
+    finally:
+        endpoint.close_error = None
+        chiller.disconnect()
+
+
 @pytest.mark.parametrize("stage", ["open", "read", "write", "decode"])
 @pytest.mark.parametrize("interruption", [KeyboardInterrupt, SystemExit])
 def test_interruption_closes_endpoint_and_preserves_exception(stage, interruption):
