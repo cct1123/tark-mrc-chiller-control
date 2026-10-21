@@ -68,11 +68,11 @@ def _reading(value: object) -> float:
 
 @contextmanager
 def _locked_until(lock: LockType, deadline: float | None = None) -> Iterator[None]:
-    acquired = (
-        lock.acquire()
-        if deadline is None
-        else lock.acquire(timeout=min(TIMEOUT_MAX, max(0.0, deadline - monotonic())))
-    )
+    if deadline is None:
+        acquired = lock.acquire()
+    else:
+        remaining_s = min(TIMEOUT_MAX, max(0.0, deadline - monotonic()))
+        acquired = lock.acquire(timeout=remaining_s)
     if not acquired:
         raise TimeoutError(
             "Shutdown timed out waiting for access; resources remain owned. Retry cleanup."
@@ -525,19 +525,22 @@ class TarkChiller:
         self._coolant_source = coolant_source or "MRC150/300 User Manual Rev 13, p7"
         self._reconnect_attempts = reconnect_attempts
         self._reconnect_delay_s = delay
-        self._lock = Lock()
+        # Lock order when nested: monitor -> I/O -> data. Never acquire the
+        # I/O lock while holding the data lock: snapshots must stay responsive.
+        self._io_lock = Lock()  # Serial access, device faults and write outcomes.
+        # Held briefly to replace cancellation events; released before I/O waits.
         self._intent_lock = Lock()
         self._cancel = Event()
         self._cancel.set()
         self._fault = ""
-        self._monitor_lock = Lock()
-        self._data_lock = Lock()
+        self._monitor_lock = Lock()  # Serialize monitor start/stop and disconnect.
+        self._data_lock = Lock()  # Publish history and errors to snapshot readers.
         self._interval_s = 1.0
         self._history: deque[dict[str, Any]] = deque(maxlen=3600)
         self._stop = Event()
         self._thread: Thread | None = None
-        self._service_error = ""
-        self._recovery_error = ""
+        self._service_error = ""  # Worker failure; remains visible after it stops.
+        self._recovery_error = ""  # Temporary read failure while retrying.
         self._poll_in_progress = False
         self._partial_sample: dict[str, Any] = {}
         self._logging_error = ""
@@ -861,8 +864,12 @@ class TarkChiller:
     def coolant_source(self) -> str:
         return self._coolant_source
 
-    def _intent(self, connected: bool, *, deadline: float | None = None) -> Event:
-        """Cancel older requests before waiting for device I/O."""
+    def _replace_connection_request(self, connected: bool, *, deadline: float | None = None) -> Event:
+        """Invalidate older connection requests and return this request's event.
+
+        Each request keeps its own event. Setting the old event prevents a
+        queued write or recovery attempt from crossing a disconnect/reconnect.
+        """
         with _locked_until(self._intent_lock, deadline):
             self._cancel.set()
             self._cancel = Event()
@@ -881,11 +888,16 @@ class TarkChiller:
             raise ConnectionError(self._fault or "TarkChiller is disconnected")
 
     def connect(self) -> None:
-        token = self._intent(connected=True)
-        with self._lock:
+        """Open and verify the port, using the configured read recovery budget.
+
+        T255P sends U, which can start an AUTO START unit. A failed operation
+        raises; an uncertain previous write remains blocked even after reconnect.
+        """
+        token = self._replace_connection_request(connected=True)
+        with self._io_lock:
             self._check_cancel(token)
             self._fault = ""
-            self._read(lambda: self._open(token), token, connecting=True)
+            self._read_with_recovery(lambda: self._open(token), token, connecting=True)
 
     def _open(self, token: Event) -> None:
         # Protocol recovery may need a quiet period. Make that wait cancellable
@@ -899,11 +911,11 @@ class TarkChiller:
     def disconnect(self, timeout_s: float = 5.0) -> None:
         """Cancel recovery and close resources; one budget covers locks and joining."""
         deadline = monotonic() + _seconds(timeout_s, "Disconnect timeout")
-        token = self._intent(connected=False, deadline=deadline)
+        token = self._replace_connection_request(connected=False, deadline=deadline)
         with _locked_until(self._monitor_lock, deadline):
             self._stop.set()
             try:
-                with _locked_until(self._lock, deadline):
+                with _locked_until(self._io_lock, deadline):
                     if token is self._cancel:
                         self._close_port()
             except BaseException as error:
@@ -916,7 +928,8 @@ class TarkChiller:
 
     @property
     def is_connected(self) -> bool:
-        with self._lock:
+        """Report usable transport state; this does not query the device."""
+        with self._io_lock:
             return not self._cancel.is_set() and not self._fault and self._port_connected
 
     def _suspend(self, message: str, error: BaseException) -> None:
@@ -928,9 +941,21 @@ class TarkChiller:
         except BaseException as cleanup:
             error.add_note(str(cleanup))
 
-    def _read[T](self, operation: Callable[[], T], token: Event, *, connecting: bool = False,
-                 monitoring: bool = False) -> T:
-        """Recover reads and connection attempts; writes never enter this loop."""
+    def _read_with_recovery[T](
+        self,
+        operation: Callable[[], T],
+        token: Event,
+        *,
+        connecting: bool = False,
+        monitoring: bool = False,
+    ) -> T:
+        """Run a read/connect operation with bounded recovery under the I/O lock.
+
+        Only I/O failures and selected T255P link errors may retry. Fatal protocol
+        faults suspend the session. Monitoring may try again next poll after an
+        exhausted retry budget; synchronous calls require explicit reconnect.
+        Writes never enter this loop because a lost reply may hide an applied write.
+        """
         for attempt in range(self._reconnect_attempts + 1):
             try:
                 self._partial_sample = {}  # Never carry fields across recovery attempts.
@@ -984,14 +1009,26 @@ class TarkChiller:
         raise AssertionError("Unreachable recovery state")
 
     def read_temperature(self) -> float:
-        with self._lock:
-            return self._read(lambda: _reading(self._read_temperature()), self._cancel)
+        """Query a validated Celsius temperature; raise if unavailable.
+
+        This waits for serial access and may recover reads when configured.
+        Sensor/protocol failures are never returned as numeric measurements.
+        """
+        with self._io_lock:
+            return self._read_with_recovery(lambda: _reading(self._read_temperature()), self._cancel)
 
     def read_setpoint(self) -> float:
-        with self._lock:
-            return self._read(lambda: _reading(self._read_setpoint()), self._cancel)
+        """Query the reported Celsius target, not the measured liquid temperature."""
+        with self._io_lock:
+            return self._read_with_recovery(lambda: _reading(self._read_setpoint()), self._cancel)
 
     def set_setpoint(self, value_c: object) -> None:
+        """Validate, write once and verify a Celsius target; return None on success.
+
+        Requires a connected, write-enabled protocol. CAL saves and restarts its
+        controller. Failure after a write starts latches an uncertain outcome;
+        inspect hardware before another session. This method never retries writes.
+        """
         value = _finite(value_c, "Setpoint (Celsius)")
         low, high = self._setpoint_range
         if not low <= value <= high:
@@ -1000,7 +1037,7 @@ class TarkChiller:
             )
         with self._intent_lock:
             token = self._cancel
-        with self._lock:
+        with self._io_lock:
             self._check_cancel(token)
             self._require_connected()
             try:
@@ -1025,7 +1062,7 @@ class TarkChiller:
     def _set_mode(self, operation: Literal["run", "standby"]) -> None:
         with self._intent_lock:
             token = self._cancel
-        with self._lock:
+        with self._io_lock:
             self._check_cancel(token)
             self._require_connected()
             if not self.supports_mode_control:
@@ -1037,7 +1074,12 @@ class TarkChiller:
                 raise
 
     def read_status(self) -> dict[str, Any]:
-        with self._lock:
+        """Return connected/backend/detail diagnostics, querying an active device.
+
+        A disconnected or suspended session returns disconnected diagnostics.
+        An attempted query can raise. Alarm flags do not prove physical flow.
+        """
+        with self._io_lock:
             if self._cancel.is_set() or self._fault:
                 return {
                     "connected": False,
@@ -1060,7 +1102,7 @@ class TarkChiller:
                     "detail": status["detail"],
                 }
 
-            return self._read(read, self._cancel)
+            return self._read_with_recovery(read, self._cancel)
 
     def start_monitoring(
         self,
@@ -1069,12 +1111,17 @@ class TarkChiller:
         csv_path: str | Path | None = None,
         history_size: int = 3600,
     ) -> None:
-        """Start one worker; read its history and errors through snapshot()."""
+        """Start one polling worker on a connected controller; return None.
+
+        Reset history and counters for this run. If csv_path is supplied, create
+        a new file and refuse an existing path. Polling/recording errors are
+        reported through snapshot(); starting a second worker raises RuntimeError.
+        """
         interval = _seconds(interval_s, "Sampling interval")
         if type(history_size) is not int or history_size <= 0:
             raise ValueError("history_size must be a positive integer")
         with self._monitor_lock:
-            with self._lock:
+            with self._io_lock:
                 self._require_connected()
             if self.running:
                 raise RuntimeError("Monitoring already started; stop it before another run")
@@ -1146,6 +1193,13 @@ class TarkChiller:
         return self._thread is not None and self._thread.is_alive()
 
     def snapshot(self) -> dict[str, Any]:
+        """Copy bounded history, worker state and errors without querying hardware.
+
+        Returned dictionaries are detached from controller state. History entries
+        contain Celsius readings (None when unavailable), status and error text,
+        UTC poll-start time, and monotonic poll-start/completion times. These are
+        sequential readings, not a simultaneous physical measurement.
+        """
         with self._data_lock:
             return {
                 "history": [
@@ -1163,6 +1217,7 @@ class TarkChiller:
             }
 
     def _close_csv(self) -> None:
+        # Keep the handle on failure so a later cleanup call can retry closing it.
         if self._file is not None:
             try:
                 self._file.close()
@@ -1177,6 +1232,8 @@ class TarkChiller:
                     self._file = None
 
     def _start(self) -> None:
+        # The worker waits at this gate until startup either succeeds or sets
+        # _stop after an interruption. It must not poll during partial startup.
         ready: Event | None = None
         try:
             ready = Event()
@@ -1221,8 +1278,8 @@ class TarkChiller:
         temperature: float | None = None
         setpoint: float | None = None
         try:
-            with self._lock:
-                status, temperature, setpoint = self._read(
+            with self._io_lock:
+                status, temperature, setpoint = self._read_with_recovery(
                     self._read_sample, self._cancel, monitoring=True
                 )
         except (OSError, ProtocolError) as exc:
@@ -1289,7 +1346,7 @@ class TarkChiller:
                 sample = self._poll(started)
                 self._publish(sample)
                 if sample["error"]:
-                    with self._lock:
+                    with self._io_lock:
                         fault = self._fault
                     if fault:
                         with self._data_lock:

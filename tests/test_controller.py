@@ -273,7 +273,7 @@ def test_cancelled_queued_setpoint_does_not_cross_reconnect(monkeypatch):
     monkeypatch.setattr(backend, "_read_temperature", blocking_read)
     chiller = backend
     chiller.connect()
-    lock, intent = chiller._lock, chiller._intent
+    lock, intent = chiller._io_lock, chiller._replace_connection_request
 
     class ObservedLock:
         def acquire(self, *args, **kwargs):
@@ -296,8 +296,8 @@ def test_cancelled_queued_setpoint_does_not_cross_reconnect(monkeypatch):
             cancelled.set()
         return token
 
-    monkeypatch.setattr(chiller, "_lock", ObservedLock())
-    monkeypatch.setattr(chiller, "_intent", observe_intent)
+    monkeypatch.setattr(chiller, "_io_lock", ObservedLock())
+    monkeypatch.setattr(chiller, "_replace_connection_request", observe_intent)
     with (
         ThreadPoolExecutor(2) as pool,
         ThreadPoolExecutor(1, thread_name_prefix="writer") as writer,
@@ -330,7 +330,7 @@ def test_invalid_shutdown_timeout_preserves_connection(method, timeout):
         assert chiller.read_temperature() == 20
 
 
-@pytest.mark.parametrize("lock_name", ["_intent_lock", "_monitor_lock", "_lock"])
+@pytest.mark.parametrize("lock_name", ["_intent_lock", "_monitor_lock", "_io_lock"])
 def test_disconnect_timeout_includes_each_lock_and_allows_retry(lock_name):
     chiller = FakeChiller()
     chiller.connect()

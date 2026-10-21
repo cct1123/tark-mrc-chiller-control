@@ -256,6 +256,9 @@ uv run --locked --extra gui python examples/06_dashboard.py
 
 ## Development
 
+New maintainers: start with the [development guide](docs/development.md) for the
+code map, concurrency rules and a workflow using memory-only tests.
+
 ```sh
 uv sync --locked --extra gui
 uv run --locked --extra gui pytest -q -p no:cacheprovider
