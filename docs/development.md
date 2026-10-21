@@ -6,7 +6,8 @@ timing, physical flow, calibration or safe operation on equipment.
 
 ## First exercise: read a simulated temperature
 
-Use the development environment in the README. Run this in its Python interpreter:
+Use the [development environment in the README](../README.md#development). Run
+this in its Python interpreter:
 
 ```python
 from tark_chiller.simulator import T255PSimulator
@@ -77,7 +78,8 @@ for editor/type-checker assistance; values remain ordinary dictionaries. Wire
 validation still happens in the protocol and transport. When adding a sample
 field, update its schema, `_poll()`, the consumer that needs it, and relevant
 tests. CSV columns are an explicit contract in `start_monitoring()` and
-`_record_and_publish_sample()`; adding a display field does not automatically change the CSV.
+`_record_and_publish_sample()`; adding a display field does not automatically
+change the CSV.
 
 In `gui.py`, `render_status()` builds status cards and `render_history()` builds
 the graph. `render_snapshot()` returns both for initial layout and refresh.

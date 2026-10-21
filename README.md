@@ -11,6 +11,13 @@ See the [validation scope](docs/protocol.md#bench-evidence-and-limits).
 Confirm your unit, wiring, serial settings and coolant limits before connecting.
 T255P connection takes serial control and can change AUTO START to RUN.
 
+| Start here | Guide |
+| --- | --- |
+| Try the driver without equipment | [Simulation](#simulation) |
+| Prepare a hardware connection | [Setup and first-use checklist](docs/hardware.md) |
+| Use readings, recording and controls | [API reference](docs/api.md) |
+| Make your first code change | [Beginner development guide](docs/development.md) |
+
 ## Install
 
 Requires Python **3.12+**. This checkout uses [uv](https://docs.astral.sh/uv/)
@@ -58,14 +65,6 @@ Serial support is included. For the optional dashboard, install `".[gui]"` from
 this checkout, or `"tark-mrc-chiller[gui] @ git+https://github.com/cct1123/tark-mrc-chiller-control.git"`.
 You can also install a built wheel with `python -m pip install path/to/package.whl`.
 Use the Python API directly from your own application.
-
-The source has three Python modules:
-
-| Module | Responsibility |
-| --- | --- |
-| `tark_chiller.controller` | CAL/T255P protocols, serial settings, device ownership, monitoring and CSV |
-| `tark_chiller.gui` | Optional dashboard consuming controller snapshots |
-| `tark_chiller.simulator` | Thermal model, memory protocol endpoints and simulator launcher |
 
 Version 0.7 uses explicit module imports and has no compatibility aliases.
 `TarkChiller(settings, protocol=...)` owns pyserial, monitoring and recording.
@@ -166,6 +165,11 @@ status; unavailable fields are blank. A failed T255P poll can retain a validated
 temperature from its final attempt as historical data.
 See the [API reference](docs/api.md#monitoring) for a complete recording example.
 
+`chiller.running` reports whether the **monitoring thread** is alive, including
+pending shutdown or cleanup. `chiller.run()` requests **equipment RUN**. These
+are separate states: monitoring can continue in STANDBY, and equipment can remain
+in RUN after monitoring stops or the software disconnects.
+
 <a id="optional-dashboard"></a>
 
 With the GUI extra installed, pass a configured controller to
@@ -209,7 +213,21 @@ For Python use, import `CalSimulator` or `T255PSimulator` from
 `tark_chiller.simulator` and call `.chiller()` to create a disconnected
 `TarkChiller` with a memory-only serial factory. Optional controller arguments
 such as `timeout_s` and `reconnect_attempts` can be passed to `.chiller()`.
-Simulated dynamics do not predict physical cooling.
+Simulator controllers enable writes by default for exercises; pass
+`allow_writes=False` for a read-only session:
+
+```python
+from tark_chiller.simulator import T255PSimulator
+
+with T255PSimulator().chiller(allow_writes=False) as chiller:
+    print(chiller.read_temperature())  # 20.0
+    print(chiller.read_status()["backend"])  # simulator
+```
+
+An injected simulator clock changes modeled temperature/watchdog time; serial
+timeout waits still use real time. Simulated dynamics do not predict physical
+cooling. The [first development exercise](docs/development.md#first-exercise-read-a-simulated-temperature)
+adds a focused parser test to this workflow.
 
 ## Hardware use and recovery
 
@@ -226,8 +244,10 @@ and attach cleanup failures as notes. [Shutdown details](docs/api.md#shutdown-an
 shutdown procedure separately.
 
 Writes are never retried. An uncertain write closes and latches the controller;
-inspect the actual panel/target before starting a new read-only session or
-considering a corrective target. Alarm flags do not establish flow, leak freedom,
+inspection or reconnect does not clear that latch in the existing object. Follow
+the hardware recovery procedure before starting a fresh read-only session or
+considering a corrective target. A new object never authorizes replaying an
+uncertain write. Alarm flags do not establish flow, leak freedom,
 coolant suitability or calibration. Read the [setup and first-use checklist](docs/hardware.md),
 [protocol sources and limits](docs/protocol.md), and [API reference](docs/api.md).
 
@@ -257,7 +277,23 @@ uv run --locked --extra gui python examples/06_dashboard.py
 ## Development
 
 New maintainers: start with the [development guide](docs/development.md) for the
-code map, concurrency rules and a workflow using memory-only tests.
+simulator exercise, a read-path walkthrough, concurrency rules and test choices.
+
+The source has three Python modules:
+
+| Module | Responsibility |
+| --- | --- |
+| `tark_chiller.controller` | Explicit CAL/T255P operations, serial ownership, read recovery, monitoring and CSV |
+| `tark_chiller.gui` | Snapshot rendering, controls layout and explicit session actions |
+| `tark_chiller.simulator` | Thermal model, memory protocol endpoints and simulator launcher |
+
+Private `TypedDict` definitions describe status, samples, snapshots and readings
+from one attempt. Values remain ordinary dictionaries. A failed T255P poll may retain
+validated readings from its final attempt, with an error and disconnected status;
+retries discard the previous attempt's fields. See the
+[attempt-reading contract](docs/development.md#readings-from-a-failed-attempt).
+
+Full development checks:
 
 ```sh
 uv sync --locked --extra gui
@@ -269,8 +305,12 @@ uv pip check
 uv build
 ```
 
-Tests use memory transports, including error, cancellation, shutdown, recovery
-and no-write-replay paths for both protocols. The editable installation also lets
+API, GUI, CSV and snapshot integration tests use the memory serial endpoints and
+production protocol code. Focused fakes remain for scheduling, interrupted cleanup
+and invalid internal return values. Tests cover errors, cancellation, shutdown,
+recovery and no-write-replay paths for both protocols. See
+[choosing a test endpoint](docs/development.md#choosing-a-test-endpoint) before
+adding a fixture. The editable installation also lets
 subprocess tests import the package outside the checkout. For release validation,
 use `uv sync --locked --extra gui --no-editable --reinstall-package tark-mrc-chiller`,
 then `uv run --no-sync pytest -q -p no:cacheprovider`; repeat that sync after source

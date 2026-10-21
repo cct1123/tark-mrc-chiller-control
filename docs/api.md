@@ -1,6 +1,6 @@
 # Driver, recording and GUI
 
-[Home / quick start](../README.md#hardware-quick-start) · [Hardware setup](hardware.md)
+[Home / quick start](../README.md#hardware-quick-start) · [Hardware setup](hardware.md) · [Development guide](development.md)
 
 Use one TarkChiller per serial port and share it with your experiment code.
 The [seven T255P hardware examples](../examples/README.md) provide standalone scripts
@@ -23,6 +23,8 @@ Status, samples and snapshots are plain dictionaries. Read fields with keys,
 for example `chiller.read_status()["connected"]`. The controller owns its
 pyserial object, polling worker, history and CSV file directly.
 `start_monitoring()` returns `None`; use `chiller.snapshot()` to read its state.
+Private `TypedDict` hints describe these fields for editors and type checking;
+callers receive ordinary dictionaries and do not construct private record types.
 The GUI reads these dictionaries directly. All memory-only simulators live in
 `tark_chiller.simulator`; importing or constructing a hardware controller does
 not load simulators or Dash. Importing the controller loads the required pyserial
@@ -74,6 +76,7 @@ An optional `rs485` dictionary requires `rts_level_for_tx`, `rts_level_for_rx`,
 | `supports_mode_control` | Whether the selected protocol is T255P; no I/O; write opt-in is checked separately |
 | `read_status()` | Return a dict with `connected`, `backend` and `detail` |
 | `start_monitoring(interval_s=1, csv_path=None, history_size=3600)` | Start one worker; returns `None` |
+| `running` | Whether the monitoring thread is alive, including pending stop/cleanup; independent of equipment RUN/STANDBY |
 | `snapshot()` | Return a detached dict of history, progress and errors; no device query |
 | `stop_monitoring(timeout_s=5)` | Join the worker and close CSV, keeping the connection |
 
@@ -81,6 +84,10 @@ A TarkChiller context connects on entry and disconnects on exit, including after
 exception. Construction starts no I/O or threads. A second active monitor is
 refused. Methods beginning with an underscore are internal;
 use TarkChiller's public methods for safe control.
+
+`chiller.running` and `chiller.run()` describe different things. The property
+reports acquisition-thread lifetime; the method requests equipment RUN. Stopping
+monitoring does not request STANDBY, and STANDBY does not stop monitoring.
 
 ## Monitoring
 
@@ -269,8 +276,9 @@ monitoring records an exhausted read as a failed poll and attempts a fresh
 connection on the next interval, keeping CSV open. Fatal faults still stop the
 worker, close CSV and expose their reason in `service_error`.
 Transient retries that succeed do not increment `failed_samples`.
-After correcting a latched fault, call `stop_monitoring()` to finish cleanup,
-`connect()`, then `start_monitoring()` with a new CSV path if recording again.
+After correcting a suspended read-side fault with no uncertain write, call
+`stop_monitoring()` to finish cleanup, then `connect()` and `start_monitoring()`.
+Use a new CSV path if recording again.
 The dashboard script can instead be stopped with Ctrl+C and restarted after the
 fault is corrected.
 No write is retried or replayed. Resolve an uncertain write by documented readback
@@ -287,6 +295,10 @@ or after starting G until echo and U mode/chiller-on readback succeed.
 A failed reply can mean the target or mode was applied. Neither reconnect nor a new
 object authorizes a retry: inspect actual state and follow the T255P recovery
 procedure. Disconnect sends no G command and does not stop an operating chiller.
+
+Inspection does not reset the uncertain-write flag in the existing controller
+object. It remains unusable for device operations even after explicit reconnect;
+follow the hardware recovery procedure before creating a fresh read-only session.
 
 | Error | Meaning |
 | --- | --- |

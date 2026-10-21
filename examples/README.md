@@ -7,6 +7,10 @@ Example 05 uses pyserial directly and reuses the production reply validator; the
 others construct `TarkChiller`. Review `PORT` and operation options in each
 example; run notebook cells top to bottom.
 
+For a first development task without equipment, start with the
+[memory-only simulator exercise](../docs/development.md#first-exercise-read-a-simulated-temperature).
+These hardware examples are a separate workflow for a prepared, identified unit.
+
 | Script | Notebook | Purpose |
 | --- | --- | --- |
 | [00_discover_connect.py](00_discover_connect.py) | [00_discover_connect.ipynb](00_discover_connect.ipynb) | List serial adapters, connect and release the configured device |
@@ -110,6 +114,10 @@ when connection fails. It does not start monitoring or measure active-I/O shutdo
 
 Example 05 is a standalone serial mode-control example. The controller API now
 also provides `run()`/`standby()` and the dashboard exposes both controls.
+Treat this as an advanced direct-serial diagnostic: it retains the reviewed
+U/J/G/U exchange and explicit cleanup. Using a controller context and then its
+mode method adds a connection U exchange; the two examples have different
+connection sequences even though both verify the requested equipment mode.
 Set `PORT` and `MODE` (`"RUN"`
 or `"STANDBY"`), then type that exact mode when prompted, before the port opens:
 
