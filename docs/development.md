@@ -82,6 +82,12 @@ tests. CSV columns are an explicit contract in `start_monitoring()` and
 In `gui.py`, `render_status()` builds status cards and `render_history()` builds
 the graph. `render_snapshot()` returns both for initial layout and refresh.
 Session actions request status alone, so they do not construct a discarded graph.
+`_build_controls()` contains the controls markup. `create_app()` validates options,
+builds the app and registers callbacks. The session callback passes the triggering
+button ID to `perform_session_action()` explicitly; that helper returns a message
+and `disable_refresh`, which refers to browser refresh, not equipment or monitor
+state. Timer refresh and session actions both write status/button labels so that
+actions can provide immediate feedback; their duplicate outputs are intentional.
 
 ## Rules to preserve
 

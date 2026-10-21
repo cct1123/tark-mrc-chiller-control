@@ -180,41 +180,18 @@ def render_snapshot(
     return render_status(snapshot, stale_after_s=stale_after_s), render_history(snapshot["history"])
 
 
-def create_app(
+def _build_controls(
     chiller: TarkChiller,
     *,
-    stale_after_s: float = 3.0,
-    allow_setpoints: bool = True,
-    allow_mode_changes: bool | None = None,
-    interval_s: float = 1.0,
-    csv_path: str | Path | None = None,
-    history_size: int = 3600,
-    on_shutdown: Callable[[], None] | None = None,
-) -> Dash:
-    """Creating/reloading the app does no I/O; buttons make explicit requests.
-
-    Use run_dashboard() for a standalone server with an enabled shutdown button.
-    Embedded hosts may supply their own thread-safe on_shutdown hook.
-    """
-    stale_after_s = _seconds(stale_after_s, "stale_after_s")
-    interval_s = _seconds(interval_s, "interval_s")
-    if type(history_size) is not int or history_size <= 0:
-        raise ValueError("history_size must be a positive integer")
-    if type(allow_setpoints) is not bool:
-        raise ValueError("allow_setpoints must be boolean")
-    if allow_mode_changes is None:
-        allow_mode_changes = allow_setpoints
-    if type(allow_mode_changes) is not bool:
-        raise ValueError("allow_mode_changes must be boolean")
-    modes_enabled = allow_mode_changes and chiller.supports_mode_control
-    app = Dash(
-        __name__, meta_tags=[{"name": "viewport", "content": "width=device-width, initial-scale=1"}]
-    )
-    app.title = "Chiller · Temperature monitor"
-    action_lock = Lock()
-    shut_down = Event()
+    modes_enabled: bool,
+    allow_setpoints: bool,
+    interval_s: float,
+    csv_path: str | Path | None,
+    on_shutdown: Callable[[], None] | None,
+) -> dbc.Card:
+    """Build controls from current settings; callbacks enforce each action's policy."""
     low, high = chiller.setpoint_range
-    controls = dbc.Card(
+    return dbc.Card(
         [
             html.H2("Session controls", className="panel-heading"),
             html.P(f"Port: {chiller.settings['port']}", className="panel-caption"),
@@ -338,6 +315,49 @@ def create_app(
         body=True,
     )
 
+
+def create_app(
+    chiller: TarkChiller,
+    *,
+    stale_after_s: float = 3.0,
+    allow_setpoints: bool = True,
+    allow_mode_changes: bool | None = None,
+    interval_s: float = 1.0,
+    csv_path: str | Path | None = None,
+    history_size: int = 3600,
+    on_shutdown: Callable[[], None] | None = None,
+) -> Dash:
+    """Creating/reloading the app does no I/O; buttons make explicit requests.
+
+    Use run_dashboard() for a standalone server with an enabled shutdown button.
+    Embedded hosts may supply their own thread-safe on_shutdown hook.
+    """
+    stale_after_s = _seconds(stale_after_s, "stale_after_s")
+    interval_s = _seconds(interval_s, "interval_s")
+    if type(history_size) is not int or history_size <= 0:
+        raise ValueError("history_size must be a positive integer")
+    if type(allow_setpoints) is not bool:
+        raise ValueError("allow_setpoints must be boolean")
+    if allow_mode_changes is None:
+        allow_mode_changes = allow_setpoints
+    if type(allow_mode_changes) is not bool:
+        raise ValueError("allow_mode_changes must be boolean")
+    modes_enabled = allow_mode_changes and chiller.supports_mode_control
+    app = Dash(
+        __name__, meta_tags=[{"name": "viewport", "content": "width=device-width, initial-scale=1"}]
+    )
+    app.title = "Chiller · Temperature monitor"
+    action_lock = Lock()
+    shut_down = Event()
+    controls = _build_controls(
+        chiller,
+        modes_enabled=modes_enabled,
+        allow_setpoints=allow_setpoints,
+        interval_s=interval_s,
+        csv_path=csv_path,
+        on_shutdown=on_shutdown,
+    )
+
     def layout() -> dbc.Container:
         status, figure = render_snapshot(chiller.snapshot(), stale_after_s=stale_after_s)
         header = html.Header(
@@ -448,6 +468,8 @@ def create_app(
             action_lock.release()
         return f"{mode} verified by controller readback. Check physical flow and panel separately."
 
+    # Timer refresh and session actions both update status/button labels.
+    # Actions give immediate feedback; allow_duplicate declares the two writers.
     @app.callback(
         Output("session-result", "children"),
         Output("refresh", "disabled"),
@@ -467,17 +489,20 @@ def create_app(
         interval: object,
         path: str | None,
     ) -> tuple[str, bool, html.Div, str]:
-        message, stopped = perform_session_action(interval, path)
+        message, disable_refresh = perform_session_action(ctx.triggered_id, interval, path)
         snapshot = chiller.snapshot()
         status = render_status(snapshot, stale_after_s=stale_after_s)
         return (
             message,
-            stopped,
+            disable_refresh,
             status,
             "Stop monitoring" if snapshot["running"] else "Start monitoring",
         )
 
-    def perform_session_action(interval: object, path: str | None) -> tuple[str, bool]:
+    def perform_session_action(
+        action: object, interval: object, path: str | None
+    ) -> tuple[str, bool]:
+        """Return feedback and whether refresh must stop; serialize lifecycle actions."""
         if not action_lock.acquire(blocking=False):
             return (
                 "Another session action is in progress; wait for it to finish.",
@@ -486,7 +511,6 @@ def create_app(
         try:
             if shut_down.is_set():
                 return "Dashboard has shut down. You can close this page.", True
-            action = ctx.triggered_id
             if action == "connect-device":
                 if chiller.is_connected:
                     return "Already connected.", False
