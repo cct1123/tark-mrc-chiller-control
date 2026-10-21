@@ -1,17 +1,16 @@
-"""Dash HTTP and presentation tests using the real simulator, driver and monitor."""
+"""Dash HTTP and presentation tests using the real simulator, driver and chiller."""
 
 import csv
 import re
-from dataclasses import replace
 from datetime import timedelta
 from json import dumps
 from threading import Event, Thread
 from time import monotonic, sleep
 
 import pytest
+from fakes import FakeChiller
 from plotly.utils import PlotlyJSONEncoder
 
-from tark_chiller import Simulator, TarkChiller
 from tark_chiller.gui import create_app, render_snapshot
 
 
@@ -28,11 +27,11 @@ def wait_for(predicate):
 
 @pytest.fixture
 def dashboard(tmp_path):
-    with TarkChiller(Simulator(time_constant_s=0.1)) as chiller:
+    with FakeChiller(time_constant_s=0.1) as chiller:
         path = tmp_path / "session.csv"
-        monitor = chiller.start_monitoring(interval_s=0.02, csv_path=path)
-        wait_for(lambda: monitor.snapshot().sample_count > 0)
-        yield chiller, monitor, create_app(chiller, monitor), path
+        chiller.start_monitoring(interval_s=0.02, csv_path=path)
+        wait_for(lambda: chiller.snapshot()["sample_count"] > 0)
+        yield chiller, create_app(chiller), path
 
 
 def refresh(app):
@@ -65,11 +64,11 @@ def submit(app, value):
 
 
 def test_simulator_monitor_csv_and_dash_share_real_readings(dashboard):
-    chiller, monitor, app, path = dashboard
+    chiller, app, path = dashboard
     response = submit(app, 18)
     assert response.status_code == 200
     assert "completed" in text(response.json)
-    wait_for(lambda: monitor.snapshot().latest.temperature_c < 19.5)
+    wait_for(lambda: chiller.snapshot()["history"][-1]["temperature_c"] < 19.5)
     response = refresh(app)
     assert response.status_code == 200
     content = response.json["response"]
@@ -82,7 +81,7 @@ def test_simulator_monitor_csv_and_dash_share_real_readings(dashboard):
     chiller.stop_monitoring()
     with path.open(encoding="utf-8", newline="") as stream:
         rows = list(csv.DictReader(stream))
-    assert len(rows) == monitor.snapshot().logged_samples
+    assert len(rows) == chiller.snapshot()["logged_samples"]
     assert float(rows[-1]["temperature_c"]) < 19.5
     assert float(rows[-1]["setpoint_c"]) == 18
 
@@ -108,7 +107,7 @@ def test_simulator_monitor_csv_and_dash_share_real_readings(dashboard):
     ],
 )
 def test_invalid_http_setpoint_cannot_change_target(dashboard, value):
-    chiller, _monitor, app, _path = dashboard
+    chiller, app, _path = dashboard
     response = submit(app, value)
     assert response.status_code == 200
     assert "Rejected" in text(response.json)
@@ -116,7 +115,7 @@ def test_invalid_http_setpoint_cannot_change_target(dashboard, value):
 
 
 def test_disconnected_write_returns_understandable_error(dashboard):
-    chiller, _monitor, app, _path = dashboard
+    chiller, app, _path = dashboard
     chiller.disconnect()
     response = submit(app, 18)
     assert response.status_code == 200
@@ -125,8 +124,8 @@ def test_disconnected_write_returns_understandable_error(dashboard):
 
 
 def test_read_only_dashboard_refuses_even_direct_callback_submission(dashboard):
-    chiller, monitor, _, _ = dashboard
-    app = create_app(chiller, monitor, allow_setpoints=False)
+    chiller, _, _ = dashboard
+    app = create_app(chiller, allow_setpoints=False)
     assert "Read-only session" in app.server.test_client().get("/_dash-layout").get_data(
         as_text=True
     )
@@ -136,12 +135,12 @@ def test_read_only_dashboard_refuses_even_direct_callback_submission(dashboard):
 
 
 def test_refresh_and_reload_do_not_start_or_read_a_device(dashboard, monkeypatch):
-    chiller, monitor, app, _path = dashboard
+    chiller, app, _path = dashboard
     chiller.stop_monitoring()
-    count = monitor.snapshot().sample_count
+    count = chiller.snapshot()["sample_count"]
 
     def forbidden(*_args, **_kwargs):
-        pytest.fail("Dashboard attempted to own device or monitor lifecycle")
+        pytest.fail("Dashboard attempted to own device or chiller lifecycle")
 
     for method in (
         "connect",
@@ -159,12 +158,12 @@ def test_refresh_and_reload_do_not_start_or_read_a_device(dashboard, monkeypatch
         assert "telemetry unavailable" in text(layout.json)
         assert "connect-device" not in text(layout.json)
         assert refresh(app).status_code == 200
-    assert monitor.snapshot().sample_count == count
-    assert not monitor.running
+    assert chiller.snapshot()["sample_count"] == count
+    assert not chiller.running
 
 
 def test_pending_device_read_does_not_block_gui_refresh(dashboard, monkeypatch):
-    chiller, monitor, app, _path = dashboard
+    chiller, app, _path = dashboard
     entered, release, responded = Event(), Event(), Event()
     original = chiller.read_temperature
 
@@ -186,7 +185,7 @@ def test_pending_device_read_does_not_block_gui_refresh(dashboard, monkeypatch):
     try:
         assert responded.wait(1), "GUI waited for the device instead of reading a snapshot"
         assert response[0].status_code == 200
-        assert monitor.running
+        assert chiller.running
     finally:
         release.set()
         thread.join(2)
@@ -195,11 +194,11 @@ def test_pending_device_read_does_not_block_gui_refresh(dashboard, monkeypatch):
 def test_reload_uses_latest_readback_and_current_monotonic_age(dashboard, monkeypatch):
     from tark_chiller import gui
 
-    chiller, monitor, app, _path = dashboard
+    chiller, app, _path = dashboard
     client = app.server.test_client()
     assert "20.00" in text(client.get("/_dash-layout").json)
     chiller.set_setpoint(18)
-    wait_for(lambda: monitor.snapshot().latest.setpoint_c == 18)
+    wait_for(lambda: chiller.snapshot()["history"][-1]["setpoint_c"] == 18)
     assert "18.00" in text(client.get("/_dash-layout").json)
     monkeypatch.setattr(gui, "monotonic", lambda: monotonic() + 10)
     result = text(client.get("/_dash-layout").json)
@@ -211,13 +210,16 @@ def test_reload_uses_latest_readback_and_current_monotonic_age(dashboard, monkey
 def test_old_readings_remain_in_history_but_are_not_live(dashboard, monkeypatch, running, stale):
     from tark_chiller import gui
 
-    _chiller, monitor, _app, _path = dashboard
-    snapshot = monitor.snapshot()
-    latest = replace(
-        snapshot.latest, timestamp_utc=snapshot.latest.timestamp_utc + timedelta(days=1)
+    chiller, _app, _path = dashboard
+    snapshot = chiller.snapshot()
+    latest = {
+        **snapshot["history"][-1],
+        "timestamp_utc": snapshot["history"][-1]["timestamp_utc"] + timedelta(days=1),
+    }
+    snapshot = {**snapshot, "running": running, "history": [latest]}
+    monkeypatch.setattr(
+        gui, "monotonic", lambda: latest["sampled_monotonic"] + (10 if stale else 0)
     )
-    snapshot = replace(snapshot, running=running, history=(latest,))
-    monkeypatch.setattr(gui, "monotonic", lambda: latest.sampled_monotonic + (10 if stale else 0))
     cards, figure = render_snapshot(snapshot)
     assert "No fresh reading" in text(cards)
     assert "20.00" not in text(cards)
@@ -226,22 +228,22 @@ def test_old_readings_remain_in_history_but_are_not_live(dashboard, monkeypatch,
 
 
 def test_fault_and_csv_failure_are_explicit(dashboard):
-    _chiller, monitor, _app, _path = dashboard
-    snapshot = monitor.snapshot()
-    failed = replace(
-        snapshot.latest,
-        temperature_c=None,
-        setpoint_c=None,
-        status=replace(snapshot.latest.status, connected=False),
-        error="Read timed out",
-    )
+    chiller, _app, _path = dashboard
+    snapshot = chiller.snapshot()
+    failed = {
+        **snapshot["history"][-1],
+        "temperature_c": None,
+        "setpoint_c": None,
+        "status": {**snapshot["history"][-1]["status"], "connected": False},
+        "error": "Read timed out",
+    }
     cards, figure = render_snapshot(
-        replace(
-            snapshot,
-            history=snapshot.history + (failed,),
-            logging_error="CSV disk full",
-            failed_samples=1,
-        )
+        {
+            **snapshot,
+            "history": snapshot["history"] + [failed],
+            "logging_error": "CSV disk full",
+            "failed_samples": 1,
+        }
     )
     assert all(
         word in text(cards)
@@ -252,18 +254,18 @@ def test_fault_and_csv_failure_are_explicit(dashboard):
 
 
 def test_csv_failure_preserves_temperature_and_empty_history_is_honest(dashboard):
-    _chiller, monitor, _app, _path = dashboard
-    snapshot = monitor.snapshot()
-    cards, _figure = render_snapshot(replace(snapshot, logging_error="CSV disk full"))
+    chiller, _app, _path = dashboard
+    snapshot = chiller.snapshot()
+    cards, _figure = render_snapshot({**snapshot, "logging_error": "CSV disk full"})
     assert "CSV Failed" in text(cards) and "20.00" in text(cards)
-    cards, figure = render_snapshot(replace(snapshot, history=(), sample_count=0))
+    cards, figure = render_snapshot({**snapshot, "history": [], "sample_count": 0})
     assert "Waiting for the first sample" in text(cards)
     assert "No sample" in text(cards) and "simulator" not in text(cards)
     assert "20.00" not in text(cards) and not figure.data[0].y
 
 
 def test_dashboard_serves_css_and_license_locally(dashboard):
-    _chiller, _monitor, app, _path = dashboard
+    _chiller, app, _path = dashboard
     client = app.server.test_client()
     styles = re.findall(
         r'<link[^>]+href="([^"]+\.css[^\"]*)"', client.get("/").get_data(as_text=True)
@@ -274,3 +276,17 @@ def test_dashboard_serves_css_and_license_locally(dashboard):
         assert response.status_code == 200 and "text/css" in response.content_type
     assert "Bootstrap  v5.3.8" in client.get(styles[0]).get_data(as_text=True)
     assert "The MIT License" in client.get("/assets/bootstrap-LICENSE.txt").get_data(as_text=True)
+
+
+def test_dashboard_follows_controller_monitoring_restart(dashboard):
+    chiller, app, _path = dashboard
+    chiller.stop_monitoring()
+    previous = chiller.snapshot()
+    chiller.set_setpoint(18)
+    chiller.start_monitoring(interval_s=0.01)
+    wait_for(lambda: bool(chiller.snapshot()["history"]))
+    assert chiller.snapshot()["history"][-1]["setpoint_c"] == 18
+    response = refresh(app)
+    assert response.status_code == 200
+    assert "18" in text(response.json)
+    assert not previous["running"] and previous["history"][-1]["setpoint_c"] == 20

@@ -1,6 +1,6 @@
 # CAL and T255P protocols: evidence and implemented subsets
 
-[Hardware tutorial](hardware.md) · [Driver source](../src/tark_chiller/serial.py)
+[Hardware tutorial](hardware.md) · [Driver source](../src/tark_chiller/controller.py)
 
 The CAL subset below is retained. [T255P](#thermotek-t255p-rev-c) is a separate
 explicitly selected protocol, not an alternate CAL address or serial setting.
@@ -100,7 +100,9 @@ operating region.
 
 ## Simulator scope and validation
 
-`CalSimulator().device()` supplies a `SerialDevice` with an in-memory endpoint.
+`CalSimulator().chiller()` supplies a disconnected `TarkChiller` whose serial
+factory returns the in-memory CAL endpoint. The same production protocol and
+transaction methods run for simulation and hardware.
 It processes the same RTU frames, security ordering, staged targets, commits,
 busy/errors and selected status registers. A staged value changes control only
 after exit-program; serial close leaves modeled control running. Initial target
@@ -136,7 +138,7 @@ linked, not redistributed.
   or unknown code fails closed. A partial/malformed reply is not a measurement.
 - One transaction at a time. Default response budget is 3 s per frame; an
   incomplete/invalid frame preserves a 3 s quarantine from request start before
-  another command on the same backend, even across close/reopen and with a shorter
+  another command on the same controller, even across close/reopen and with a shorter
   custom timeout. The input buffer is discarded before the next request.
 
 | Purpose | Request | Response data after command/error | Interpretation |
@@ -172,7 +174,7 @@ changes to RUN on the first watchdog exchange. The driver never sends G
 (run/standby), O (sensor selection), a startup target or an automatic rollback.
 The write path requires RUN, no aggregate alarm and six clear J flags; it then
 sends one M, checks the echoed value, and checks a subsequent H readback.
-Any failure/interrupt after starting M latches the backend closed, including
+Any failure/interrupt after starting M latches the port closed, including
 across reconnect. No write is retried. Sensor alarm makes temperature unavailable;
 other alarm flags remain reported diagnostics, not proof of safe conditions.
 

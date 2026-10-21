@@ -27,6 +27,21 @@ this checkout, or `"tark-mrc-chiller[gui] @ git+https://github.com/cct1123/tark-
 You can also install a built wheel with `python -m pip install path/to/package.whl`.
 Use the Python API directly from your own application.
 
+The source has three Python modules:
+
+| Module | Responsibility |
+| --- | --- |
+| `tark_chiller.controller` | CAL/T255P protocols, serial settings, device ownership, monitoring and CSV |
+| `tark_chiller.gui` | Optional dashboard consuming controller snapshots |
+| `tark_chiller.simulator` | Thermal model, memory protocol endpoints and simulator launcher |
+
+Version 0.7 uses explicit module imports and has no compatibility aliases.
+`TarkChiller(settings, protocol=...)` owns pyserial, monitoring and recording.
+Settings, status, samples and snapshots are plain dictionaries; returned settings
+and snapshots are detached copies. Simulators provide `.chiller()` to construct
+the same controller with a memory endpoint. Reinstall after upgrading and use the
+API shown below.
+
 <a id="hardware-quick-start"></a>
 
 ## ThermoTek T255P
@@ -36,15 +51,23 @@ example values below. T255P requires 9600 baud, 8N1 and XON/XOFF. Connect only t
 prepared, filled system: the startup U exchange can start an AUTO START unit.
 
 ```python
-from tark_chiller import TarkChiller
-from tark_chiller.serial import T255P, SerialDevice, SerialSettings
+from tark_chiller.controller import TarkChiller, T255P
 
-settings = SerialSettings(
-    port="COM5", baudrate=9600, bytesize=8, parity="N", stopbits=1,
-    xonxoff=True, rtscts=False, dsrdtr=False, rts=False, dtr=False,
-)
+settings = {
+    "port": "COM5",
+    "baudrate": 9600,
+    "bytesize": 8,
+    "parity": "N",
+    "stopbits": 1,
+    "xonxoff": True,
+    "rtscts": False,
+    "dsrdtr": False,
+    "rts": False,
+    "dtr": False,
+}
 with TarkChiller(
-    SerialDevice(settings, codec=T255P()),
+    settings,
+    protocol=T255P(),
     setpoint_range=(5.0, 45.0),
     coolant_source="ThermoTek T255P Rev C pp9/20; distilled water",
 ) as chiller:
@@ -70,14 +93,21 @@ The following values illustrate a 9600/8N1 unit at address 1; they are not disco
 results. The driver verifies supported identity codes, RTD input and Celsius.
 
 ```python
-from tark_chiller import TarkChiller
-from tark_chiller.serial import Cal33xx, SerialDevice, SerialSettings
+from tark_chiller.controller import TarkChiller, Cal33xx
 
-settings = SerialSettings(
-    port="COM5", baudrate=9600, bytesize=8, parity="N", stopbits=1,
-    xonxoff=False, rtscts=False, dsrdtr=False, rts=False, dtr=False,
-)
-with TarkChiller(SerialDevice(settings, codec=Cal33xx(address=1))) as chiller:
+settings = {
+    "port": "COM5",
+    "baudrate": 9600,
+    "bytesize": 8,
+    "parity": "N",
+    "stopbits": 1,
+    "xonxoff": False,
+    "rtscts": False,
+    "dsrdtr": False,
+    "rts": False,
+    "dtr": False,
+}
+with TarkChiller(settings, protocol=Cal33xx(address=1)) as chiller:
     print(chiller.read_temperature())
     print(chiller.read_setpoint())
     print(chiller.read_status())  # Includes model/firmware codes
@@ -91,8 +121,8 @@ then save/restart the controller and check readback. See the
 
 ## Recording and dashboard
 
-Inside either controller context, use `monitor = chiller.start_monitoring(
-csv_path="temperature.csv")`. Read `monitor.snapshot()` for bounded history,
+Inside either controller context, use `chiller.start_monitoring(
+csv_path="temperature.csv")`. Read `chiller.snapshot()` for bounded history,
 latest readings, sample counts and errors. Call `chiller.stop_monitoring()` to
 close the CSV and stop acquisition while keeping synchronous access available.
 Existing CSV files are refused. Failed samples have blank readings and an error.
@@ -100,8 +130,8 @@ See the [API reference](docs/api.md#monitoring) for a complete recording example
 
 <a id="optional-dashboard"></a>
 
-With the GUI extra installed, pass the controller and monitor to
-`tark_chiller.gui.create_app(chiller, monitor, allow_setpoints=False)` and run the
+With the GUI extra installed, pass the controller to
+`tark_chiller.gui.create_app(chiller, allow_setpoints=False)` and run the
 returned app with `app.run(debug=False, use_reloader=False)`. Browser refresh or
 closure does not stop acquisition; exit the host program to close its context.
 
@@ -114,12 +144,17 @@ closure does not stop acquisition; exit the host program to close its context.
 These commands use memory-only protocol endpoints and never open a hardware port:
 
 ```sh
-python -m tark_chiller --t255p --headless --duration 5 --csv demo.csv
-python -m tark_chiller --cal --headless --duration 5
+python -m tark_chiller.simulator --t255p --headless --duration 5 --csv demo.csv
+python -m tark_chiller.simulator --cal --headless --duration 5
 ```
 
 Omit `--headless` for the optional dashboard. Omitting both protocol flags selects
-the simple thermal model. Simulated dynamics do not predict physical cooling.
+the T255P simulator. `tark-chiller` launches the same simulator command.
+For Python use, import `CalSimulator` or `T255PSimulator` from
+`tark_chiller.simulator` and call `.chiller()` to create a disconnected
+`TarkChiller` with a memory-only serial factory. Optional controller arguments
+such as `timeout_s` and `reconnect_attempts` can be passed to `.chiller()`.
+Simulated dynamics do not predict physical cooling.
 
 ## Hardware use and recovery
 
@@ -127,14 +162,15 @@ Use one owning process per device. Construction opens nothing; context entry
 connects and context exit stops monitoring, closes CSV and disconnects.
 Shutdown lock waits and worker joining share one timeout budget, default five
 seconds: `disconnect(timeout_s=...)` or `stop_monitoring(timeout_s=...)`. A timeout
-can leave resources owned; let pending I/O finish and retry cleanup. OS port close
-is synchronous and can outlast the budget. Contexts preserve an existing exception
+can leave resources owned; let pending I/O finish and retry cleanup. A failed
+CSV close also retains its handle for another cleanup attempt. Port and CSV close
+are synchronous and can outlast the budget. Contexts preserve an existing exception
 and attach cleanup failures as notes. [Shutdown details](docs/api.md#shutdown-and-cleanup).
 
 **Disconnecting software does not stop the chiller or pump.** Follow the equipment
 shutdown procedure separately.
 
-Writes are never retried. An uncertain write closes and latches the backend;
+Writes are never retried. An uncertain write closes and latches the controller;
 inspect the actual panel/target before starting a new read-only session or
 considering a corrective target. Alarm flags do not establish flow, leak freedom,
 coolant suitability or calibration. Read the [setup and first-use checklist](docs/hardware.md),

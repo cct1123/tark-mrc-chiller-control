@@ -4,25 +4,45 @@ import math
 import subprocess
 import sys
 from concurrent.futures import ThreadPoolExecutor
+from pathlib import Path
 from threading import Event, Lock
 from time import sleep
 
 import pytest
+from fakes import FakeChiller, fake_settings
 
-from tark_chiller import ProtocolError, Simulator, TarkChiller
+from tark_chiller.controller import Cal33xx, ProtocolError, TarkChiller
 
 
-def test_public_controller_name_has_no_legacy_alias():
+def test_public_modules_have_no_legacy_aliases():
+    import importlib.util
+
     import tark_chiller
     from tark_chiller import controller
 
     assert TarkChiller.__name__ == "TarkChiller"
-    assert "TarkChiller" in tark_chiller.__all__
-    assert not hasattr(tark_chiller, "Chiller") and not hasattr(controller, "Chiller")
+    assert not hasattr(tark_chiller, "TarkChiller")
+    for name in (
+        "SerialDevice",
+        "Chiller",
+        "Simulator",
+        "Monitor",
+        "Codec",
+        "Status",
+        "Sample",
+        "Snapshot",
+        "SerialSettings",
+        "RS485Mode",
+    ):
+        assert not hasattr(controller, name)
+    for name in ("serial", "monitor", "__main__"):
+        assert importlib.util.find_spec(f"tark_chiller.{name}") is None
+    package = Path(controller.__file__).parent
+    assert {p.name for p in package.glob("*.py")} == {"controller.py", "gui.py", "simulator.py"}
 
 
 def test_read_recovery_budget_is_per_operation(monkeypatch):
-    backend = Simulator()
+    backend = FakeChiller(reconnect_attempts=1, reconnect_delay_s=0.001)
     original = backend._read_temperature
     calls = 0
 
@@ -34,7 +54,7 @@ def test_read_recovery_budget_is_per_operation(monkeypatch):
         return original()
 
     monkeypatch.setattr(backend, "_read_temperature", intermittent_read)
-    with TarkChiller(backend, reconnect_attempts=1, reconnect_delay_s=0.001) as chiller:
+    with backend as chiller:
         assert chiller.read_temperature() == 20
         assert chiller.read_temperature() == 20
         assert calls == 4 and chiller.is_connected
@@ -47,13 +67,16 @@ def test_core_import_and_construction_have_no_optional_imports_or_worker():
             "-c",
             """
 import sys, threading
-from tark_chiller import TarkChiller, Simulator
+from tark_chiller.controller import TarkChiller, T255P
+assert "tark_chiller.simulator" not in sys.modules
 before = threading.active_count()
-chiller = TarkChiller(Simulator())
+settings = dict(port="UNOPENED", baudrate=9600, bytesize=8, parity="N", stopbits=1,
+                xonxoff=True, rtscts=False, dsrdtr=False, rts=False, dtr=False)
+chiller = TarkChiller(settings, protocol=T255P())
 assert not chiller.is_connected
-assert not chiller.read_status().connected
+assert not chiller.read_status()["connected"]
 assert threading.active_count() == before
-assert not {'dash', 'plotly', 'serial', 'tark_chiller.monitor'} & sys.modules.keys()
+assert not {'dash', 'plotly', 'serial'} & sys.modules.keys()
 """,
         ],
         check=True,
@@ -61,7 +84,7 @@ assert not {'dash', 'plotly', 'serial', 'tark_chiller.monitor'} & sys.modules.ke
 
 
 def test_explicit_connection_and_context_cleanup():
-    chiller = TarkChiller(Simulator())
+    chiller = FakeChiller()
     for call in (
         chiller.read_temperature,
         chiller.read_setpoint,
@@ -72,7 +95,7 @@ def test_explicit_connection_and_context_cleanup():
             call()
     with pytest.raises(RuntimeError, match="experiment failed"):
         with chiller:
-            assert chiller.read_status().connected
+            assert chiller.read_status()["connected"]
             assert chiller.read_temperature() == pytest.approx(20)
             chiller.set_setpoint(18)
             assert chiller.read_setpoint() == 18
@@ -102,18 +125,17 @@ def test_explicit_connection_and_context_cleanup():
     ],
 )
 def test_invalid_setpoints_never_touch_backend(value):
-    class Untouchable:
-        def __getattribute__(self, name):
-            pytest.fail(f"Invalid setpoint accessed backend {name}")
+    def forbidden(**settings):
+        pytest.fail("Invalid setpoint attempted serial I/O")
 
-    chiller = TarkChiller(Untouchable())
+    chiller = TarkChiller(fake_settings(), protocol=Cal33xx(1), serial_factory=forbidden)
     with pytest.raises(ValueError):
         chiller.set_setpoint(value)
 
 
 @pytest.mark.parametrize("value", [2, 40])
 def test_default_bounds_inclusive(value):
-    with TarkChiller(Simulator()) as chiller:
+    with FakeChiller() as chiller:
         chiller.set_setpoint(value)
         assert chiller.read_setpoint() == value
 
@@ -136,12 +158,11 @@ def test_default_bounds_inclusive(value):
 )
 def test_custom_bounds_need_valid_limits_and_provenance(config):
     with pytest.raises(ValueError):
-        TarkChiller(Simulator(), **config)
+        FakeChiller(**config)
 
 
 def test_custom_coolant_explicit_immutable_configuration():
-    with TarkChiller(
-        Simulator(),
+    with FakeChiller(
         setpoint_range=(-5, 30),
         coolant="test mixture",
         coolant_source="test only; no physical suitability claim",
@@ -158,28 +179,28 @@ def test_custom_coolant_explicit_immutable_configuration():
 @pytest.mark.parametrize("value", [True, "20", None, math.nan, math.inf])
 @pytest.mark.parametrize("operation", ["temperature", "setpoint"])
 def test_bad_backend_reading_suspends_without_retry(value, operation, monkeypatch):
-    backend = Simulator()
+    backend = FakeChiller(reconnect_attempts=2)
     monkeypatch.setattr(backend, f"_read_{operation}", lambda: value)
-    with TarkChiller(backend, reconnect_attempts=2) as chiller:
+    with backend as chiller:
         with pytest.raises(ProtocolError):
             getattr(chiller, f"read_{operation}")()
         assert not chiller.is_connected
-        assert "suspended" in chiller.read_status().detail
+        assert "suspended" in chiller.read_status()["detail"]
         with pytest.raises(ConnectionError):
             chiller.read_temperature()
 
 
 def test_outside_write_limits_reading_is_visible(monkeypatch):
-    backend = Simulator()
+    backend = FakeChiller()
     monkeypatch.setattr(backend, "_read_temperature", lambda: -3)
     monkeypatch.setattr(backend, "_read_setpoint", lambda: 45)
-    with TarkChiller(backend) as chiller:
+    with backend as chiller:
         assert chiller.read_temperature() == -3
         assert chiller.read_setpoint() == 45
 
 
 def test_multiple_instruments_and_serialized_reads_writes():
-    class SlowSimulator(Simulator):
+    class SlowSimulator(FakeChiller):
         active = maximum = 0
         guard = Lock()
 
@@ -199,7 +220,7 @@ def test_multiple_instruments_and_serialized_reads_writes():
             super()._write_setpoint(value)
 
     backend = SlowSimulator()
-    with TarkChiller(backend) as chiller, TarkChiller(Simulator()) as other:
+    with backend as chiller, FakeChiller() as other:
         with ThreadPoolExecutor(max_workers=8) as pool:
             list(
                 pool.map(
@@ -214,7 +235,7 @@ def test_multiple_instruments_and_serialized_reads_writes():
 
 def test_simulator_thermal_response_and_disconnected_pause():
     now = [0.0]
-    with TarkChiller(Simulator(clock=lambda: now[0], time_constant_s=10)) as chiller:
+    with FakeChiller(clock=lambda: now[0], time_constant_s=10) as chiller:
         chiller.set_setpoint(10)
         now[0] = 10
         expected = 10 + 10 * math.exp(-1)
@@ -233,14 +254,14 @@ def test_simulator_thermal_response_and_disconnected_pause():
 )
 def test_recovery_configuration_is_bounded(config):
     with pytest.raises(ValueError):
-        TarkChiller(Simulator(), **config)
+        FakeChiller(**config)
 
 
 def test_cancelled_queued_setpoint_does_not_cross_reconnect(monkeypatch):
     from threading import current_thread
 
     entered, release, queued, cancelled = Event(), Event(), Event(), Event()
-    backend = Simulator()
+    backend = FakeChiller()
     original_read = backend._read_temperature
 
     def blocking_read():
@@ -249,7 +270,7 @@ def test_cancelled_queued_setpoint_does_not_cross_reconnect(monkeypatch):
         return original_read()
 
     monkeypatch.setattr(backend, "_read_temperature", blocking_read)
-    chiller = TarkChiller(backend)
+    chiller = backend
     chiller.connect()
     lock, intent = chiller._lock, chiller._intent
 
@@ -302,7 +323,7 @@ def test_cancelled_queued_setpoint_does_not_cross_reconnect(monkeypatch):
 @pytest.mark.parametrize("method", ["disconnect", "stop_monitoring"])
 @pytest.mark.parametrize("timeout", [0, -1, True, math.nan, math.inf])
 def test_invalid_shutdown_timeout_preserves_connection(method, timeout):
-    with TarkChiller(Simulator()) as chiller:
+    with FakeChiller() as chiller:
         with pytest.raises(ValueError):
             getattr(chiller, method)(timeout)
         assert chiller.read_temperature() == 20
@@ -310,7 +331,7 @@ def test_invalid_shutdown_timeout_preserves_connection(method, timeout):
 
 @pytest.mark.parametrize("lock_name", ["_intent_lock", "_monitor_lock", "_lock"])
 def test_disconnect_timeout_includes_each_lock_and_allows_retry(lock_name):
-    chiller = TarkChiller(Simulator())
+    chiller = FakeChiller()
     chiller.connect()
     lock = getattr(chiller, lock_name)
     with ThreadPoolExecutor(1) as pool:
@@ -323,3 +344,35 @@ def test_disconnect_timeout_includes_each_lock_and_allows_retry(lock_name):
             lock.release()
             chiller.disconnect()
     assert not chiller.is_connected
+
+
+@pytest.mark.parametrize(
+    "status",
+    [
+        None,
+        [],
+        {},
+        {"connected": 1, "backend": "simulator", "detail": "test"},
+        {"connected": True, "backend": "", "detail": "test"},
+        {"connected": True, "backend": "simulator", "detail": None},
+    ],
+)
+def test_invalid_status_dictionary_is_a_protocol_error(status, monkeypatch):
+    backend = FakeChiller()
+    monkeypatch.setattr(backend, "_read_status", lambda: status)
+    with backend as chiller:
+        with pytest.raises(ProtocolError, match="invalid status"):
+            chiller.read_status()
+        assert not chiller.is_connected
+
+
+def test_status_dictionary_is_detached_from_backend(monkeypatch):
+    backend = FakeChiller()
+    status = {"connected": True, "backend": "simulator", "detail": "test"}
+    monkeypatch.setattr(backend, "_read_status", lambda: status)
+    with backend as chiller:
+        returned = chiller.read_status()
+        assert type(returned) is dict
+        returned["detail"] = "caller edit"
+        assert chiller.read_status() == status
+        assert status["detail"] == "test"

@@ -7,20 +7,13 @@ and independent ASCII data fixtures complement driver/emulator agreement.
 import json
 import math
 from concurrent.futures import ThreadPoolExecutor
-from dataclasses import replace
 from threading import Event
 from time import monotonic, sleep
 
 import pytest
 
-from tark_chiller import ProtocolError, TarkChiller
-from tark_chiller.serial import (
-    T255P,
-    RS485Mode,
-    SerialDevice,
-    T255PSimulator,
-    _t255p_frame,
-)
+from tark_chiller.controller import T255P, ProtocolError, TarkChiller, _t255p_frame
+from tark_chiller.simulator import T255PSimulator
 
 
 def setup(*, writable=True, timeout=0.02, clock=None, reconnect_attempts=0):
@@ -33,16 +26,9 @@ def setup(*, writable=True, timeout=0.02, clock=None, reconnect_attempts=0):
         return write(request)
 
     endpoint.write = capture
-    device = SerialDevice(
-        endpoint.device().settings,
-        codec=T255P(writable),
-        serial_factory=endpoint.factory,
+    chiller = endpoint.chiller(
+        allow_writes=writable,
         timeout_s=timeout,
-    )
-    chiller = TarkChiller(
-        device,
-        setpoint_range=(5.0, 45.0),
-        coolant_source="T255P Rev C pp9/20",
         reconnect_attempts=reconnect_attempts,
         reconnect_delay_s=0.001,
     )
@@ -82,7 +68,7 @@ def test_connect_read_and_write_command_order_and_no_mode_command():
         assert endpoint.mode == "2" and endpoint.remote_active
         assert c.read_temperature() == 20
         assert c.read_setpoint() == 20
-        assert "human-selected; identity not queried" in c.read_status().detail
+        assert "human-selected; identity not queried" in c.read_status()["detail"]
         requests.clear()
         c.set_setpoint(29.5)
         assert requests == [b".U83\r", b".J78\r", b".M+29546\r", b".H0A6\r"]
@@ -114,10 +100,14 @@ def test_public_water_policy_rejects_without_io(value):
 @pytest.mark.parametrize("target", [2, 4.9, 45.1, 20.01])
 def test_backend_guard_precedes_all_io_even_with_broader_host_policy(target):
     _, endpoint, requests = setup()
-    device = SerialDevice(
-        endpoint.device().settings, codec=T255P(True), serial_factory=endpoint.factory
+    device = TarkChiller(
+        endpoint.chiller().settings,
+        protocol=T255P(True),
+        serial_factory=endpoint.factory,
+        setpoint_range=(-5.0, 50.0),
+        coolant_source="Adversarial test",
     )
-    c = TarkChiller(device, setpoint_range=(-5.0, 50.0), coolant_source="Adversarial test")
+    c = device
     with c:
         before = len(requests)
         with pytest.raises(ProtocolError):
@@ -154,8 +144,8 @@ def test_invalid_wire_settings_refuse_before_factory(changes):
     def forbidden(**kwargs):
         pytest.fail("Invalid settings reached endpoint factory")
 
-    d = SerialDevice(
-        replace(endpoint.device().settings, **changes), codec=T255P(), serial_factory=forbidden
+    d = TarkChiller(
+        {**endpoint.chiller().settings, **changes}, protocol=T255P(), serial_factory=forbidden
     )
     with pytest.raises(ProtocolError, match="9600/8N1"):
         d.connect()
@@ -164,12 +154,18 @@ def test_invalid_wire_settings_refuse_before_factory(changes):
 
 def test_rs485_refused_and_response_budget_defaults_to_three_seconds():
     endpoint = T255PSimulator()
-    assert endpoint.device().timeout_s == 3
-    d = SerialDevice(
-        endpoint.device().settings,
-        codec=T255P(),
+    assert endpoint.chiller().timeout_s == 3
+    d = TarkChiller(
+        endpoint.chiller().settings,
+        protocol=T255P(),
         serial_factory=endpoint.factory,
-        rs485=RS485Mode(True, False, False, None, None),
+        rs485={
+            "rts_level_for_tx": True,
+            "rts_level_for_rx": False,
+            "loopback": False,
+            "delay_before_tx": None,
+            "delay_before_rx": None,
+        },
     )
     with pytest.raises(ProtocolError, match="RS-232"):
         d.connect()
@@ -264,7 +260,7 @@ def test_alarm_status_is_diagnostic_and_all_alarm_flags_inhibit_writes(index):
     c, endpoint, requests = setup()
     with c:
         endpoint.alarms = "0" * index + "1" + "0" * (5 - index)
-        detail = c.read_status().detail
+        detail = c.read_status()["detail"]
         name = ("float_switch", "high_temp", "low_temp", "sensor", "eeprom", "watchdog")[index]
         assert f"{name}=1" in detail and "flow/leak unknown" in detail
         with pytest.raises(ProtocolError, match="no active alarms"):
@@ -333,11 +329,17 @@ def test_uncertain_write_latches_without_replay_or_cleanup_commands(fault):
 
 
 def test_short_timeout_quarantines_recovery_and_discards_old_reply(monkeypatch):
-    import tark_chiller.serial as serial
+    import tark_chiller.controller as serial
+    import tark_chiller.simulator as simulator
 
     now = [100.0]
     monkeypatch.setattr(serial, "perf_counter", lambda: now[0])
-    monkeypatch.setattr(serial, "sleep", lambda seconds: now.__setitem__(0, now[0] + seconds))
+
+    def advance(seconds):
+        now[0] += seconds
+
+    monkeypatch.setattr(serial, "sleep", advance)
+    monkeypatch.setattr(simulator, "sleep", advance)
     c, endpoint, _ = setup(clock=lambda: now[0], reconnect_attempts=1, timeout=0.1)
     times = []
     original = endpoint._respond
@@ -366,7 +368,7 @@ def test_short_timeout_quarantines_recovery_and_discards_old_reply(monkeypatch):
 def test_disconnect_cancels_quarantine_before_recovery_handshake(monkeypatch):
     c, endpoint, requests = setup(reconnect_attempts=1)
     waiting = Event()
-    original_wait = SerialDevice.reconnect_wait_s.fget
+    original_wait = TarkChiller._reconnect_wait_s.fget
 
     def quarantine(device):
         delay = original_wait(device)
@@ -374,7 +376,7 @@ def test_disconnect_cancels_quarantine_before_recovery_handshake(monkeypatch):
             waiting.set()
         return delay
 
-    monkeypatch.setattr(SerialDevice, "reconnect_wait_s", property(quarantine))
+    monkeypatch.setattr(TarkChiller, "_reconnect_wait_s", property(quarantine))
     c.connect()
     original = endpoint._respond
     endpoint._respond = lambda r: b"" if r[1:2] == b"I" else original(r)
@@ -469,13 +471,13 @@ def test_monitor_reports_sensor_failure_as_blank_rows(tmp_path):
     c, endpoint, _ = setup()
     path = tmp_path / "t255p.csv"
     with c:
-        monitor = c.start_monitoring(interval_s=0.01, csv_path=path)
-        wait_for(lambda: monitor.snapshot().sample_count > 0)
+        c.start_monitoring(interval_s=0.01, csv_path=path)
+        wait_for(lambda: c.snapshot()["sample_count"] > 0)
         endpoint.alarms = "000100"
-        wait_for(lambda: monitor.snapshot().failed_samples > 0)
+        wait_for(lambda: c.snapshot()["failed_samples"] > 0)
         c.stop_monitoring()
-        snapshot = monitor.snapshot()
-        assert snapshot.failed_samples and not snapshot.latest.status.connected
+        snapshot = c.snapshot()
+        assert snapshot["failed_samples"] and (not snapshot["history"][-1]["status"]["connected"])
     rows = list(csv.DictReader(path.open(newline="")))
     assert any(r["error"] and r["temperature_c"] == r["setpoint_c"] == "" for r in rows)
 
@@ -485,9 +487,9 @@ def test_dashboard_identifies_t255p_and_does_not_claim_physical_safety():
 
     c, _, _ = setup()
     with c:
-        monitor = c.start_monitoring(interval_s=0.01)
-        wait_for(lambda: monitor.snapshot().sample_count > 0)
-        app = create_app(c, monitor, allow_setpoints=False)
+        c.start_monitoring(interval_s=0.01)
+        wait_for(lambda: c.snapshot()["sample_count"] > 0)
+        app = create_app(c, allow_setpoints=False)
         layout = json.dumps(app.server.test_client().get("/_dash-layout").get_json())
         assert "T255P" in layout and "LABORATORY CHILLER" in layout
         assert "flow/leak telemetry unavailable" in layout and "human-selected" in layout

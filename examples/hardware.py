@@ -1,17 +1,16 @@
 """Shared hardware setup for the four tutorials. Importing opens nothing."""
 
-from typing import Literal
+from typing import Any, Literal
 
-from tark_chiller import ProtocolError, TarkChiller
-from tark_chiller.serial import T255P, Cal33xx, RS485Mode, SerialDevice, SerialSettings
+from tark_chiller.controller import T255P, Cal33xx, ProtocolError, TarkChiller
 
 # Enter values from your identified unit and adapter; see examples/README.md.
 DEVICE_MODEL: Literal["cal", "t255p"] | None = None
-SERIAL_SETTINGS: SerialSettings | None = None
+SERIAL_SETTINGS: dict[str, Any] | None = None
 CAL_ADDRESS: int | None = None  # CAL only: actual address, 1–247.
 EXPECTED_MODEL: int | None = None  # CAL writes: exact codes from tutorial 01.
 EXPECTED_FIRMWARE: int | None = None
-RS485_MODE: RS485Mode | None = None  # CAL only, if the adapter needs native direction control.
+RS485_MODE: dict[str, Any] | None = None  # CAL only, if the adapter needs native direction control.
 
 
 def create_chiller(*, allow_writes: bool = False) -> TarkChiller:
@@ -25,7 +24,9 @@ def create_chiller(*, allow_writes: bool = False) -> TarkChiller:
         if CAL_ADDRESS is not None or EXPECTED_MODEL is not None or EXPECTED_FIRMWARE is not None:
             raise ProtocolError("T255P does not use CAL identity/address settings; clear them")
         return TarkChiller(
-            SerialDevice(SERIAL_SETTINGS, codec=T255P(allow_writes), rs485=RS485_MODE),
+            SERIAL_SETTINGS,
+            protocol=T255P(allow_writes),
+            rs485=RS485_MODE,
             setpoint_range=(5.0, 45.0),
             coolant_source="ThermoTek T255P Rev C pp9/20; verify installed distilled water",
         )
@@ -35,4 +36,4 @@ def create_chiller(*, allow_writes: bool = False) -> TarkChiller:
             "No port was opened."
         )
     protocol = Cal33xx(CAL_ADDRESS, allow_writes, EXPECTED_MODEL, EXPECTED_FIRMWARE)
-    return TarkChiller(SerialDevice(SERIAL_SETTINGS, codec=protocol, rs485=RS485_MODE))
+    return TarkChiller(SERIAL_SETTINGS, protocol=protocol, rs485=RS485_MODE)

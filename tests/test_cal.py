@@ -6,13 +6,12 @@ the published PV vector and literal register/sequence assertions are independent
 """
 
 import math
-from dataclasses import replace
 from time import sleep
 
 import pytest
 
-from tark_chiller import ProtocolError, TarkChiller
-from tark_chiller.serial import Cal33xx, CalSimulator, SerialDevice, _rtu
+from tark_chiller.controller import Cal33xx, ProtocolError, TarkChiller, _rtu
+from tark_chiller.simulator import CalSimulator
 
 
 def setup(*, writable=True, timeout=0.03, endpoint=None):
@@ -25,14 +24,7 @@ def setup(*, writable=True, timeout=0.03, endpoint=None):
         return original(request)
 
     endpoint.write = capture
-    device = endpoint.device()
-    device = SerialDevice(
-        device.settings,
-        codec=Cal33xx(1, writable, 1, 2),
-        serial_factory=endpoint.factory,
-        timeout_s=timeout,
-    )
-    return TarkChiller(device), endpoint, requests
+    return endpoint.chiller(allow_writes=writable, timeout_s=timeout), endpoint, requests
 
 
 def words(requests, function):
@@ -65,7 +57,7 @@ def test_identification_reads_only_and_five_write_sequence():
         assert words(requests, 3) == [(0x04FC, 1), (0x04FD, 1), (0x0198, 1), (0x0199, 1)]
         assert not words(requests, 6)
         assert c.read_setpoint() == 10
-        assert c.read_status().backend == "simulator"
+        assert c.read_status()["backend"] == "simulator"
         requests.clear()
         c.set_setpoint(18.5)
         assert c.read_setpoint() == 18.5
@@ -124,14 +116,12 @@ def test_wrong_identity_units_or_input_refused_without_writes(register, value):
 )
 def test_invalid_cal_settings_stop_before_port_creation(changes):
     s = CalSimulator()
-    d = s.device()
+    d = s.chiller()
 
     def forbidden(**kwargs):
         pytest.fail("Port creation attempted")
 
-    c = TarkChiller(
-        SerialDevice(replace(d.settings, **changes), codec=Cal33xx(1), serial_factory=forbidden)
-    )
+    c = TarkChiller({**d.settings, **changes}, protocol=Cal33xx(1), serial_factory=forbidden)
     with pytest.raises(ProtocolError, match="CAL needs"):
         c.connect()
 
@@ -305,7 +295,7 @@ def test_simulator_stages_until_commit_and_keeps_controlling_after_serial_close(
     assert endpoint._model._read_setpoint() == 18
     endpoint.close()
     now[0] = 30
-    with TarkChiller(endpoint.device()) as c:
+    with endpoint.chiller() as c:
         assert c.read_temperature() == pytest.approx(18 + 2 / math.e, abs=0.05)
 
 
@@ -315,14 +305,14 @@ def test_protocol_simulator_monitor_csv_and_gui(tmp_path):
     c, _, _ = setup()
     with c:
         c.set_setpoint(18)
-        m = c.start_monitoring(interval_s=0.05, csv_path=tmp_path / "cal.csv")
+        c.start_monitoring(interval_s=0.05, csv_path=tmp_path / "cal.csv")
         sleep(0.5)
-        app = create_app(c, m)
+        app = create_app(c)
         assert app.server.test_client().get("/").status_code == 200
         c.stop_monitoring()
-        s = m.snapshot()
-        assert s.sample_count >= 2 and s.failed_samples == 0 and not s.logging_error
-        assert all(x.status.backend == "simulator" for x in s.history)
+        s = c.snapshot()
+        assert s["sample_count"] >= 2 and s["failed_samples"] == 0 and (not s["logging_error"])
+        assert all((x["status"]["backend"] == "simulator" for x in s["history"]))
 
 
 @pytest.mark.parametrize("failure", ["mismatch", "timeout"])
@@ -347,7 +337,7 @@ def test_fail_display_invalidates_measurement_but_status_is_diagnostic():
     c, endpoint, _ = setup()
     with c:
         endpoint.registers[0x0306] = 0x26
-        assert "INPT FAIL" in c.read_status().detail
+        assert "INPT FAIL" in c.read_status()["detail"]
         with pytest.raises(ProtocolError, match="reports FAIL"):
             c.read_temperature()
 
@@ -356,7 +346,5 @@ def test_fail_display_invalidates_measurement_but_status_is_diagnostic():
 def test_documented_firmware_codes_are_accepted_read_only(firmware):
     s = CalSimulator()
     s.registers[0x04FD] = firmware
-    with TarkChiller(
-        SerialDevice(s.device().settings, codec=Cal33xx(1), serial_factory=s.factory)
-    ) as c:
-        assert f"firmware=0x{firmware:04x}" in c.read_status().detail
+    with TarkChiller(s.chiller().settings, protocol=Cal33xx(1), serial_factory=s.factory) as c:
+        assert f"firmware=0x{firmware:04x}" in c.read_status()["detail"]

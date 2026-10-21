@@ -20,31 +20,28 @@ csv_path = Path("outputs") / f"hardware_{stamp}.csv"
 with create_chiller() as chiller:
     # 2. Start one acquisition worker. It reads temperature, target and status,
     # flushes CSV rows and retains bounded history for snapshot() readers.
-    monitor = chiller.start_monitoring(interval_s=INTERVAL_S, csv_path=csv_path)
+    chiller.start_monitoring(interval_s=INTERVAL_S, csv_path=csv_path)
     deadline = monotonic() + DURATION_S
-    try:
-        while monotonic() < deadline:
-            snapshot = monitor.snapshot()  # Memory only; no extra device query.
-            if snapshot.service_error or snapshot.logging_error or not snapshot.running:
-                raise RuntimeError(
-                    snapshot.service_error or snapshot.logging_error or "Monitoring stopped"
-                )
-            if snapshot.failed_samples:
-                raise RuntimeError(
-                    "A hardware poll failed. Inspect the CSV error column and device."
-                )
-            sleep(0.1)
-    finally:
-        # 3. Join the worker and close CSV, including after Ctrl+C or an error.
-        chiller.stop_monitoring()
+    while monotonic() < deadline:
+        snapshot = chiller.snapshot()  # Memory only; no extra device query.
+        if snapshot["service_error"] or snapshot["logging_error"] or (not snapshot["running"]):
+            raise RuntimeError(
+                snapshot["service_error"] or snapshot["logging_error"] or "Monitoring stopped"
+            )
+        if snapshot["failed_samples"]:
+            raise RuntimeError("A hardware poll failed. Inspect the CSV error column and device.")
+        sleep(0.1)
+    # 3. Finish recording before inspecting the final counters. If the loop
+    # raises, the controller context cleans up and preserves that error.
+    chiller.stop_monitoring()
 
     # Catch a failure in the last in-flight poll or while closing the CSV, too.
-    snapshot = monitor.snapshot()
-    if snapshot.service_error or snapshot.logging_error or snapshot.failed_samples:
+    snapshot = chiller.snapshot()
+    if snapshot["service_error"] or snapshot["logging_error"] or snapshot["failed_samples"]:
         raise RuntimeError(
-            snapshot.service_error or snapshot.logging_error or "A hardware poll failed"
+            snapshot["service_error"] or snapshot["logging_error"] or "A hardware poll failed"
         )
-    print(f"Samples: {snapshot.sample_count}; saved rows: {snapshot.logged_samples}")
+    print(f"Samples: {snapshot['sample_count']}; saved rows: {snapshot['logged_samples']}")
     print(f"CSV saved to: {csv_path.resolve()}")
 
 # Rows include UTC time, elapsed seconds, Celsius readings, status and errors.

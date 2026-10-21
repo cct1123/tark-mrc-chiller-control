@@ -10,8 +10,8 @@ from pathlib import Path
 
 import pytest
 
-from tark_chiller import ProtocolError
-from tark_chiller.serial import CalSimulator, T255PSimulator
+from tark_chiller.controller import ProtocolError
+from tark_chiller.simulator import CalSimulator, T255PSimulator
 
 ROOT = Path(__file__).resolve().parents[1]
 EXAMPLES = ROOT / "examples"
@@ -31,12 +31,12 @@ def configuration(monkeypatch):
 def hardware(configuration, monkeypatch, request):
     endpoint = CalSimulator() if request.param == "cal" else T255PSimulator()
     monkeypatch.setattr(configuration, "DEVICE_MODEL", request.param)
-    monkeypatch.setattr(configuration, "SERIAL_SETTINGS", endpoint.device().settings)
+    monkeypatch.setattr(configuration, "SERIAL_SETTINGS", endpoint.chiller().settings)
     if request.param == "cal":
         monkeypatch.setattr(configuration, "CAL_ADDRESS", 1)
         monkeypatch.setattr(configuration, "EXPECTED_MODEL", 1)
         monkeypatch.setattr(configuration, "EXPECTED_FIRMWARE", 2)
-    monkeypatch.setattr("tark_chiller.serial._serial_factory", endpoint.factory)
+    monkeypatch.setattr("serial.Serial", endpoint.factory)
     return configuration, endpoint
 
 
@@ -46,7 +46,7 @@ def run_tutorial(tmp_path, monkeypatch):
 
     def run(name, **constants):
         # Edit only tutorial constants to shorten runs and choose test CSV names.
-        # Imports, serial settings, codecs, controller and cleanup run unchanged.
+        # Imports, serial settings, protocols, controller and cleanup run unchanged.
         tree = ast.parse((EXAMPLES / name).read_text(encoding="utf-8"))
         for node in tree.body:
             if isinstance(node, ast.Assign):
@@ -70,8 +70,8 @@ def test_setup_import_and_construction_do_not_open_hardware(hardware):
     first, second = configuration.create_chiller(), configuration.create_chiller()
     assert not endpoint.is_open
     assert not first.is_connected and not second.is_connected
-    assert first._backend is not second._backend
-    assert first._backend._codec is not second._backend._codec
+    assert first._serial is None and second._serial is None
+    assert first._protocol is not second._protocol
     with first:
         assert first.read_temperature() == 20
         with pytest.raises(ProtocolError, match="writes disabled"):
@@ -84,10 +84,10 @@ def test_missing_configuration_refuses_before_endpoint_creation(
     configuration, monkeypatch, missing
 ):
     monkeypatch.setattr(configuration, "DEVICE_MODEL", "t255p")
-    monkeypatch.setattr(configuration, "SERIAL_SETTINGS", T255PSimulator().device().settings)
+    monkeypatch.setattr(configuration, "SERIAL_SETTINGS", T255PSimulator().chiller().settings)
     monkeypatch.setattr(configuration, missing, None)
     monkeypatch.setattr(
-        "tark_chiller.serial._serial_factory",
+        "serial.Serial",
         lambda **kwargs: pytest.fail("Incomplete configuration reached OS endpoint factory"),
     )
     with pytest.raises(ProtocolError, match="No port was opened"):
@@ -95,7 +95,7 @@ def test_missing_configuration_refuses_before_endpoint_creation(
 
 
 def test_cal_needs_address_and_t255p_refuses_leftover_cal_fields(configuration, monkeypatch):
-    monkeypatch.setattr(configuration, "SERIAL_SETTINGS", CalSimulator().device().settings)
+    monkeypatch.setattr(configuration, "SERIAL_SETTINGS", CalSimulator().chiller().settings)
     monkeypatch.setattr(configuration, "DEVICE_MODEL", "cal")
     with pytest.raises(ProtocolError, match="CAL_ADDRESS"):
         configuration.create_chiller()
@@ -120,7 +120,7 @@ def test_unconfigured_tutorials_never_open_a_port_or_write_data(name, tmp_path):
     assert list(tmp_path.iterdir()) == []
 
 
-def test_read_tutorial_uses_real_codec_and_closes(hardware, run_tutorial, capsys):
+def test_read_tutorial_uses_real_protocol_and_closes(hardware, run_tutorial, capsys):
     _, endpoint = hardware
     run_tutorial("01_read_status.py")
     output = capsys.readouterr().out
@@ -282,7 +282,7 @@ def test_dashboard_tutorial_is_read_only_and_joins_on_ctrl_c(
 
     monkeypatch.setattr(Dash, "run", run)
     result = run_tutorial("04_dashboard.py", CSV_PATH="outputs/dashboard.csv", INTERVAL_S=0.01)
-    assert not result["monitor"].snapshot().running
+    assert not result["chiller"].snapshot()["running"]
     assert not endpoint.is_open and not endpoint.applied_writes
     path = tmp_path / "outputs/dashboard.csv"
     assert path.is_file()
@@ -298,6 +298,41 @@ def test_documented_python_blocks_use_serial_driver(document, tmp_path, monkeypa
         directory.mkdir()
         monkeypatch.chdir(directory)
         endpoint = T255PSimulator() if "T255P" in source else CalSimulator()
-        monkeypatch.setattr("tark_chiller.serial._serial_factory", endpoint.factory)
+        monkeypatch.setattr("serial.Serial", endpoint.factory)
         exec(compile(source, document, "exec"), {})
         assert not endpoint.is_open and not endpoint.applied_writes
+
+
+def test_csv_tutorial_preserves_loop_error_when_stop_also_fails(
+    hardware, run_tutorial, monkeypatch
+):
+    from tark_chiller.controller import TarkChiller
+
+    _, endpoint = hardware
+    primary = RuntimeError("Original recording loop failure")
+
+    def failed_sleep(seconds):
+        raise primary
+
+    def failed_join(self, timeout_s):
+        raise TimeoutError("CSV worker cleanup failed")
+
+    # No worker is started; exercise tutorial ownership without leaving a thread.
+    monkeypatch.setattr(TarkChiller, "start_monitoring", lambda *args, **kwargs: None)
+    monkeypatch.setattr(
+        TarkChiller,
+        "snapshot",
+        lambda self: {
+            "running": True,
+            "service_error": "",
+            "logging_error": "",
+            "failed_samples": 0,
+        },
+    )
+    monkeypatch.setattr("time.sleep", failed_sleep)
+    monkeypatch.setattr(TarkChiller, "_join", failed_join)
+    with pytest.raises(RuntimeError) as raised:
+        run_tutorial("03_record_csv.py")
+    assert raised.value is primary
+    assert "CSV worker cleanup failed" in primary.__notes__[0]
+    assert not endpoint.is_open and not endpoint.applied_writes

@@ -15,9 +15,9 @@ with chiller:
     # 3. Inspect diagnostics. CAL detail includes actual model/firmware codes;
     # T255P detail includes mode/alarm flags, but cannot identify the unit.
     status = chiller.read_status()
-    print(f"Connected: {status.connected}")
-    print(f"Backend:   {status.backend}")
-    print(f"Details:   {status.detail}")
+    print(f"Connected: {status['connected']}")
+    print(f"Backend:   {status['backend']}")
+    print(f"Details:   {status['detail']}")
 
 # 4. Context exit releases the port, including after a failed read. If cleanup
 # also fails, the original error is preserved with a cleanup note. Retry cleanup

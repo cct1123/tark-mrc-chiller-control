@@ -1,101 +1,54 @@
-"""Synthetic test bytes and memory endpoints. Nothing here describes Tark hardware."""
+"""Fault injection around the actual memory-only CAL protocol simulator."""
 
 from collections import deque
 from threading import Event
 from time import sleep
 
-from tark_chiller.controller import ProtocolError
-from tark_chiller.serial import RS485Mode, SerialDevice, SerialSettings
+from tark_chiller.controller import Cal33xx, TarkChiller
+from tark_chiller.simulator import CalSimulator, _ThermalModel
 
 
-class FakeCodec:
+class FakeSerial(CalSimulator):
     def __init__(self):
-        self.request_id = 0
-
-    def encode(self, operation, value=None):
-        self.request_id += 1
-        return f"TEST|{self.request_id}|{operation}|{'' if value is None else value}\n".encode()
-
-    def is_complete(self, response):
-        return response.endswith(b"\n")
-
-    def decode(self, operation, response):
-        fields = response.decode().strip().split("|")
-        if len(fields) != 4 or fields[:3] != ["TEST", str(self.request_id), operation]:
-            raise ProtocolError("Unexpected synthetic response identity or operation")
-        if operation == "get_status":
-            if fields[3] != "connected":
-                raise ProtocolError("Malformed synthetic status")
-            return "Synthetic test only"
-        if operation == "set_setpoint":
-            if fields[3] != "ok":
-                raise ProtocolError("Malformed synthetic acknowledgement")
-            return None
-        return float(fields[3])
-
-
-class FakeSerial:
-    def __init__(self, response=None):
-        self.is_open = False
-        self.timeout = self.write_timeout = 1.0
+        super().__init__()
+        self.registers[0x007F] = 200
+        self._model._setpoint = 20
         self.rs485_mode = None
         self.open_count = self.close_count = self.write_count = self.read_count = 0
-        self.applied_writes = 0
-        self.setpoint = self.temperature = 20.0
-        self.response = response
+        self.response = None
         self.delay_s = 0.0
         self.open_error = self.read_error = self.write_error = self.close_error = None
         self.write_result = None
-        self.buffer = b""
         self.writes = deque(maxlen=128)
         self.factory_arguments = []
         self.read_pending = Event()
 
     def factory(self, **settings):
         assert settings["port"] is None
-        if self.is_open:
-            raise OSError("Synthetic endpoint already in use")
         self.factory_arguments.append(settings)
-        self.timeout = settings["timeout"]
-        self.write_timeout = settings["write_timeout"]
-        return self
+        return super().factory(**settings)
 
     def open(self):
         self.open_count += 1
         if self.open_error:
             raise self.open_error
-        self.is_open = True
+        super().open()
 
     def close(self):
         self.close_count += 1
         if self.close_error:
             raise self.close_error
-        self.is_open = False
-        self.buffer = b""
+        super().close()
 
     def write(self, request):
-        if not self.is_open:
-            raise OSError("Synthetic endpoint closed")
         self.write_count += 1
         self.writes.append(request)
         if self.write_error:
             raise self.write_error
-        tag, request_id, operation, value = request.decode().strip().split("|")
-        assert tag == "TEST"
-        if operation == "set_setpoint":
-            self.setpoint = float(value)
-            self.applied_writes += 1
-            result = "ok"
-        elif operation == "get_status":
-            result = "connected"
-        else:
-            result = self.temperature if operation == "get_temperature" else self.setpoint
-        self.buffer = (
-            f"TEST|{request_id}|{operation}|{result}\n".encode()
-            if self.response is None
-            else self.response
-        )
-        return len(request) if self.write_result is None else self.write_result
+        written = super().write(request)
+        if self.response is not None:
+            self._buffer = self.response
+        return written if self.write_result is None else self.write_result
 
     def read(self, size=1):
         self.read_count += 1
@@ -105,23 +58,71 @@ class FakeSerial:
         if self.delay_s:
             delay, self.delay_s = self.delay_s, 0
             sleep(delay)
-        if not self.buffer:
-            sleep(self.timeout)
-        result, self.buffer = self.buffer[:size], self.buffer[size:]
-        return result
+        return super().read(size)
 
 
 def fake_settings():
-    return SerialSettings("FAKE-ONLY", 19200, 7, "E", 2, False, False, False, False, False)
+    return {
+        "port": "FAKE-ONLY",
+        "baudrate": 19200,
+        "bytesize": 8,
+        "parity": "E",
+        "stopbits": 1,
+        "xonxoff": False,
+        "rtscts": False,
+        "dsrdtr": False,
+        "rts": False,
+        "dtr": False,
+    }
 
 
-def make_serial(*, endpoint=None, rs485=False, codec=None, **kwargs):
+def make_serial(*, endpoint=None, rs485=False, **kwargs):
     endpoint = endpoint if endpoint is not None else FakeSerial()
-    device = SerialDevice(
+    device = TarkChiller(
         fake_settings(),
-        rs485=RS485Mode(True, False, False, None, None) if rs485 else None,
-        codec=codec if codec is not None else FakeCodec(),
+        rs485={
+            "rts_level_for_tx": True,
+            "rts_level_for_rx": False,
+            "loopback": False,
+            "delay_before_tx": None,
+            "delay_before_rx": None,
+        }
+        if rs485
+        else None,
+        protocol=Cal33xx(1, True, 1, 2),
         serial_factory=endpoint.factory,
         **kwargs,
     )
     return device, endpoint
+
+
+class FakeChiller(TarkChiller):
+    """Unit-test I/O hooks; protocol integration uses the memory serial endpoints."""
+
+    def __init__(self, *, clock=None, time_constant_s=30.0, **options):
+        super().__init__(fake_settings(), protocol=Cal33xx(1), **options)
+        self._model = _ThermalModel(
+            time_constant_s=time_constant_s, **({"clock": clock} if clock else {})
+        )
+
+    @property
+    def _port_connected(self):
+        return self._model.is_connected
+
+    def _open_port(self):
+        self._model.connect()
+
+    def _close_port(self):
+        self._model.disconnect()
+
+    def _read_temperature(self):
+        return self._model._read_temperature()
+
+    def _read_setpoint(self):
+        return self._model._read_setpoint()
+
+    def _write_setpoint(self, value):
+        self._model._write_setpoint(value)
+
+    def _read_status(self):
+        return self._model._read_status()

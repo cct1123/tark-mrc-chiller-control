@@ -1,13 +1,13 @@
 """Optional dashboard: render monitor snapshots and submit validated setpoints."""
 
 from time import monotonic
+from typing import Any
 
 import dash_bootstrap_components as dbc
 import plotly.graph_objects as go
 from dash import Dash, Input, Output, State, dcc, html
 
 from .controller import ProtocolError, TarkChiller, _seconds
-from .monitor import Monitor, Snapshot
 
 
 def _reading(label: str, value: float | None, caption: str, color: str) -> dbc.Card:
@@ -25,24 +25,28 @@ def _reading(label: str, value: float | None, caption: str, color: str) -> dbc.C
 
 
 def render_snapshot(
-    snapshot: Snapshot, *, stale_after_s: float = 3.0
+    snapshot: dict[str, Any], *, stale_after_s: float = 3.0
 ) -> tuple[html.Div, go.Figure]:
-    latest = snapshot.latest
-    age = max(0.0, monotonic() - latest.sampled_monotonic) if latest else None
+    latest = snapshot["history"][-1] if snapshot["history"] else None
+    age = max(0.0, monotonic() - latest["sampled_monotonic"]) if latest else None
     stale = age is not None and age > stale_after_s
-    available = bool(latest and latest.status.connected and snapshot.running and not stale)
+    available = bool(
+        latest and latest["status"]["connected"] and snapshot["running"] and (not stale)
+    )
     connection = "Waiting for the first sample"
     if latest:
-        connection = "Last poll: Connected" if latest.status.connected else "Last poll: Unavailable"
-    if not snapshot.running:
+        connection = (
+            "Last poll: Connected" if latest["status"]["connected"] else "Last poll: Unavailable"
+        )
+    if not snapshot["running"]:
         freshness = "Monitoring stopped"
     elif stale:
         freshness = "Stale"
     else:
         freshness = "Monitoring"
-    if snapshot.logging_error:
+    if snapshot["logging_error"]:
         recording = "Failed"
-    elif snapshot.logging_enabled:
+    elif snapshot["logging_enabled"]:
         recording = "Enabled"
     else:
         recording = "Off"
@@ -52,9 +56,9 @@ def render_snapshot(
     issues = [
         issue
         for issue in (
-            latest.error if latest else "",
-            snapshot.service_error,
-            snapshot.logging_error,
+            latest["error"] if latest else "",
+            snapshot["service_error"],
+            snapshot["logging_error"],
         )
         if issue
     ]
@@ -64,13 +68,13 @@ def render_snapshot(
                 [
                     _reading(
                         "Temperature",
-                        latest.temperature_c if latest and available else None,
+                        latest["temperature_c"] if latest and available else None,
                         caption,
                         "temperature-color",
                     ),
                     _reading(
                         "Reported setpoint",
-                        latest.setpoint_c if latest and available else None,
+                        latest["setpoint_c"] if latest and available else None,
                         "Device readback" if available else "Waiting for fresh readback",
                         "setpoint-color",
                     ),
@@ -80,7 +84,7 @@ def render_snapshot(
                             html.Div(
                                 [
                                     dbc.Badge(
-                                        latest.status.backend if latest else "No sample",
+                                        latest["status"]["backend"] if latest else "No sample",
                                         color="light",
                                         text_color="dark",
                                     ),
@@ -94,7 +98,7 @@ def render_snapshot(
                             ),
                             html.P(connection, className="connection-status"),
                             html.P(
-                                f"CSV {recording} · Rows written {snapshot.logged_samples:,}",
+                                f"CSV {recording} · Rows written {snapshot['logged_samples']:,}",
                                 className="recording-status",
                             ),
                         ],
@@ -106,22 +110,22 @@ def render_snapshot(
             html.Div(
                 [
                     html.Span(
-                        f"Samples {snapshot.sample_count:,} · Failed polls {snapshot.failed_samples:,}"
+                        f"Samples {snapshot['sample_count']:,} · Failed polls {snapshot['failed_samples']:,}"
                     ),
                     html.Span("Software fault" if issues else "No reported software fault"),
                 ],
                 className="session-summary",
             ),
-            html.P(latest.status.detail if latest else "", className="panel-caption"),
+            html.P(latest["status"]["detail"] if latest else "", className="panel-caption"),
             *[dbc.Alert(issue, color="danger", className="fault-message") for issue in issues],
         ]
     )
-    times = [sample.timestamp_utc for sample in snapshot.history]
+    times = [sample["timestamp_utc"] for sample in snapshot["history"]]
     figure = go.Figure(
         [
             go.Scatter(
                 x=times,
-                y=[sample.temperature_c for sample in snapshot.history],
+                y=[sample["temperature_c"] for sample in snapshot["history"]],
                 name="Temperature",
                 mode="lines",
                 connectgaps=False,
@@ -129,7 +133,7 @@ def render_snapshot(
             ),
             go.Scatter(
                 x=times,
-                y=[sample.setpoint_c for sample in snapshot.history],
+                y=[sample["setpoint_c"] for sample in snapshot["history"]],
                 name="Setpoint",
                 mode="lines",
                 connectgaps=False,
@@ -154,7 +158,6 @@ def render_snapshot(
 
 def create_app(
     chiller: TarkChiller,
-    monitor: Monitor,
     *,
     stale_after_s: float = 3.0,
     allow_setpoints: bool = True,
@@ -211,7 +214,7 @@ def create_app(
     )
 
     def layout() -> dbc.Container:
-        status, figure = render_snapshot(monitor.snapshot(), stale_after_s=stale_after_s)
+        status, figure = render_snapshot(chiller.snapshot(), stale_after_s=stale_after_s)
         return dbc.Container(
             [
                 html.Header(
@@ -272,7 +275,7 @@ def create_app(
         Input("refresh", "n_intervals"),
     )
     def refresh(_ticks: int) -> tuple[html.Div, go.Figure]:
-        return render_snapshot(monitor.snapshot(), stale_after_s=stale_after_s)
+        return render_snapshot(chiller.snapshot(), stale_after_s=stale_after_s)
 
     @app.callback(
         Output("setpoint-result", "children"),

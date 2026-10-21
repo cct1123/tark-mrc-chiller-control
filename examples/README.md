@@ -32,18 +32,18 @@ Select `DEVICE_MODEL = "t255p"` and replace `SERIAL_SETTINGS = None` with this
 configuration, using the actual port and verified RTS/DTR levels instead of `...`:
 
 ```python
-SERIAL_SETTINGS = SerialSettings(
-    port=...,
-    baudrate=9600,
-    bytesize=8,
-    parity="N",
-    stopbits=1,
-    xonxoff=True,
-    rtscts=False,
-    dsrdtr=False,
-    rts=...,
-    dtr=...,
-)
+SERIAL_SETTINGS = {
+    "port": ...,
+    "baudrate": 9600,
+    "bytesize": 8,
+    "parity": "N",
+    "stopbits": 1,
+    "xonxoff": True,
+    "rtscts": False,
+    "dsrdtr": False,
+    "rts": ...,
+    "dtr": ...,
+}
 ```
 
 Leave CAL address/identity fields and `RS485_MODE` as `None`. The helper uses
@@ -62,18 +62,18 @@ Select `DEVICE_MODEL = "cal"`, enter the actual `CAL_ADDRESS` (1–247), and rep
 `SERIAL_SETTINGS = None` with verified settings:
 
 ```python
-SERIAL_SETTINGS = SerialSettings(
-    port=...,
-    baudrate=...,
-    bytesize=8,
-    parity=...,
-    stopbits=1,
-    xonxoff=False,
-    rtscts=False,
-    dsrdtr=False,
-    rts=...,
-    dtr=...,
-)
+SERIAL_SETTINGS = {
+    "port": ...,
+    "baudrate": ...,
+    "bytesize": 8,
+    "parity": ...,
+    "stopbits": 1,
+    "xonxoff": False,
+    "rtscts": False,
+    "dsrdtr": False,
+    "rts": ...,
+    "dtr": ...,
+}
 ```
 
 Match the actual baud rate and parity to the unit's menu. The driver requires a
@@ -85,7 +85,7 @@ Use `RS485_MODE` only when your verified adapter requires native direction contr
 ## 1. Connect and read
 
 [`01_read_status.py`](01_read_status.py) constructs the driver, connects through its
-context, and reads temperature, target and `Status`. Context exit disconnects,
+context, and reads temperature, target and a status dictionary. Context exit disconnects,
 including after a read error; a cleanup failure is attached to the original error.
 CAL diagnostics include actual model/firmware codes; T255P diagnostics report
 mode and alarms but do not identify the unit. Readings are sequential, not
@@ -127,11 +127,13 @@ duration-based run, not an exact row count.
 Each run creates a UTC-named file under `outputs/`. Rows contain UTC/elapsed time,
 Celsius readings, connection/status and errors; failed readings are blank.
 Existing files are refused and rows are flushed. A poll or recording error ends
-the script. `finally` joins the worker and closes CSV, including on Ctrl+C.
+the script. The controller context joins the worker and closes CSV on Ctrl+C or
+an error, preserving the original error if cleanup also fails. See
+[cleanup and retry](../docs/api.md#shutdown-and-cleanup) if resources remain owned.
 
 ## 4. Watch the dashboard
 
-[`04_dashboard.py`](04_dashboard.py) shares one hardware connection and monitor
+[`04_dashboard.py`](04_dashboard.py) uses one controller for hardware, monitoring and recording
 with the Dash app at <http://127.0.0.1:8050>. Both driver and dashboard disable
 target writes. Set `CSV_PATH` to a new filename if you also want recording; leave
 it `None` to watch without saving. The GUI shows sample age, failures and logging

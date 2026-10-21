@@ -28,7 +28,7 @@ Use the direct Python example in the README with these settings:
 | Baud/framing | 9600, 8 data bits, no parity, 1 stop bit |
 | Flow control | `xonxoff=True`, `rtscts=False`, `dsrdtr=False` |
 | Port / RTS / DTR | Actual port and verified adapter line levels |
-| Codec | `T255P()` initially; target writes disabled |
+| Protocol | `T255P()` initially; target writes disabled |
 | Water bounds | `setpoint_range=(5.0, 45.0)` with the documented coolant source |
 
 Port opening can toggle RTS/DTR. Verify the complete cable mapping. The manual's
@@ -60,7 +60,7 @@ again. A running unit continues running after communication is lost.
 
 For an uncertain target write, inspect the panel, target, mode and coolant state.
 Wait at least the 3 s response interval before a fresh read-only session; a new
-process cannot inherit the old backend's quarantine. Compare the actual target
+process cannot inherit the old controller's quarantine. Compare the actual target
 before any corrective request. Do not blindly retry, power-cycle or induce alarms
 as a communication fix.
 
@@ -82,14 +82,15 @@ or initialize the controller to discover them. Follow the
 | Framing | 8 bits, parity N/E/O matching the menu, one stop bit |
 | Flow control | XON/XOFF, RTS/CTS and DSR/DTR flow control disabled |
 | RTS / DTR | Explicit adapter/wiring levels |
-| Codec | `Cal33xx(address)` initially; writes disabled |
+| Protocol | `Cal33xx(address)` initially; writes disabled |
 | Application bounds | Default distilled-water policy 2–40 °C |
 
 The manufacturer's default 9600/8N1 is not a measurement of your unit; retrofit
 boards may use 1200. CAL terminal diagrams do not establish the MRC enclosure's
 connector pinout. Obtain matching cable/wiring information before connecting.
 
-Use `RS485Mode` only for an adapter requiring verified native direction settings.
+Supply an `rs485` dictionary only for an adapter requiring verified native
+direction settings; see the [configuration keys](api.md#functions).
 It requires explicit transmit/receive RTS levels, loopback and delays; OS support
 varies. This does not convert an RS-232 adapter into RS-485.
 
@@ -104,7 +105,7 @@ varies. This does not convert an RS-232 adapter into RS-485.
 | Set once | Use actual read identity codes as `expected_model`/`expected_firmware` with `allow_writes=True`. Expect security 5 → enter → SP1 → security 6 → exit, exact acknowledgements, target readback and keypad return. Exit saves and restarts the controller. |
 | Finish | Observe physical temperature, restore a target only when appropriate, close the context and shut equipment down separately. |
 
-The CAL backend supports nonnegative readings, RTD/Celsius and 0–40 °C targets
+The CAL protocol supports nonnegative readings, RTD/Celsius and 0–40 °C targets
 intersected with application bounds. Sub-zero writes are unsupported. The default
 response timeout is a software budget of 1 s per frame; actual serial and restart
 timing depend on the controller, adapter and OS and need physical measurement.
@@ -116,7 +117,7 @@ Disconnecting does not stop the chiller or pump. Use the equipment procedure if
 conditions require it, then inspect the actual state.
 
 A CAL interruption after the first write may leave the keypad locked, a staged
-target or a saved target. The backend closes and latches unusable. It does not
+target or a saved target. The controller closes its port and latches unusable. It does not
 send exit-program during cleanup: that command could save the staged value.
 Check panel/keypad/target and follow the controller's documented recovery before
 creating a new read-only session. Compare target and units before considering
