@@ -8,7 +8,6 @@ from threading import Event, Thread
 from time import monotonic, sleep
 
 import pytest
-from fakes import FakeChiller
 from plotly.utils import PlotlyJSONEncoder
 
 from tark_chiller.controller import ProtocolError
@@ -27,12 +26,10 @@ def wait_for(predicate):
         sleep(0.005)
 
 
-def test_latched_protocol_fault_stops_polling_and_is_visible_in_dashboard(monkeypatch):
-    def fail():
-        raise ProtocolError("Invalid sensor response")
-
-    with FakeChiller() as chiller:
-        monkeypatch.setattr(chiller, "_read_sample", fail)
+def test_latched_protocol_fault_stops_polling_and_is_visible_in_dashboard():
+    endpoint = T255PSimulator()
+    with endpoint.chiller() as chiller:
+        endpoint.alarms = "000100"  # Sensor alarm: the production protocol rejects PV.
         chiller.start_monitoring(interval_s=0.01)
         wait_for(lambda: not chiller.running)
         snapshot = chiller.snapshot()
@@ -40,7 +37,7 @@ def test_latched_protocol_fault_stops_polling_and_is_visible_in_dashboard(monkey
         status, _ = render_snapshot(snapshot)
         content = text(status)
         assert "Monitoring stopped" in content
-        assert "Invalid sensor response" in content
+        assert "T255P sensor alarm" in content
         assert "No fresh reading" in content
 
 
@@ -86,7 +83,11 @@ def test_failed_poll_between_retries_still_shows_recovering(dashboard):
 
 @pytest.fixture
 def dashboard(tmp_path):
-    with FakeChiller(time_constant_s=0.1) as chiller:
+    # Accelerate modeled thermal time for the cooling assertion. Serial timeout
+    # waits remain real; the ordinary monitor still sends actual protocol frames.
+    endpoint = T255PSimulator(clock=lambda: monotonic() * 10)
+    # Keep the host ceiling at 40 C so invalid-target tests reject before I/O.
+    with endpoint.chiller(setpoint_range=(5.0, 40.0)) as chiller:
         path = tmp_path / "session.csv"
         chiller.start_monitoring(interval_s=0.02, csv_path=path)
         wait_for(lambda: chiller.snapshot()["sample_count"] > 0)
@@ -232,7 +233,7 @@ def session_action(app, action, *, interval=0.01, path=""):
 
 
 def test_explicit_session_controls_connect_monitor_stop_restart_and_shutdown(tmp_path):
-    chiller = FakeChiller()
+    chiller = T255PSimulator().chiller()
     closed = Event()
     app = create_app(chiller, on_shutdown=closed.set)
     client = app.server.test_client()
@@ -301,7 +302,7 @@ def test_embedded_host_rejects_unavailable_shutdown(dashboard):
 
 
 def test_concurrent_action_does_not_reopen_after_shutdown(monkeypatch):
-    chiller = FakeChiller()
+    chiller = T255PSimulator().chiller()
     app = create_app(chiller, on_shutdown=lambda: None)
     entered, release = Event(), Event()
     original = chiller.connect
@@ -330,7 +331,7 @@ def test_run_dashboard_shutdown_closes_real_http_server(monkeypatch):
 
     from tark_chiller import gui
 
-    chiller = FakeChiller()
+    chiller = T255PSimulator().chiller()
     ready = Event()
     servers, errors = [], []
     make_server = gui.make_server

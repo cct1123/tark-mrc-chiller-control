@@ -97,7 +97,11 @@ def make_serial(*, endpoint=None, rs485=False, **kwargs):
 
 
 class FakeChiller(TarkChiller):
-    """Unit-test I/O hooks; protocol integration uses the memory serial endpoints."""
+    """Unit-test seam for scheduling, cleanup and invalid internal return values.
+
+    This deliberately bypasses wire parsing. Use CalSimulator/T255PSimulator's
+    chiller() for API/GUI integration; this fake cannot prove protocol behavior.
+    """
 
     def __init__(self, *, clock=None, time_constant_s=30.0, **options):
         super().__init__(fake_settings(), protocol=Cal33xx(1), **options)

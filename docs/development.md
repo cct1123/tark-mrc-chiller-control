@@ -171,3 +171,19 @@ inspect the recording error separately.
 A useful first task is adding a parser rejection test or a display field. Before
 changing recovery, be able to explain why reads may retry, writes may not, and
 why a cleanup exception does not prove that the port or file was released.
+
+## Choosing a test endpoint
+
+Use `T255PSimulator().chiller()` or `CalSimulator().chiller()` for ordinary API,
+GUI, CSV and snapshot tests. These exercise production parsing, frame handling
+and cleanup. To test a device fault, change a simulated alarm/register or inject
+a reply at the memory endpoint, then assert the controller's public result.
+
+`tests/fakes.py` retains `FakeChiller` for tests needing precise scheduling,
+interrupted cleanup, invalid internal return values, or host policy outside the
+supported hardware subset. It bypasses the protocol and cannot validate wire
+behavior. Keep those focused unit tests separate from application integration.
+`FakeSerial` adds fault injection around the CAL memory endpoint while retaining
+the production protocol path. Do not remove validation just because a typed
+normal-path response already has the expected shape; failure/cleanup behavior
+must remain covered.

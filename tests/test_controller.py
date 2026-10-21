@@ -12,6 +12,7 @@ import pytest
 from fakes import FakeChiller, fake_settings
 
 from tark_chiller.controller import Cal33xx, ProtocolError, TarkChiller
+from tark_chiller.simulator import CalSimulator, T255PSimulator
 
 
 def test_public_modules_have_no_legacy_aliases():
@@ -85,7 +86,8 @@ assert not {'dash', 'plotly'} & sys.modules.keys()
 
 
 def test_explicit_connection_and_context_cleanup():
-    chiller = FakeChiller()
+    endpoint = T255PSimulator()
+    chiller = endpoint.chiller()
     for call in (
         chiller.read_temperature,
         chiller.read_setpoint,
@@ -101,7 +103,7 @@ def test_explicit_connection_and_context_cleanup():
             chiller.set_setpoint(18)
             assert chiller.read_setpoint() == 18
             raise RuntimeError("experiment failed")
-    assert not chiller.is_connected
+    assert not chiller.is_connected and not endpoint.is_open
     chiller.disconnect()
 
 
@@ -136,7 +138,7 @@ def test_invalid_setpoints_never_touch_backend(value):
 
 @pytest.mark.parametrize("value", [2, 40])
 def test_default_bounds_inclusive(value):
-    with FakeChiller() as chiller:
+    with CalSimulator().chiller() as chiller:
         chiller.set_setpoint(value)
         assert chiller.read_setpoint() == value
 
@@ -159,7 +161,7 @@ def test_default_bounds_inclusive(value):
 )
 def test_custom_bounds_need_valid_limits_and_provenance(config):
     with pytest.raises(ValueError):
-        FakeChiller(**config)
+        TarkChiller(fake_settings(), protocol=Cal33xx(1), **config)
 
 
 def test_custom_coolant_explicit_immutable_configuration():

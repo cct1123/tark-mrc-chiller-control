@@ -10,6 +10,8 @@ from time import monotonic, sleep
 import pytest
 from fakes import FakeChiller
 
+from tark_chiller.simulator import T255PSimulator
+
 
 def wait_for(condition, timeout=2):
     deadline = monotonic() + timeout
@@ -20,7 +22,7 @@ def wait_for(condition, timeout=2):
 
 def test_monitor_csv_bounded_history_and_restart(tmp_path):
     path = tmp_path / "run.csv"
-    with FakeChiller() as chiller:
+    with T255PSimulator().chiller() as chiller:
         chiller.start_monitoring(interval_s=0.01, csv_path=path, history_size=3)
         wait_for(lambda: chiller.snapshot()["sample_count"] >= 5)
         with pytest.raises(RuntimeError, match="already"):
@@ -49,7 +51,7 @@ def test_monitor_csv_bounded_history_and_restart(tmp_path):
     assert all(r["connected"] == "True" and r["backend"] == "simulator" for r in rows)
     assert [float(r["elapsed_s"]) for r in rows] == sorted(float(r["elapsed_s"]) for r in rows)
     original = path.read_bytes()
-    with FakeChiller() as chiller, pytest.raises(FileExistsError):
+    with T255PSimulator().chiller() as chiller, pytest.raises(FileExistsError):
         chiller.start_monitoring(csv_path=path)
     assert path.read_bytes() == original
     path.unlink()  # File handles must be closed on Windows.
@@ -465,7 +467,7 @@ def test_backend_close_error_survives_monitor_join_timeout(monkeypatch):
 
 
 def test_controller_owns_empty_and_running_snapshots():
-    chiller = FakeChiller()
+    chiller = T255PSimulator().chiller()
     before = chiller.snapshot()
     assert not before["running"] and (not before["history"]) and (not before["logging_enabled"])
     assert before["sample_count"] == before["failed_samples"] == before["logged_samples"] == 0
@@ -479,7 +481,7 @@ def test_controller_owns_empty_and_running_snapshots():
 def test_failed_restart_preserves_previous_run_snapshot(tmp_path):
     path = tmp_path / "existing.csv"
     path.write_text("do not overwrite", encoding="utf-8")
-    with FakeChiller() as chiller:
+    with T255PSimulator().chiller() as chiller:
         chiller.start_monitoring(interval_s=0.01)
         wait_for(lambda: chiller.snapshot()["sample_count"] > 0)
         chiller.stop_monitoring()
@@ -491,7 +493,7 @@ def test_failed_restart_preserves_previous_run_snapshot(tmp_path):
 
 
 def test_snapshot_dictionaries_are_detached_at_every_mutable_level():
-    with FakeChiller() as chiller:
+    with T255PSimulator().chiller() as chiller:
         chiller.start_monitoring(interval_s=0.01)
         wait_for(lambda: chiller.snapshot()["sample_count"] > 0)
         chiller.stop_monitoring()
