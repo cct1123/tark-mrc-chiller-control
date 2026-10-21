@@ -19,6 +19,20 @@ commands; its transport sends and validates one frame at a time. The monitor
 calls the same protocol code and publishes history. The GUI reads snapshots;
 refreshing it must never query the serial port or start another worker.
 
+To trace a T255P temperature read:
+
+1. `TarkChiller.read_temperature()` holds `_io_lock` and calls
+   `_read_with_recovery()` with the operation to run.
+2. `_read_temperature()` enters `_device_operation()`, which closes failed I/O
+   and preserves uncertain writes, then calls `T255P.read_temperature()`.
+3. The protocol reads U/J diagnostics and I temperature through `_t255p_io()`.
+4. `_t255p_io()` enforces quarantine and validates the frame returned by
+   `_transfer()`. The latter sends once and collects bytes within its deadline.
+
+CAL uses the same ownership/recovery path, with `Cal33xx` and `_cal_io()` supplying
+its register operations. Explicit protocol methods keep the return type and
+command sequence visible without looking up an operation string in a dispatcher.
+
 ## Rules to preserve
 
 - Construction opens no port. T255P connection sends U and can start AUTO START.

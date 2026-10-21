@@ -18,7 +18,7 @@ from numbers import Real
 from pathlib import Path
 from threading import TIMEOUT_MAX, Event, Lock, Thread, current_thread
 from time import monotonic, perf_counter, sleep
-from typing import Any, Literal, TextIO, cast
+from typing import Any, Literal, TextIO
 
 import serial
 from serial.rs485 import RS485Settings
@@ -81,9 +81,6 @@ def _locked_until(lock: LockType, deadline: float | None = None) -> Iterator[Non
         yield
     finally:
         lock.release()
-
-
-Operation = Literal["get_temperature", "get_setpoint", "set_setpoint", "get_status", "run", "standby"]
 
 
 def _validate_serial(settings: dict[str, Any]) -> dict[str, Any]:
@@ -255,71 +252,84 @@ class T255P:
         return target
 
     def verify(self, io: AsciiIO) -> str:
+        """Send U; return four characters: mode, alarm, chiller-on, dryer-on."""
         return self._watchdog(io(b"U", b""))
 
+    def read_temperature(self, io: AsciiIO) -> float:
+        """Read U/J diagnostics, reject a sensor fault, then read I in Celsius."""
+        self.verify(io)
+        alarms = self._alarms(io(b"J", b""))
+        if alarms[3] == "1":  # J flag order: float, high, low, sensor, EEPROM, watchdog.
+            raise ProtocolError("T255P sensor alarm; temperature unavailable")
+        return self._signed(io(b"I", b""), 4)
+
+    def read_setpoint(self, io: AsciiIO) -> float:
+        """Establish remote communication with U, then read target memory H0."""
+        self.verify(io)
+        return self._memory(io(b"H", b"0"))
+
+    def read_status(self, io: AsciiIO) -> str:
+        """Format the last U mode/on flags and J alarm flags as diagnostics."""
+        mode_code, summary_alarm, chiller_on, dryer_on = tuple(self.verify(io))
+        alarms = self._alarms(io(b"J", b""))
+        mode = ("AUTO START", "STANDBY", "RUN", "SAFETY DEFAULT")[int(mode_code)]
+        names = ("float_switch", "high_temp", "low_temp", "sensor", "eeprom", "watchdog")
+        flags = " ".join(f"{name}={flag}" for name, flag in zip(names, alarms, strict=True))
+        return (
+            f"T255P (human-selected; identity not queried); mode={mode}; "
+            f"summary_alarm={summary_alarm} chiller_on={chiller_on} dryer_on={dryer_on}; "
+            f"reported alarms: {flags}; flow/leak unknown; last serial reply, not safety proof"
+        )
+
     def sample(self, io: AsciiIO, partial: dict[str, Any] | None = None) -> tuple[str, float, float]:
-        # Share watchdog/alarm replies only within this read-only poll.
+        """Read one U/J/I/H poll; retain validated fields if a later read fails."""
+        # The cache lives for one poll only. Writes always use fresh diagnostics.
         read = cache(io)
         fields = partial if partial is not None else {}
-        for field, operation in (
-            ("detail", "get_status"), ("temperature_c", "get_temperature"),
-            ("setpoint_c", "get_setpoint"),
-        ):
-            value = self.execute(cast(Operation, operation), None, read)
-            fields[field] = value if field == "detail" else _reading(value)
+        fields["detail"] = self.read_status(read)
+        fields["temperature_c"] = _reading(self.read_temperature(read))
+        fields["setpoint_c"] = _reading(self.read_setpoint(read))
         return fields["detail"], fields["temperature_c"], fields["setpoint_c"]
 
-    def execute(self, operation: Operation, value: float | None, io: AsciiIO) -> float | str | None:
-        target = b""
-        if operation in ("set_setpoint", "run", "standby"):
-            if not self._allow_writes:
-                raise ProtocolError(
-                    "T255P writes disabled; enable with T255P(allow_writes=True) after checking setup"
-                )
-        if operation == "set_setpoint":
-            number = _finite(value, "Setpoint")
-            if not 5 <= number <= 45:
-                raise ProtocolError("T255P water protocol supports targets from 5 to 45 C only")
-            if abs(number * 10 - round(number * 10)) > 1e-8:
-                raise ProtocolError("T255P targets require 0.1 C resolution; no rounding")
-            target = f"{round(number * 10):+04d}".encode("ascii")
-        state = self.verify(io)
-        if operation == "get_setpoint":
-            return self._memory(io(b"H", b"0"))
-        alarms = self._alarms(io(b"J", b""))
-        if operation == "get_status":
-            mode = ("AUTO START", "STANDBY", "RUN", "SAFETY DEFAULT")[int(state[0])]
-            names = ("float_switch", "high_temp", "low_temp", "sensor", "eeprom", "watchdog")
-            flags = " ".join(f"{name}={flag}" for name, flag in zip(names, alarms, strict=True))
-            return (
-                f"T255P (human-selected; identity not queried); mode={mode}; "
-                f"summary_alarm={state[1]} chiller_on={state[2]} dryer_on={state[3]}; "
-                f"reported alarms: {flags}; flow/leak unknown; last serial reply, not safety proof"
+    def _require_writes(self) -> None:
+        if not self._allow_writes:
+            raise ProtocolError(
+                "T255P writes disabled; enable with T255P(allow_writes=True) after checking setup"
             )
-        if operation == "get_temperature":
-            if alarms[3] == "1":
-                raise ProtocolError("T255P sensor alarm; temperature unavailable")
-            return self._signed(io(b"I", b""), 4)
-        if operation in ("run", "standby"):
-            running = operation == "run"
-            if running and (state[0] == "3" or state[1] != "0" or "1" in alarms):
-                raise ProtocolError("RUN refused: safety-default mode or active alarms")
-            qualifier = b"1" if running else b"0"
-            if io(b"G", qualifier) != qualifier:
-                raise ProtocolError("T255P mode echo mismatch; outcome uncertain")
-            reported = self.verify(io)
-            if reported[0] != ("2" if running else "1") or reported[2] != qualifier.decode("ascii"):
-                raise ProtocolError("T255P mode/chiller-on readback mismatch; outcome uncertain")
-            if running and reported[1] != "0":
-                raise ProtocolError("T255P alarm after RUN request; outcome uncertain")
-            return None
-        if state[0] != "2" or state[1] != "0" or "1" in alarms:
+
+    def set_setpoint(self, value: float, io: AsciiIO) -> None:
+        """Check target and fresh U/J state, send M once, then verify H readback."""
+        self._require_writes()
+        number = _finite(value, "Setpoint")
+        if not 5 <= number <= 45:
+            raise ProtocolError("T255P water protocol supports targets from 5 to 45 C only")
+        if abs(number * 10 - round(number * 10)) > 1e-8:
+            raise ProtocolError("T255P targets require 0.1 C resolution; no rounding")
+        target = f"{round(number * 10):+04d}".encode("ascii")
+        mode, summary_alarm, _chiller_on, _dryer_on = tuple(self.verify(io))
+        alarms = self._alarms(io(b"J", b""))
+        if mode != "2" or summary_alarm != "0" or "1" in alarms:
             raise ProtocolError("T255P must report RUN with no active alarms before a target write")
         if io(b"M", target) != target:
             raise ProtocolError("T255P target echo mismatch; outcome uncertain")
         if self._memory(io(b"H", b"0")) != int(target) / 10:
             raise ProtocolError("T255P target readback mismatch; outcome uncertain")
-        return None
+
+    def set_mode(self, running: bool, io: AsciiIO) -> None:
+        """Check fresh U/J state, send G once, then verify U mode/on readback."""
+        self._require_writes()
+        mode, summary_alarm, _chiller_on, _dryer_on = tuple(self.verify(io))
+        alarms = self._alarms(io(b"J", b""))
+        if running and (mode == "3" or summary_alarm != "0" or "1" in alarms):
+            raise ProtocolError("RUN refused: safety-default mode or active alarms")
+        qualifier = b"1" if running else b"0"
+        if io(b"G", qualifier) != qualifier:
+            raise ProtocolError("T255P mode echo mismatch; outcome uncertain")
+        reported_mode, reported_alarm, reported_on, _dryer_on = tuple(self.verify(io))
+        if reported_mode != ("2" if running else "1") or reported_on != qualifier.decode("ascii"):
+            raise ProtocolError("T255P mode/chiller-on readback mismatch; outcome uncertain")
+        if running and reported_alarm != "0":
+            raise ProtocolError("T255P alarm after RUN request; outcome uncertain")
 
 
 class Cal33xx:
@@ -401,53 +411,54 @@ class Cal33xx:
             )
         return round(value * 10)
 
-    def sample(self, io: RegisterIO) -> tuple[str, float, float]:
-        # Identity, units and display checks share replies within one poll.
-        read = cache(io)
+    def read_temperature(self, io: RegisterIO) -> float:
+        """Require RTD/Celsius and no FAIL display before reading PV."""
+        self._units(io)
+        display = io(3, 0x0306, 1)
+        if display & 0x20:
+            raise ProtocolError(
+                f"Controller reports FAIL (display=0x{display:02x}); reading unavailable"
+            )
+        return self._temperature(io(3, 0x001C, 1))
+
+    def read_setpoint(self, io: RegisterIO) -> float:
+        """Require RTD/Celsius before interpreting the SP1 register."""
+        self._units(io)
+        return self._temperature(io(3, 0x007F, 1))
+
+    def read_status(self, io: RegisterIO) -> str:
+        """Read identity, configuration and display state for diagnostics."""
+        identity = self.verify(io)
+        display, ramp = io(3, 0x0306, 1), io(3, 0x0305, 1)
+        low, high = self._temperature(io(3, 0x0096, 1)), self._temperature(io(3, 0x0094, 1))
+        locked, resolution = io(1, 0x0028, 1), io(1, 0x002A, 1)
+        initialized = bool(io(3, 0x0125, 1) & 2)
+        message = {
+            0: "temperature display",
+            1: "PARK",
+            2: "ALARM",
+            3: "TUNE",
+            4: "TUNE ATSP",
+            5: "HAND",
+            0x23: "TUNE FAIL",
+            0x25: "HAND FAIL",
+            0x26: "INPT FAIL",
+            0x27: "DATA FAIL",
+        }.get(display & 0x3F, "unknown display state")
         return (
-            cast(str, self.execute("get_status", None, read)),
-            cast(float, self.execute("get_temperature", None, read)),
-            cast(float, self.execute("get_setpoint", None, read)),
+            f"{identity}; RTD/C; Lo.SC={low:g} Hi.SC={high:g}; SP.LK={locked} "
+            f"DISP={'high' if resolution else 'low'} initialized={initialized}; "
+            f"{message}; display=0x{display:02x} ramp=0x{ramp:02x}; "
+            "flow/level/leak unknown"
         )
 
-    def execute(
-        self, operation: Operation, value: float | None, io: RegisterIO
-    ) -> float | str | None:
-        if operation == "get_temperature":
-            self._units(io)
-            display = io(3, 0x0306, 1)
-            if display & 0x20:
-                raise ProtocolError(
-                    f"Controller reports FAIL (display=0x{display:02x}); reading unavailable"
-                )
-            return self._temperature(io(3, 0x001C, 1))
-        if operation == "get_setpoint":
-            self._units(io)
-            return self._temperature(io(3, 0x007F, 1))
-        if operation == "get_status":
-            identity = self.verify(io)
-            display, ramp = io(3, 0x0306, 1), io(3, 0x0305, 1)
-            low, high = self._temperature(io(3, 0x0096, 1)), self._temperature(io(3, 0x0094, 1))
-            locked, resolution = io(1, 0x0028, 1), io(1, 0x002A, 1)
-            initialized = bool(io(3, 0x0125, 1) & 2)
-            message = {
-                0: "temperature display",
-                1: "PARK",
-                2: "ALARM",
-                3: "TUNE",
-                4: "TUNE ATSP",
-                5: "HAND",
-                0x23: "TUNE FAIL",
-                0x25: "HAND FAIL",
-                0x26: "INPT FAIL",
-                0x27: "DATA FAIL",
-            }.get(display & 0x3F, "unknown display state")
-            return (
-                f"{identity}; RTD/C; Lo.SC={low:g} Hi.SC={high:g}; SP.LK={locked} "
-                f"DISP={'high' if resolution else 'low'} initialized={initialized}; "
-                f"{message}; display=0x{display:02x} ramp=0x{ramp:02x}; "
-                "flow/level/leak unknown"
-            )
+    def sample(self, io: RegisterIO) -> tuple[str, float, float]:
+        """Read status, temperature and target, sharing checks within this poll."""
+        read = cache(io)
+        return self.read_status(read), self.read_temperature(read), self.read_setpoint(read)
+
+    def set_setpoint(self, value: float, io: RegisterIO) -> None:
+        """Check prerequisites, stage/save SP1 once and verify its readback."""
         if not self._allow_writes:
             raise ProtocolError(
                 "CAL writes disabled; complete read-only review before enabling allow_writes"
@@ -473,7 +484,6 @@ class Cal33xx:
                 "CAL write interrupted: keypad/state may be uncertain. No automatic exit or retry."
             )
             raise
-        return None
 
 
 def _io_error(error: Exception) -> OSError:
@@ -786,35 +796,16 @@ class TarkChiller:
         self._t255p_next_command_at = 0.0
         return result
 
-    def _exchange(
-        self, operation: Operation | Literal["get_sample"], value: float | None = None
-    ) -> float | dict[str, Any] | tuple[dict[str, Any], float, float] | None:
+    @contextmanager
+    def _device_operation(self, *, writing: bool = False) -> Iterator[None]:
+        """Close failed I/O and preserve uncertain writes; caller holds the I/O lock."""
         if not self._port_connected:
             raise ConnectionError("Serial device is disconnected")
-        assert self._protocol is not None
         try:
-            if operation == "get_sample":
-                self._partial_sample = {"status": self._status("poll failed")}
-                if isinstance(self._protocol, Cal33xx):
-                    detail, temperature, setpoint = self._protocol.sample(self._cal_io)
-                else:
-                    detail, temperature, setpoint = self._protocol.sample(
-                        self._t255p_io, self._partial_sample
-                    )
-                return self._status(detail), _reading(temperature), _reading(setpoint)
-            if isinstance(self._protocol, Cal33xx):
-                result = self._protocol.execute(operation, value, self._cal_io)
-            else:
-                result = self._protocol.execute(operation, value, self._t255p_io)
-            if operation in ("set_setpoint", "run", "standby"):
+            yield
+            if writing:
+                # Transport latches before sending; clear only after full readback.
                 self._write_uncertain = False
-            if operation in ("get_temperature", "get_setpoint"):
-                return _reading(result)
-            if operation == "get_status":
-                return self._status(result)
-            if result is not None:
-                raise ProtocolError("Protocol did not acknowledge the control write")
-            return None
         except BaseException as exc:
             self._failed(exc)
             if self._write_uncertain and isinstance(exc, Exception):
@@ -838,19 +829,45 @@ class TarkChiller:
         }
 
     def _read_sample(self) -> tuple[dict[str, Any], float, float]:
-        return cast(tuple[dict[str, Any], float, float], self._exchange("get_sample"))
+        with self._device_operation():
+            self._partial_sample = {"status": self._status("poll failed")}
+            if isinstance(self._protocol, Cal33xx):
+                detail, temperature, setpoint = self._protocol.sample(self._cal_io)
+            else:
+                assert isinstance(self._protocol, T255P)
+                detail, temperature, setpoint = self._protocol.sample(
+                    self._t255p_io, self._partial_sample
+                )
+            return self._status(detail), _reading(temperature), _reading(setpoint)
 
     def _read_temperature(self) -> float:
-        return cast(float, self._exchange("get_temperature"))
+        with self._device_operation():
+            if isinstance(self._protocol, Cal33xx):
+                return _reading(self._protocol.read_temperature(self._cal_io))
+            assert isinstance(self._protocol, T255P)
+            return _reading(self._protocol.read_temperature(self._t255p_io))
 
     def _read_setpoint(self) -> float:
-        return cast(float, self._exchange("get_setpoint"))
+        with self._device_operation():
+            if isinstance(self._protocol, Cal33xx):
+                return _reading(self._protocol.read_setpoint(self._cal_io))
+            assert isinstance(self._protocol, T255P)
+            return _reading(self._protocol.read_setpoint(self._t255p_io))
 
     def _write_setpoint(self, value: float) -> None:
-        self._exchange("set_setpoint", value)
+        with self._device_operation(writing=True):
+            if isinstance(self._protocol, Cal33xx):
+                self._protocol.set_setpoint(value, self._cal_io)
+            else:
+                assert isinstance(self._protocol, T255P)
+                self._protocol.set_setpoint(value, self._t255p_io)
 
     def _read_status(self) -> dict[str, Any]:
-        return cast(dict[str, Any], self._exchange("get_status"))
+        with self._device_operation():
+            if isinstance(self._protocol, Cal33xx):
+                return self._status(self._protocol.read_status(self._cal_io))
+            assert isinstance(self._protocol, T255P)
+            return self._status(self._protocol.read_status(self._t255p_io))
 
     @property
     def setpoint_range(self) -> tuple[float, float]:
@@ -1068,7 +1085,9 @@ class TarkChiller:
             if not self.supports_mode_control:
                 raise ProtocolError("RUN/STANDBY control is supported only for T255P")
             try:
-                self._exchange(operation)
+                with self._device_operation(writing=True):
+                    assert isinstance(self._protocol, T255P)
+                    self._protocol.set_mode(operation == "run", self._t255p_io)
             except ProtocolError as exc:
                 self._suspend(f"Protocol failure; recovery suspended: {exc}", exc)
                 raise
