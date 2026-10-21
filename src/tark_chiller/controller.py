@@ -34,6 +34,22 @@ class _Status(TypedDict):
     detail: str
 
 
+class _AttemptReadings(TypedDict, total=False):
+    """Validated fields from the current read attempt, including a failed attempt.
+
+    The controller writes status before polling. T255P.sample() adds detail,
+    temperature and target only after validating each field. Recovery replaces
+    the entire dict before each attempt, including a reconnect handshake.
+    _poll() may record these fields on failure, always with disconnected status
+    and an error. They must never be reused as fresh readings or across retries.
+    """
+
+    status: _Status
+    detail: str
+    temperature_c: float
+    setpoint_c: float
+
+
 class _Sample(TypedDict):
     """One poll's readings and timing; unavailable readings are None.
 
@@ -332,12 +348,17 @@ class T255P:
         )
 
     def sample(
-        self, io: AsciiIO, partial: dict[str, Any] | None = None
+        self, io: AsciiIO, partial: _AttemptReadings | None = None
     ) -> tuple[str, float, float]:
-        """Read one U/J/I/H poll; retain validated fields if a later read fails."""
+        """Return (detail, temperature_c, setpoint_c) from one U/J/I/H poll.
+
+        If partial is supplied, fill it after validating each field so the caller
+        can record historical readings when a later command fails. Its lifetime
+        is one attempt; the controller discards it before retrying the whole poll.
+        """
         # The cache lives for one poll only. Writes always use fresh diagnostics.
         read = cache(io)
-        fields = partial if partial is not None else {}
+        fields: _AttemptReadings = partial if partial is not None else {}
         fields["detail"] = self.read_status(read)
         fields["temperature_c"] = _reading(self.read_temperature(read))
         fields["setpoint_c"] = _reading(self.read_setpoint(read))
@@ -605,7 +626,9 @@ class TarkChiller:
         self._service_error = ""  # Worker failure; remains visible after it stops.
         self._recovery_error = ""  # Temporary read failure while retrying.
         self._poll_in_progress = False
-        self._partial_sample: dict[str, Any] = {}
+        # I/O-owned attempt state: protocol writes validated fields; _poll reads
+        # them after failure. This dict is replaced before every read/retry.
+        self._attempt_readings: _AttemptReadings = {}
         self._logging_error = ""
         self._logged_samples = 0
         self._sample_count = 0
@@ -883,13 +906,13 @@ class TarkChiller:
 
     def _read_sample(self) -> tuple[_Status, float, float]:
         with self._device_operation():
-            self._partial_sample = {"status": self._status("poll failed")}
+            self._attempt_readings = {"status": self._status("poll failed")}
             if isinstance(self._protocol, Cal33xx):
                 detail, temperature, setpoint = self._protocol.sample(self._cal_io)
             else:
                 assert isinstance(self._protocol, T255P)
                 detail, temperature, setpoint = self._protocol.sample(
-                    self._t255p_io, self._partial_sample
+                    self._t255p_io, self._attempt_readings
                 )
             return self._status(detail), _reading(temperature), _reading(setpoint)
 
@@ -1031,7 +1054,9 @@ class TarkChiller:
         """
         for attempt in range(self._reconnect_attempts + 1):
             try:
-                self._partial_sample = {}  # Never carry fields across recovery attempts.
+                # Reset before opening, not just before sampling: a failed
+                # recovery handshake must not expose the previous attempt's data.
+                self._attempt_readings = {}
                 self._check_cancel(token)
                 if self._fault:
                     raise ConnectionError(self._fault)
@@ -1379,9 +1404,11 @@ class TarkChiller:
                     self._read_sample, self._cancel, monitoring=True
                 )
         except (OSError, ProtocolError) as exc:
-            temperature = self._partial_sample.get("temperature_c")
-            setpoint = self._partial_sample.get("setpoint_c")
-            partial_status = self._partial_sample.get("status", status)
+            # Preserve only fields validated in the final attempt. Error and
+            # disconnected status prevent consumers from presenting them as live.
+            temperature = self._attempt_readings.get("temperature_c")
+            setpoint = self._attempt_readings.get("setpoint_c")
+            partial_status = self._attempt_readings.get("status", status)
             status = {
                 "connected": False,
                 "backend": partial_status["backend"],

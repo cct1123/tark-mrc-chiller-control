@@ -110,6 +110,25 @@ U/J/G/U exchange and explicit cleanup. Replacing it with a controller context an
 `run()`/`standby()` would add a connection U exchange, so do not treat that as a
 mechanical readability refactor.
 
+## Readings from a failed attempt
+
+`_attempt_readings` is an ordinary dictionary described by `_AttemptReadings`.
+Every key is optional (`total=False`): an attempt may fail before that field is
+read. An absent reading is unavailable, never zero. It carries validated fields
+between the protocol and the poll's error handler:
+
+1. `_read_with_recovery()` replaces it before every attempt, before any reconnect
+   handshake. A failed handshake therefore cannot expose older readings.
+2. `_read_sample()` initializes the connection diagnostics. `T255P.sample()` adds
+   detail, temperature and target only after each has passed validation.
+3. If a later command fails, `_poll()` can record the available fields from that
+   final attempt. The row still has an error and disconnected status, and the GUI
+   treats its temperature as historical. A retry always starts a new dictionary.
+
+Keep this attempt lifetime separate from `_history`, which stores completed polls
+for display and recording. CAL currently returns a complete sample or a failed
+poll without retained temperature/target fields.
+
 ## Understanding concurrency
 
 `_io_lock` protects serial operations and device fault/write state.
