@@ -18,12 +18,58 @@ from numbers import Real
 from pathlib import Path
 from threading import TIMEOUT_MAX, Event, Lock, Thread, current_thread
 from time import monotonic, perf_counter, sleep
-from typing import Any, Literal, TextIO
+from typing import Any, Literal, TextIO, TypedDict
 
 import serial
 from serial.rs485 import RS485Settings
 
 logger = logging.getLogger(__name__)
+
+
+class _Status(TypedDict):
+    """Connection diagnostics as an ordinary dict; no physical safety guarantee."""
+
+    connected: bool
+    backend: str
+    detail: str
+
+
+class _Sample(TypedDict):
+    """One poll's readings and timing; unavailable readings are None.
+
+    timestamp_utc and elapsed_s describe poll start. The two monotonic times
+    delimit the whole poll, including recovery, rather than each sensor reading.
+    A failed poll may retain validated fields from its final attempt.
+    """
+
+    timestamp_utc: datetime
+    elapsed_s: float
+    temperature_c: float | None
+    setpoint_c: float | None
+    status: _Status
+    error: str
+    sampled_monotonic: float
+    completed_monotonic: float
+
+
+class _Snapshot(TypedDict):
+    """Detached history and worker state; TypedDict adds editor hints, no wrapper.
+
+    service_error is a worker/shutdown failure; recovery_error is a temporary
+    retry reason; logging_error is independent of acquisition. logging_enabled
+    means a file handle is owned, including when closing that file has failed.
+    """
+
+    history: list[_Sample]
+    running: bool
+    service_error: str
+    recovery_error: str
+    poll_in_progress: bool
+    logging_error: str
+    logging_enabled: bool
+    logged_samples: int
+    sample_count: int
+    failed_samples: int
 
 
 class ProtocolError(RuntimeError):
@@ -201,12 +247,14 @@ class T255P:
 
     @staticmethod
     def is_complete(response: bytes) -> bool:
+        """Check partial ASCII framing; reply() validates the completed checksum."""
         if response[:1] != b"#" or any(not 32 <= byte <= 126 for byte in response.rstrip(b"\r")):
             raise ProtocolError("Unexpected T255P response framing")
         return response.endswith(b"\r")
 
     @staticmethod
     def reply(command: bytes, response: bytes) -> bytes:
+        """Validate a complete reply and return data after command/error fields."""
         payload = _t255p_payload(response, b"#")
         if len(payload) < 2:
             raise ProtocolError("Malformed T255P command/error fields")
@@ -281,7 +329,9 @@ class T255P:
             f"reported alarms: {flags}; flow/leak unknown; last serial reply, not safety proof"
         )
 
-    def sample(self, io: AsciiIO, partial: dict[str, Any] | None = None) -> tuple[str, float, float]:
+    def sample(
+        self, io: AsciiIO, partial: dict[str, Any] | None = None
+    ) -> tuple[str, float, float]:
         """Read one U/J/I/H poll; retain validated fields if a later read fails."""
         # The cache lives for one poll only. Writes always use fresh diagnostics.
         read = cache(io)
@@ -364,6 +414,7 @@ class Cal33xx:
             raise ValueError("Writes require expected_model and expected_firmware from read review")
 
     def verify(self, io: RegisterIO) -> str:
+        """Require supported identity, reviewed codes (if supplied), and RTD/Celsius."""
         model, firmware = io(3, 0x04FC, 1), io(3, 0x04FD, 1)
         if model not in (1, 2, 3) or firmware not in (0xFFFF, 1, 2):
             raise ProtocolError(
@@ -415,7 +466,7 @@ class Cal33xx:
         """Require RTD/Celsius and no FAIL display before reading PV."""
         self._units(io)
         display = io(3, 0x0306, 1)
-        if display & 0x20:
+        if display & 0x20:  # CAL display bit 5 means FAIL; PV is unavailable.
             raise ProtocolError(
                 f"Controller reports FAIL (display=0x{display:02x}); reading unavailable"
             )
@@ -546,7 +597,7 @@ class TarkChiller:
         self._monitor_lock = Lock()  # Serialize monitor start/stop and disconnect.
         self._data_lock = Lock()  # Publish history and errors to snapshot readers.
         self._interval_s = 1.0
-        self._history: deque[dict[str, Any]] = deque(maxlen=3600)
+        self._history: deque[_Sample] = deque(maxlen=3600)
         self._stop = Event()
         self._thread: Thread | None = None
         self._service_error = ""  # Worker failure; remains visible after it stops.
@@ -644,8 +695,9 @@ class TarkChiller:
             dtr = config.pop("dtr")
             # Configure once, while closed. On Windows each timeout assignment
             # calls SetCommState as well as SetCommTimeouts, disturbing live traffic.
-            config.update(port=None, timeout=min(self.timeout_s, 0.05),
-                          write_timeout=self.timeout_s)
+            config.update(
+                port=None, timeout=min(self.timeout_s, 0.05), write_timeout=self.timeout_s
+            )
             self._serial = (self._serial_factory or serial.Serial)(**config)
             if self._serial.is_open:
                 raise OSError("Serial factory must return an unopened endpoint")
@@ -787,9 +839,7 @@ class TarkChiller:
         try:
             result = self._protocol.reply(command, response)
         except ProtocolError:
-            logger.error(
-                "T255P rejected transaction: TX %r RX %r", request, response
-            )
+            logger.error("T255P rejected transaction: TX %r RX %r", request, response)
             raise
         if self._serial.in_waiting:
             raise ProtocolError("Unexpected trailing T255P response bytes")
@@ -818,7 +868,7 @@ class TarkChiller:
                 raise
             raise _io_error(exc) from exc
 
-    def _status(self, detail: object) -> dict[str, Any]:
+    def _status(self, detail: object) -> _Status:
         if not isinstance(detail, str):
             raise ProtocolError("Protocol returned invalid hardware status")
         simulated = getattr(self._serial, "_simulated", False) is True
@@ -828,7 +878,7 @@ class TarkChiller:
             "detail": ("Simulation; " if simulated else "") + detail,
         }
 
-    def _read_sample(self) -> tuple[dict[str, Any], float, float]:
+    def _read_sample(self) -> tuple[_Status, float, float]:
         with self._device_operation():
             self._partial_sample = {"status": self._status("poll failed")}
             if isinstance(self._protocol, Cal33xx):
@@ -862,7 +912,7 @@ class TarkChiller:
                 assert isinstance(self._protocol, T255P)
                 self._protocol.set_setpoint(value, self._t255p_io)
 
-    def _read_status(self) -> dict[str, Any]:
+    def _read_status(self) -> _Status:
         with self._device_operation():
             if isinstance(self._protocol, Cal33xx):
                 return self._status(self._protocol.read_status(self._cal_io))
@@ -881,7 +931,9 @@ class TarkChiller:
     def coolant_source(self) -> str:
         return self._coolant_source
 
-    def _replace_connection_request(self, connected: bool, *, deadline: float | None = None) -> Event:
+    def _replace_connection_request(
+        self, connected: bool, *, deadline: float | None = None
+    ) -> Event:
         """Invalidate older connection requests and return this request's event.
 
         Each request keeps its own event. Setting the old event prevents a
@@ -1032,7 +1084,9 @@ class TarkChiller:
         Sensor/protocol failures are never returned as numeric measurements.
         """
         with self._io_lock:
-            return self._read_with_recovery(lambda: _reading(self._read_temperature()), self._cancel)
+            return self._read_with_recovery(
+                lambda: _reading(self._read_temperature()), self._cancel
+            )
 
     def read_setpoint(self) -> float:
         """Query the reported Celsius target, not the measured liquid temperature."""
@@ -1092,7 +1146,7 @@ class TarkChiller:
                 self._suspend(f"Protocol failure; recovery suspended: {exc}", exc)
                 raise
 
-    def read_status(self) -> dict[str, Any]:
+    def read_status(self) -> _Status:
         """Return connected/backend/detail diagnostics, querying an active device.
 
         A disconnected or suspended session returns disconnected diagnostics.
@@ -1106,7 +1160,7 @@ class TarkChiller:
                     "detail": self._fault or "disconnected",
                 }
 
-            def read() -> dict[str, Any]:
+            def read() -> _Status:
                 status = self._read_status()
                 if not isinstance(status, dict) or (
                     type(status.get("connected")) is not bool
@@ -1211,7 +1265,7 @@ class TarkChiller:
     def running(self) -> bool:
         return self._thread is not None and self._thread.is_alive()
 
-    def snapshot(self) -> dict[str, Any]:
+    def snapshot(self) -> _Snapshot:
         """Copy bounded history, worker state and errors without querying hardware.
 
         Returned dictionaries are detached from controller state. History entries
@@ -1244,7 +1298,9 @@ class TarkChiller:
                 with self._data_lock:
                     message = f"CSV close failed: {exc}"
                     if message not in self._logging_error:
-                        self._logging_error = "; ".join(filter(None, (self._logging_error, message)))
+                        self._logging_error = "; ".join(
+                            filter(None, (self._logging_error, message))
+                        )
                 raise
             else:
                 with self._data_lock:
@@ -1286,13 +1342,13 @@ class TarkChiller:
                 raise TimeoutError(self._service_error)
         self._close_csv()
 
-    def _poll(self, started: float) -> dict[str, Any]:
+    def _poll(self, started: float) -> _Sample:
         sampled_monotonic = time.monotonic()
         timestamp_utc = datetime.now(UTC)
         with self._data_lock:
             self._poll_in_progress = True
             backend = self._history[-1]["status"]["backend"] if self._history else "unknown"
-        status = {"connected": False, "backend": backend, "detail": "unavailable"}
+        status: _Status = {"connected": False, "backend": backend, "detail": "unavailable"}
         error = ""
         temperature: float | None = None
         setpoint: float | None = None
@@ -1304,8 +1360,12 @@ class TarkChiller:
         except (OSError, ProtocolError) as exc:
             temperature = self._partial_sample.get("temperature_c")
             setpoint = self._partial_sample.get("setpoint_c")
-            status = {**self._partial_sample.get("status", status), "connected": False,
-                      "detail": "poll failed"}
+            partial_status = self._partial_sample.get("status", status)
+            status = {
+                "connected": False,
+                "backend": partial_status["backend"],
+                "detail": "poll failed",
+            }
             error = str(exc) or type(exc).__name__
         finally:
             completed_monotonic = time.monotonic()
@@ -1323,7 +1383,7 @@ class TarkChiller:
             "completed_monotonic": completed_monotonic,
         }
 
-    def _publish(self, sample: dict[str, Any]) -> None:
+    def _publish(self, sample: _Sample) -> None:
         row_written = False
         if self._file is not None and not self._logging_error:
             try:

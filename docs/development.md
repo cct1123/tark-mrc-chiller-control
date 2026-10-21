@@ -33,6 +33,29 @@ CAL uses the same ownership/recovery path, with `Cal33xx` and `_cal_io()` supply
 its register operations. Explicit protocol methods keep the return type and
 command sequence visible without looking up an operation string in a dispatcher.
 
+The protocol's `io` argument is a function supplied by the controller:
+`_t255p_io` accepts command/data bytes, and `_cal_io` accepts function/address/value
+integers. The protocol calls that function instead of opening a port itself.
+`cache(io)` remembers repeated read replies for one poll; it is discarded after
+that poll and never used for writes.
+
+`_read_with_recovery()` receives an `operation` function that takes no arguments.
+Calling it runs one complete read attempt; retrying calls it again. A `lambda`
+at a call site supplies arguments to the underlying function without running it
+yet. This is why writes must never be passed to the recovery function.
+
+`_Status`, `_Sample` and `_Snapshot` near the top of `controller.py` describe the
+dictionary fields used across acquisition and the display. They use `TypedDict`
+for editor/type-checker assistance; values remain ordinary dictionaries. Wire
+validation still happens in the protocol and transport. When adding a sample
+field, update its schema, `_poll()`, the consumer that needs it, and relevant
+tests. CSV columns are an explicit contract in `start_monitoring()` and
+`_publish()`; adding a display field does not automatically change the CSV.
+
+In `gui.py`, `render_status()` builds status cards and `render_history()` builds
+the graph. `render_snapshot()` returns both for initial layout and refresh.
+Session actions request status alone, so they do not construct a discarded graph.
+
 ## Rules to preserve
 
 - Construction opens no port. T255P connection sends U and can start AUTO START.
