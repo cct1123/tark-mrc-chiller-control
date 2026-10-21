@@ -1,19 +1,42 @@
-"""Connect to your hardware and read temperatures and controller status."""
+"""01 · Read temperature and status. Run one device owner at a time."""
 
-from hardware import create_chiller
+from tark_chiller.controller import T255P, TarkChiller
 
-# 1. Configure hardware.py first. Construction does not open the port.
-chiller = create_chiller()
+# 2. Choose the port and operation options
+PORT = None  # Set the identified serial port, e.g. "COM9".
+
+# 3. Construct, connect, perform the operation and release.
+# T255P connection takes serial control and can start AUTO START. Prepare
+# the cooling loop first. Disconnect does not stop the chiller or pump.
+if not isinstance(PORT, str) or not PORT.strip():
+    raise ValueError('Hardware not configured: set PORT, e.g. "COM9". No port was opened.')
+
+chiller = TarkChiller(
+    {
+        "port": PORT,
+        "baudrate": 9600,
+        "bytesize": 8,
+        "parity": "N",
+        "stopbits": 1,
+        "xonxoff": True,
+        "rtscts": False,
+        "dsrdtr": False,
+        "rts": False,
+        "dtr": False,
+    },
+    protocol=T255P(allow_writes=False),
+    setpoint_range=(5.0, 45.0),
+    coolant_source="ThermoTek T255P Rev C pp9/20; verify installed distilled water",
+)
+
 # T255P connect sends U: it takes serial control and can start AUTO START.
-# CAL connect checks the controller identity, RTD input and Celsius units.
 with chiller:
     # 2. Query the measured temperature and target separately, in Celsius.
     # Compare these values with the front panel and your temperature reference.
     print(f"Temperature:       {chiller.read_temperature():.2f} C")
     print(f"Reported setpoint: {chiller.read_setpoint():.2f} C")
 
-    # 3. Inspect diagnostics. CAL detail includes actual model/firmware codes;
-    # T255P detail includes mode/alarm flags, but cannot identify the unit.
+    # 3. Inspect mode and alarm diagnostics; these do not identify the unit.
     status = chiller.read_status()
     print(f"Connected: {status['connected']}")
     print(f"Backend:   {status['backend']}")

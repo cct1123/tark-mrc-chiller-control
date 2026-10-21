@@ -3,9 +3,11 @@
 [Home / quick start](../README.md#hardware-quick-start) · [Hardware setup](hardware.md)
 
 Use one TarkChiller per serial port and share it with your experiment code.
-The [four hardware tutorials](../examples/README.md) use a shared
-[hardware setup module](../examples/hardware.py), separate from the installed API.
-Missing model/settings or CAL address raise `ProtocolError` before port creation.
+The [six T255P hardware examples](../examples/README.md) provide standalone scripts
+and five notebooks; the dashboard is script-only. They use plain driver construction
+and connection code. Set `PORT` in
+each example; an unset port raises `ValueError` before port creation. CAL clients
+use the explicit API shown below.
 
 Import `TarkChiller`, `Cal33xx` and `T255P` directly from
 `tark_chiller.controller`. Serial settings and optional RS-485 settings are
@@ -165,7 +167,7 @@ were released.
 ## CSV recording
 
 Supply `csv_path` to `start_monitoring()` as in the
-[CSV tutorial](../examples/03_record_csv.py). Each run creates a new file; existing
+[CSV tutorial](../examples/03_record_csv.ipynb). Each run creates a new file; existing
 paths are refused. There is no append.
 
 | Column | Meaning |

@@ -176,9 +176,12 @@ considering a corrective target. Alarm flags do not establish flow, leak freedom
 coolant suitability or calibration. Read the [setup and first-use checklist](docs/hardware.md),
 [protocol sources and limits](docs/protocol.md), and [API reference](docs/api.md).
 
-The [hardware tutorials](examples/README.md) teach reading status, setting one
-target, recording CSV and opening a dashboard with four plain scripts. Configure
-[examples/hardware.py](examples/hardware.py) once; direct API use remains independent.
+The [six hardware examples](examples/README.md), available as scripts with
+five standalone notebooks, teach discovering ports,
+connecting, reading status, setting one target, recording CSV, opening a dashboard
+and measuring connection timing. Each script and notebook contains
+its own plain T255P connection code; set its `PORT` before running. The dashboard
+runs only as a script. Direct API use remains independent.
 
 ## Development
 

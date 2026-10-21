@@ -38,10 +38,10 @@ DTE/DCE compatibility.
 
 ## T255P human hardware test
 
-Use this checklist in order. Run one script at a time from the repository root.
+Use this checklist in order. Run one notebook at a time in a Python 3.12+ kernel.
 These are human-operated hardware tests; software tests do not establish a pass.
-Install the package and configure [`examples/hardware.py`](../examples/hardware.py)
-using the [T255P tutorial setup](../examples/README.md#t255p-setup).
+Install the package and configure the device cell in each notebook using the
+[T255P tutorial setup](../examples/README.md#t255p-setup).
 
 **Read-only here means no target writes. Connecting sends U, takes serial control
 and can change AUTO START to RUN.** Prepare the physical loop for that effect.
@@ -50,54 +50,52 @@ and can change AUTO START to RUN.** Prepare the physical loop for that effect.
 
 - [ ] Confirm the identified T255P, verified RS-232 cable/adapter, filled
   distilled-water loop, ventilation, flow and absence of leaks using the manual.
-- [ ] Set `DEVICE_MODEL = "t255p"` and the actual port/RTS/DTR levels in
-  `hardware.py`: 9600 baud, 8N1, XON/XOFF enabled; hardware flow control disabled.
-  Leave CAL fields and `RS485_MODE` as `None`.
+- [ ] Set `PORT` to the identified serial port in each example. Its connection
+  code uses 9600 baud, 8N1, XON/XOFF, no hardware flow control, and RTS/DTR
+  deasserted; verify that these line levels suit the adapter/cable.
 - [ ] Record the tested Git revision, unit/firmware, port/adapter, coolant,
   original panel target and mode. Choose the allowed temperature difference
   against your reference (°C), one approved new target (°C), observation time (s)
   and final equipment state before starting. Do not infer safe limits from an
   example value.
 
-Use the Python environment where the package is installed:
-
-```powershell
-$chillerPython = ".\.venv\Scripts\python.exe"
-```
+Select the notebook kernel where the package is installed. Run each notebook
+from its first cell, entering the verified settings independently in each one.
 
 ### Read-only checks
 
-- [ ] **Read once:** run `& $chillerPython examples/01_read_status.py`.
+- [ ] **Read once:** open [`01_read_status.ipynb`](../examples/01_read_status.ipynb) and run its cells.
   Expect `Connected: True`, `Backend: hardware`, finite Celsius readings and
   T255P mode/alarm details. Compare temperature with the panel/reference within
   the chosen tolerance and target with the panel. The target must remain
   unchanged. Record any AUTO START → RUN transition; do not assume every
-  starting mode becomes RUN. The script should exit without a cleanup error.
-- [ ] **Record a baseline:** run `& $chillerPython examples/03_record_csv.py`
+  starting mode becomes RUN. The operation cell should finish without a cleanup error.
+- [ ] **Record a baseline:** open [`03_record_csv.ipynb`](../examples/03_record_csv.ipynb) and run its cells
   with its default ten-second duration and one-second interval.
   Expect a new `outputs/hardware_<UTC>.csv`, nonzero samples, saved rows equal to
   samples, increasing timestamps/elapsed time, unchanged target and blank error
-  fields. The script must finish without poll, logging or cleanup errors.
+  fields. The operation cell must finish without poll, logging or cleanup errors.
   Do not require exactly ten rows; serial query time affects the count.
-- [ ] **Optional dashboard:** run `& $chillerPython examples/04_dashboard.py`
-  with the GUI extra installed. Open `http://127.0.0.1:8050`.
-  Expect fresh readings, an unchanged target, disabled target changes and no
-  reported faults. Press Ctrl+C in the terminal and wait for the script to exit
-  before continuing. Closing the browser alone does not stop acquisition.
+- [ ] **Optional dashboard:** run `python examples/04_dashboard.py` from a terminal
+  with the GUI extra installed. Open `http://127.0.0.1:8056`.
+  Expect fresh readings and no
+  reported faults. Press Ctrl+C in that terminal and wait for cleanup to finish
+  before continuing. Target controls are enabled; leave Apply untouched during
+  read-only checks. Closing the browser alone does not stop acquisition.
 
 ### One setpoint change
 
 - [ ] Proceed only after the read-only checks pass and the panel reports RUN
-  with no active alarms. In [`02_set_temperature.py`](../examples/02_set_temperature.py),
+  with no active alarms. In [`02_set_temperature.ipynb`](../examples/02_set_temperature.ipynb),
   set `TARGET_C` to the approved target, different from the original target,
   within both your setup's limits and 5–45 °C, in 0.1 °C steps.
-- [ ] Run `& $chillerPython examples/02_set_temperature.py`. Check the printed
+- [ ] Run the cells in [`02_set_temperature.ipynb`](../examples/02_set_temperature.ipynb). Check the printed
   existing target and requested value before pressing Enter once. Ctrl+C before
   Enter cancels the target request. Expect the printed reported setpoint to
   equal `TARGET_C`, a readback-match message, the same target on the panel and
   a clean exit. The driver sends one M target command and verifies its echo and
-  H0 readback; this script does not save a wire trace.
-- [ ] Run `03_record_csv.py` again to create a separate post-change CSV. Set
+  H0 readback; this notebook does not save a wire trace.
+- [ ] Run `03_record_csv.ipynb` again to create a separate post-change CSV. Set
   `DURATION_S` beforehand to your chosen observation time if ten seconds is
   insufficient. Expect the new target in every successful row and no poll or
   recording errors. Compare the temperature response with the panel/reference
@@ -106,7 +104,7 @@ $chillerPython = ".\.venv\Scripts\python.exe"
 
 ### Cleanup and results
 
-- [ ] Wait for each script to exit; controller contexts stop acquisition, close
+- [ ] Wait for each operation cell to finish; controller contexts stop acquisition, close
   CSV and release the serial port on normal exit. If an error or cleanup timeout
   occurs, inspect the exception and cleanup notes; do not assume resources were
   released or start a competing process. Follow the [cleanup procedure](api.md#shutdown-and-cleanup).
@@ -119,7 +117,7 @@ $chillerPython = ".\.venv\Scripts\python.exe"
 
 Stop the checklist on an unexpected mode, alarm, leak, mismatch or communication
 failure. For an uncertain write, inspect the actual panel/target; do not rerun
-`02_set_temperature.py` to find out whether the first request succeeded.
+`02_set_temperature.ipynb` to find out whether the first request succeeded.
 
 The manual calls for valid traffic every five seconds and returns to local control
 after more than ten seconds without it. Normal one-second monitoring supplies
@@ -199,10 +197,13 @@ software tests; memory endpoints cover those error paths.
 
 ## Hardware tutorials
 
-The [four tutorials](../examples/README.md) show read/status, one target change,
-CSV recording and a read-only dashboard. Enter your verified setup in
-[examples/hardware.py](../examples/hardware.py), then run each numbered script.
-Only tutorial 02 enables writes; CAL needs actual expected identity codes first.
+The [six script examples and five notebooks](../examples/README.md) show serial-port discovery,
+read/status, one target change, CSV recording, a dashboard with target controls and connection
+timing. Each script and notebook spells out its T255P connection directly; set
+its `PORT` before running either format.
+For notebooks, run cells in order.
+Tutorial 02 and dashboard script 04 enable explicit target writes. For CAL hardware, use the explicit
+[CAL API setup](api.md) with the actual address and expected identity codes.
 These tutorials use the installed package's real serial path without a simulator
 fallback. Controller contexts close software resources; equipment shutdown
 remains a separate physical procedure. If cleanup times out or closing the port

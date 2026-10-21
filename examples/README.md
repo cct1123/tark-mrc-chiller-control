@@ -1,153 +1,126 @@
-# Hardware tutorials
+# Hardware examples: scripts and standalone notebooks
 
-Four plain scripts introduce the CAL/T255P hardware API. Read them top to bottom:
-numbered comments explain each step, and constants at the top are yours to edit.
-There are no command menus, `main()` wrappers or simulator selections.
-[`hardware.py`](hardware.py) holds the shared setup; it opens nothing on import.
+Six T255P examples are available as standalone Python scripts. Five also have
+standalone notebooks; the dashboard runs only as a script.
+Each contains plain driver construction and connection code, with no shared
+helper or factory. Set `PORT` in each example; run notebook cells top to bottom.
 
-## Set up once
+| Script | Notebook | Purpose |
+| --- | --- | --- |
+| [00_discover_connect.py](00_discover_connect.py) | [00_discover_connect.ipynb](00_discover_connect.ipynb) | List serial adapters, connect and release the configured device |
+| [01_read_status.py](01_read_status.py) | [01_read_status.ipynb](01_read_status.ipynb) | Read temperature, target and diagnostics |
+| [02_set_temperature.py](02_set_temperature.py) | [02_set_temperature.ipynb](02_set_temperature.ipynb) | Confirm one target change and compare readback |
+| [03_record_csv.py](03_record_csv.py) | [03_record_csv.ipynb](03_record_csv.ipynb) | Record telemetry for a fixed duration to a new CSV |
+| [04_dashboard.py](04_dashboard.py) | Script only | Monitor and explicitly set temperature until Ctrl+C |
+| [05_connection_timing.py](05_connection_timing.py) | [05_connection_timing.ipynb](05_connection_timing.ipynb) | Time one idle connect/disconnect cycle |
+
+## Environment
 
 From the repository root, with Python 3.12+:
 
 ```powershell
 python -m venv .venv
-$chillerPython = ".\.venv\Scripts\python"
-& $chillerPython -m pip install ".[gui]"
+$chillerPython = ".\.venv\Scripts\python.exe"
+& $chillerPython -m pip install -e ".[gui]"
+& $chillerPython -m pip install jupyterlab ipykernel
+& $chillerPython -m ipykernel install --user --name tark-chiller --display-name "Chiller (Python 3.12+)"
+& $chillerPython -m jupyterlab
 ```
 
-The `gui` extra is needed only for tutorial 04. The other tutorials need only
-`python -m pip install .`. Run one script at a time and close other programs using
-the port. The scripts work from any directory; relative CSV paths follow your
-current working directory. Commands below assume the repository root.
+Select the **Chiller (Python 3.12+)** kernel. The GUI extra is needed only for
+script 04; the notebooks need only the base package. The notebooks prefer checkout
+sources when launched from the repository root or examples directory and otherwise
+use the installed package. Restart the kernel after changing driver sources.
 
-Edit the constants in [`hardware.py`](hardware.py) for the actual unit. No port
-is guessed: incomplete setup raises an error before a serial endpoint is created.
-Consult the [hardware setup and first-use guide](../docs/hardware.md) for cable,
-line levels, coolant, initial checks and recovery. Physical hardware has not been
-tested with this package; verify readings against the panel/reference first.
+Only one process/notebook may own a device port. Relative CSV paths follow the
+kernel's working directory. Physical hardware has not been tested with this
+package; compare readings with the panel/reference.
 
-For a first T255P bench session, follow the
-[T255P hardware checklist](../docs/hardware.md#t255p-human-hardware-test):
-read-only checks first, then one setpoint change, response recording and cleanup.
+## Running scripts
 
-### T255P setup
-
-Select `DEVICE_MODEL = "t255p"` and replace `SERIAL_SETTINGS = None` with this
-configuration, using the actual port and verified RTS/DTR levels instead of `...`:
-
-```python
-SERIAL_SETTINGS = {
-    "port": ...,
-    "baudrate": 9600,
-    "bytesize": 8,
-    "parity": "N",
-    "stopbits": 1,
-    "xonxoff": True,
-    "rtscts": False,
-    "dsrdtr": False,
-    "rts": ...,
-    "dtr": ...,
-}
-```
-
-Leave CAL address/identity fields and `RS485_MODE` as `None`. The helper uses
-distilled-water bounds of **5–45 °C**; writes require 0.1 °C steps. Signed reads
-are supported, but sub-zero writes are not.
-
-**Connecting sends U, takes serial control and can change AUTO START to RUN**,
-even in the read-only tutorials. Prepare the physical loop before connecting.
-Normal one-second monitoring supplies watchdog traffic. Idle calls, stopping
-monitoring or process stalls can let the unit return to local control after more
-than ten seconds; the next API operation sends U again.
-
-### CAL setup
-
-Select `DEVICE_MODEL = "cal"`, enter the actual `CAL_ADDRESS` (1–247), and replace
-`SERIAL_SETTINGS = None` with verified settings:
-
-```python
-SERIAL_SETTINGS = {
-    "port": ...,
-    "baudrate": ...,
-    "bytesize": 8,
-    "parity": ...,
-    "stopbits": 1,
-    "xonxoff": False,
-    "rtscts": False,
-    "dsrdtr": False,
-    "rts": ...,
-    "dtr": ...,
-}
-```
-
-Match the actual baud rate and parity to the unit's menu. The driver requires a
-supported CAL 3300/9300, RTD input and Celsius. Its default distilled-water bounds
-are **2–40 °C**. Keep expected identity fields as `None` for tutorial 01; then copy
-the actual printed model/firmware hex codes into them before tutorial 02.
-Use `RS485_MODE` only when your verified adapter requires native direction control.
-
-## 1. Connect and read
-
-[`01_read_status.py`](01_read_status.py) constructs the driver, connects through its
-context, and reads temperature, target and a status dictionary. Context exit disconnects,
-including after a read error; a cleanup failure is attached to the original error.
-CAL diagnostics include actual model/firmware codes; T255P diagnostics report
-mode and alarms but do not identify the unit. Readings are sequential, not
-simultaneous, and temperatures are Celsius.
+Set `PORT` to the identified adapter in the script, then run it, for example:
 
 ```powershell
+& $chillerPython examples/00_discover_connect.py
 & $chillerPython examples/01_read_status.py
 ```
 
-## 2. Set one target
+Scripts work from any directory after package installation. They open no port
+until explicitly connecting. The discovery script prints available ports even
+before configuration is complete. Use Ctrl+C to interrupt a running script.
+Script 04 uses a blocking localhost server without a reloader; Ctrl+C closes
+acquisition and the port. Browser closure alone leaves acquisition running.
+It enables two read recovery attempts for I/O failures and checksum-valid replies
+with error code zero but the wrong command echo. Recovery closes/reopens the port with a fresh handshake
+and preserves the 3 s reply quarantine; retry diagnostics appear in the terminal.
+Other protocol faults or exhausted retries stop monitoring with a visible error.
+Restart the script only after checking the reported fault and serial ownership.
+Script 05 times one idle connection cycle without monitoring. Jupyter is needed
+only for the notebook versions.
 
-[`02_set_temperature.py`](02_set_temperature.py) explicitly enables target writes.
-Edit `TARGET_C` for your experiment. It prints the existing target and pauses for
-Enter before sending the chosen target once; Ctrl+C cancels the request. It then
-reads the target back. CAL also needs the actual expected identity codes in
-`hardware.py` and uses a lock → stage → save/restart sequence. T255P requires RUN
-with no reported alarms. Successful readback does not establish thermal settling.
+## T255P setup
 
-```powershell
-& $chillerPython examples/02_set_temperature.py
+Set the port in each script or notebook:
+
+```python
+PORT = "COM9"
 ```
 
-Run/standby, pump-only, display-unit and clock methods are not exposed by this
-package.
-Inspect the equipment after any uncertain write; no failed write is retried or
-automatically rolled back. Only tutorial 02 enables writes.
+Notebook 00 already uses your selected COM9 adapter. Other examples leave the
+port unset until you identify it. The connection code explicitly supplies 9600
+baud, 8N1, XON/XOFF, no hardware flow control, and deasserted RTS/DTR. Check that
+these line levels suit your cable/adapter; they are editable in the connection
+code if needed. Target bounds assume distilled water at **5–45 °C**, in 0.1 °C
+steps. CAL-specific setup is separate in the [API guide](../docs/api.md).
 
-## 3. Record CSV
+**Connecting sends U, takes serial control and can change AUTO START to RUN.**
+Prepare the filled cooling loop first. One-second monitoring supplies watchdog
+traffic; idle calls or process stalls can allow return to local control after
+more than ten seconds. The next operation sends U again.
 
-[`03_record_csv.py`](03_record_csv.py) starts one monitor, records for `DURATION_S`
-(default ten seconds), stops it, and prints the sample/row counts. Edit
-`INTERVAL_S` for the poll interval; serial query time can extend it. This is a
-duration-based run, not an exact row count.
+## Execution and cleanup
 
-```powershell
-& $chillerPython examples/03_record_csv.py
-```
+Notebook 00 enumerates adapter metadata without opening ports. Configure the
+identified device before running its connection section. No port or protocol is
+guessed.
 
-Each run creates a UTC-named file under `outputs/`. Rows contain UTC/elapsed time,
-Celsius readings, connection/status and errors; failed readings are blank.
-Existing files are refused and rows are flushed. A poll or recording error ends
-the script. The controller context joins the worker and closes CSV on Ctrl+C or
-an error, preserving the original error if cleanup also fails. See
-[cleanup and retry](../docs/api.md#shutdown-and-cleanup) if resources remain owned.
+Each operation cell keeps connection and cleanup together. Notebook 02 pauses
+for Enter before requesting one target; interrupt before confirming to cancel.
+Uncertain writes are never replayed or automatically rolled back. Readback does
+not establish thermal settling. Example 02 enables one confirmed target write;
+script 04 also enables explicit target requests through its GUI.
 
-## 4. Watch the dashboard
+Notebook 03 defaults to ten seconds of one-second polling, with a new UTC-named
+file under `outputs/`. It refuses existing files, flushes rows, and raises on
+poll/recording errors. Failed measurements are blank; timing does not guarantee
+an exact sample count.
 
-[`04_dashboard.py`](04_dashboard.py) uses one controller for hardware, monitoring and recording
-with the Dash app at <http://127.0.0.1:8050>. Both driver and dashboard disable
-target writes. Set `CSV_PATH` to a new filename if you also want recording; leave
-it `None` to watch without saving. The GUI shows sample age, failures and logging
-errors. The reloader is disabled to keep one serial owner.
+Script 04 runs from a terminal and serves <http://127.0.0.1:8056>:
 
 ```powershell
 & $chillerPython examples/04_dashboard.py
 ```
 
-Browser refresh or closure leaves acquisition running. Ctrl+C in the terminal
-stops the app, joins the worker, closes CSV and releases the port.
-**Closing a connection or cancelling a script does not stop the chiller/pump or
-restore its original target.** Follow the equipment shutdown procedure separately.
+**Press Ctrl+C in that terminal** to close the server,
+join acquisition, close CSV and release the port. Closing the browser leaves
+acquisition running. Target controls are enabled: each Apply action requests a
+validated target write; monitoring and writes share the same controller lock.
+The threaded HTTP server keeps refresh requests responsive during a target action.
+Set `SERIAL_TRACE = True` to log every exact transmitted/received T255P frame;
+rejected transactions are always logged. A device error code is reported before
+an echo mismatch and is not automatically retried.
+The manual permits the next request after a complete reply; there is no added
+fixed inter-command delay. If a later field fails, validated temperature from
+that attempt is retained as historical data while the failed session stops.
+
+Notebook 05 measures each idle API call separately and attempts disconnect even
+when connection fails. It does not start monitoring or measure active-I/O shutdown.
+
+If cleanup fails, allow pending I/O to finish and retry
+`chiller.disconnect(timeout_s=5.0)` if the controller was created. Do not rerun
+setup over a live connection. Forced kernel termination cannot guarantee cleanup.
+See the [hardware checklist](../docs/hardware.md#t255p-human-hardware-test) and
+[cleanup details](../docs/api.md#shutdown-and-cleanup).
+
+**Software disconnect does not stop the chiller/pump or restore its target.**
+Follow the equipment shutdown procedure separately.
