@@ -8,13 +8,27 @@
 # Common local caches and editor/OS artifacts.
 __pycache__/
 *.py[cod]
-.pytest_cache/
+.pytest*/
+pytest-cache-files-*/
+.cache/
+*.cache
+.ipynb_checkpoints/
 .venv/
 .venv-review/
 .uv-cache/
 .DS_Store
 Thumbs.db
 ~$*
+
+# Temporary files and scratch directories (at any depth).
+.tmp*/
+.temp*/
+tmp/
+temp/
+*.tmp
+*.temp
+*.swp
+*.swo
 
 # Local package/build/test output and acquisition data.
 *.egg-info/
