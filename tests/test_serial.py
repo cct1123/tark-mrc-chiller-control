@@ -1,6 +1,5 @@
 """Serial ownership, deadlines and recovery using actual CAL frames in memory."""
 
-import builtins
 import errno
 import math
 from concurrent.futures import ThreadPoolExecutor
@@ -22,22 +21,6 @@ def test_absent_or_unsupported_protocol_prevents_endpoint_creation(protocol):
     chiller.disconnect()
 
 
-def test_missing_pyserial_explains_required_dependency_without_creating_port(monkeypatch):
-    original_import = builtins.__import__
-
-    def without_pyserial(name, *args, **kwargs):
-        if name == "serial":
-            raise ModuleNotFoundError("No module named 'serial'")
-        return original_import(name, *args, **kwargs)
-
-    monkeypatch.setattr(builtins, "__import__", without_pyserial)
-    chiller = TarkChiller(fake_settings(), protocol=Cal33xx(1))
-    with pytest.raises(OSError, match="python -m pip install pyserial"):
-        chiller.connect()
-    assert not chiller.is_connected
-    chiller.disconnect()
-
-
 @pytest.mark.parametrize("rs485", [False, True])
 def test_common_api_uses_explicit_settings_and_no_startup_actuation(rs485):
     chiller, endpoint = make_serial(rs485=rs485)
@@ -56,7 +39,7 @@ def test_common_api_uses_explicit_settings_and_no_startup_actuation(rs485):
                 xonxoff=False,
                 rtscts=False,
                 dsrdtr=False,
-                timeout=1.0,
+                timeout=0.05,
                 write_timeout=1.0,
             )
         ]

@@ -11,7 +11,9 @@ import pytest
 from fakes import FakeChiller
 from plotly.utils import PlotlyJSONEncoder
 
+from tark_chiller.controller import ProtocolError
 from tark_chiller.gui import create_app, render_snapshot
+from tark_chiller.simulator import CalSimulator, T255PSimulator
 
 
 def text(value):
@@ -23,6 +25,63 @@ def wait_for(predicate):
     while not predicate():
         assert monotonic() < deadline, "Monitor did not publish the expected state"
         sleep(0.005)
+
+
+def test_latched_protocol_fault_stops_polling_and_is_visible_in_dashboard(monkeypatch):
+    def fail():
+        raise ProtocolError("Invalid sensor response")
+
+    with FakeChiller() as chiller:
+        monkeypatch.setattr(chiller, "_read_sample", fail)
+        chiller.start_monitoring(interval_s=0.01)
+        wait_for(lambda: not chiller.running)
+        snapshot = chiller.snapshot()
+        assert snapshot["sample_count"] == snapshot["failed_samples"] == 1
+        status, _ = render_snapshot(snapshot)
+        content = text(status)
+        assert "Monitoring stopped" in content
+        assert "Invalid sensor response" in content
+        assert "No fresh reading" in content
+
+
+def test_freshness_uses_poll_completion_instead_of_start(dashboard, monkeypatch):
+    from tark_chiller import gui
+
+    chiller, _, _ = dashboard
+    snapshot = chiller.snapshot()
+    latest = {**snapshot["history"][-1], "sampled_monotonic": 100.0,
+              "completed_monotonic": 110.0}
+    monkeypatch.setattr(gui, "monotonic", lambda: 110.5)
+    cards, _ = render_snapshot({**snapshot, "history": [latest]})
+    content = text(cards)
+    assert "20.00" in content and "Monitoring" in content
+    assert "0.5 s ago" in content and "Stale" not in content
+
+
+def test_recovery_and_service_fault_have_distinct_consistent_states(dashboard):
+    chiller, _, _ = dashboard
+    snapshot = chiller.snapshot()
+    cards, _ = render_snapshot({**snapshot, "recovery_error": "Wrong command"})
+    content = text(cards)
+    assert "Recovering" in content and "Wrong command" in content
+    assert "20.00" not in content and "Monitoring stopped" not in content
+    cards, _ = render_snapshot({**snapshot, "service_error": "Device rejected command",
+                               "recovery_error": "Wrong command"})
+    content = text(cards)
+    assert "Monitoring fault" in content and "20.00" not in content
+    assert "Monitoring stopped" not in content  # The worker has not finished yet.
+    assert "Recovering" not in content
+
+
+def test_failed_poll_between_retries_still_shows_recovering(dashboard):
+    chiller, _, _ = dashboard
+    snapshot = chiller.snapshot()
+    latest = {**snapshot["history"][-1], "error": "T255P bad command",
+              "status": {"connected": False, "backend": "hardware", "detail": "poll failed"}}
+    cards, _ = render_snapshot({**snapshot, "history": [latest], "recovery_error": ""})
+    content = text(cards)
+    assert "Recovering" in content and "bad command" in content
+    assert "Monitoring stopped" not in content
 
 
 @pytest.fixture
@@ -42,6 +101,7 @@ def refresh(app):
             "outputs": [
                 {"id": "live-status", "property": "children"},
                 {"id": "temperature-history", "property": "figure"},
+                {"id": "toggle-monitoring", "property": "children"},
             ],
             "inputs": [{"id": "refresh", "property": "n_intervals", "value": 1}],
             "state": [],
@@ -61,6 +121,270 @@ def submit(app, value):
             "changedPropIds": ["apply-setpoint.n_clicks"],
         },
     )
+
+
+def submit_mode(app, action):
+    return app.server.test_client().post("/_dash-update-component", json={
+        "output": "mode-result.children",
+        "outputs": {"id": "mode-result", "property": "children"},
+        "inputs": [{"id": "run-device", "property": "n_clicks", "value": 1},
+                   {"id": "standby-device", "property": "n_clicks", "value": 1}],
+        "state": [], "changedPropIds": [f"{action}.n_clicks"],
+    })
+
+
+def test_mode_buttons_use_production_api_and_leave_monitoring_active():
+    endpoint = T255PSimulator()
+    with endpoint.chiller() as chiller:
+        chiller.start_monitoring(interval_s=0.01)
+        app = create_app(chiller)
+        layout = app.server.test_client().get("/_dash-layout").get_data(as_text=True)
+        assert "run-device" in layout and "standby-device" in layout
+        for action, mode in [("standby-device", "1"), ("run-device", "2")]:
+            result = submit_mode(app, action)
+            assert result.status_code == 200 and "verified" in text(result.json)
+            assert endpoint.mode == mode and chiller.running
+        assert not endpoint.applied_writes
+
+
+@pytest.mark.parametrize("action", ["run-device", "standby-device"])
+def test_read_only_gui_rejects_direct_mode_callbacks(action):
+    endpoint = T255PSimulator()
+    with endpoint.chiller() as chiller:
+        app = create_app(chiller, allow_setpoints=False)
+        result = submit_mode(app, action)
+        assert "Rejected" in text(result.json) and endpoint.mode == "2"
+        app = create_app(chiller, allow_mode_changes=False)
+        assert "Rejected" in text(submit_mode(app, action).json)
+
+
+def test_mode_http_errors_are_visible_without_connecting_or_retrying():
+    endpoint = T255PSimulator()
+    chiller = endpoint.chiller()
+    app = create_app(chiller)
+    assert "disconnected" in text(submit_mode(app, "run-device").json).lower()
+    assert not endpoint.is_open
+    with chiller:
+        endpoint.alarms = "010000"
+        assert "RUN refused" in text(submit_mode(app, "run-device").json)
+        assert not endpoint.is_open
+
+
+def test_cal_api_and_dashboard_refuse_mode_control_without_io(monkeypatch):
+    endpoint = CalSimulator()
+    with endpoint.chiller() as chiller:
+        monkeypatch.setattr(endpoint, "write", lambda *_args: pytest.fail("CAL mode request sent I/O"))
+        assert not chiller.supports_mode_control
+        app = create_app(chiller)
+        for method, action in [(chiller.run, "run-device"), (chiller.standby, "standby-device")]:
+            with pytest.raises(ProtocolError, match="only for T255P"):
+                method()
+            assert "unsupported" in text(submit_mode(app, action).json)
+        assert chiller.is_connected
+
+
+def test_mode_callbacks_share_action_lock_and_refuse_requests_after_shutdown(monkeypatch):
+    endpoint = T255PSimulator()
+    with endpoint.chiller() as chiller:
+        app = create_app(chiller, on_shutdown=lambda: None)
+        entered, release = Event(), Event()
+        original = chiller.run
+
+        def slow_run():
+            entered.set()
+            assert release.wait(2)
+            original()
+
+        monkeypatch.setattr(chiller, "run", slow_run)
+        worker = Thread(target=lambda: submit_mode(app, "run-device"))
+        worker.start()
+        try:
+            assert entered.wait(1)
+            assert "in progress" in text(submit_mode(app, "standby-device").json)
+            assert "in progress" in text(submit(app, 18).json)
+            assert "in progress" in text(session_action(app, "shutdown-gui").json)
+            assert refresh(app).status_code == 200
+        finally:
+            release.set()
+            worker.join(2)
+        assert not worker.is_alive()
+        assert "shut down" in text(session_action(app, "shutdown-gui").json)
+        assert "shut down" in text(submit_mode(app, "standby-device").json)
+        assert endpoint.mode == "2" and not endpoint.is_open
+
+
+def session_action(app, action, *, interval=0.01, path=""):
+    return app.server.test_client().post(
+        "/_dash-update-component",
+        json={
+            "output": next(key for key in app.callback_map if "session-result" in key),
+            "outputs": [{"id": "session-result", "property": "children"},
+                        {"id": "refresh", "property": "disabled"},
+                        {"id": "live-status", "property": "children"},
+                        {"id": "toggle-monitoring", "property": "children"}],
+            "inputs": [{"id": name, "property": "n_clicks", "value": int(name == action)}
+                       for name in ("connect-device", "toggle-monitoring", "shutdown-gui")],
+            "state": [{"id": "monitor-interval", "property": "value", "value": interval},
+                      {"id": "monitor-csv", "property": "value", "value": path}],
+            "changedPropIds": [f"{action}.n_clicks"],
+        },
+    )
+
+
+def test_explicit_session_controls_connect_monitor_stop_restart_and_shutdown(tmp_path):
+    chiller = FakeChiller()
+    closed = Event()
+    app = create_app(chiller, on_shutdown=closed.set)
+    client = app.server.test_client()
+    assert client.get("/_dash-layout").status_code == 200
+    assert not chiller.is_connected and not chiller.running
+    assert "failed" in text(session_action(app, "toggle-monitoring").json)
+    assert not chiller.running
+    try:
+        assert "Connected" in text(session_action(app, "connect-device").json)
+        assert chiller.is_connected and not chiller.running
+        assert "Already connected" in text(session_action(app, "connect-device").json)
+        path = tmp_path / "buttons.csv"
+        started = session_action(app, "toggle-monitoring", path=str(path)).json
+        assert "started" in text(started)
+        assert started["response"]["toggle-monitoring"]["children"] == "Stop monitoring"
+        wait_for(lambda: chiller.snapshot()["sample_count"] > 0)
+        stopped = session_action(app, "toggle-monitoring").json
+        assert "stopped" in text(stopped)
+        assert stopped["response"]["toggle-monitoring"]["children"] == "Start monitoring"
+        assert not chiller.running and chiller.is_connected
+        path.unlink()  # Writer has been closed.
+        assert "started" in text(session_action(app, "toggle-monitoring").json)
+        response = session_action(app, "shutdown-gui")
+        assert response.status_code == 200 and "shut down" in text(response.json)
+        assert response.json["response"]["refresh"]["disabled"] is True
+        assert "Monitoring stopped" in text(response.json["response"]["live-status"])
+        assert "Device readback" not in text(response.json["response"]["live-status"])
+        assert closed.is_set() and not chiller.running and not chiller.is_connected
+        assert "shut down" in text(session_action(app, "connect-device").json)
+        assert "Rejected" in text(submit(app, 18).json)
+        assert not chiller.is_connected
+    finally:
+        chiller.disconnect()
+
+
+def test_session_failures_are_visible_and_do_not_shut_down(dashboard, monkeypatch, tmp_path):
+    chiller, _, _ = dashboard
+    chiller.stop_monitoring()
+    closed = Event()
+    app = create_app(chiller, on_shutdown=closed.set)
+    existing = tmp_path / "existing.csv"
+    existing.write_text("preserve me", encoding="utf-8")
+    assert "failed" in text(session_action(app, "toggle-monitoring", path=str(existing)).json)
+    assert existing.read_text(encoding="utf-8") == "preserve me"
+    assert "failed" in text(session_action(app, "toggle-monitoring", interval=0).json)
+    assert not chiller.running
+
+    def fail_disconnect():
+        raise TimeoutError("Device read still pending")
+
+    with monkeypatch.context() as patch:
+        patch.setattr(chiller, "disconnect", fail_disconnect)
+        response = session_action(app, "shutdown-gui")
+        assert "Device read still pending" in text(response.json)
+        assert response.json["response"]["refresh"]["disabled"] is False
+        assert not closed.is_set()
+    assert "shut down" in text(session_action(app, "shutdown-gui").json)
+    assert closed.is_set()
+
+
+def test_embedded_host_rejects_unavailable_shutdown(dashboard):
+    chiller, app, _ = dashboard
+    response = session_action(app, "shutdown-gui")
+    assert "Shutdown unavailable" in text(response.json)
+    assert chiller.is_connected and chiller.running
+
+
+def test_concurrent_action_does_not_reopen_after_shutdown(monkeypatch):
+    chiller = FakeChiller()
+    app = create_app(chiller, on_shutdown=lambda: None)
+    entered, release = Event(), Event()
+    original = chiller.connect
+
+    def slow_connect():
+        entered.set()
+        assert release.wait(2)
+        original()
+
+    monkeypatch.setattr(chiller, "connect", slow_connect)
+    worker = Thread(target=lambda: session_action(app, "connect-device"))
+    worker.start()
+    try:
+        assert entered.wait(1)
+        assert "in progress" in text(session_action(app, "shutdown-gui").json)
+        assert refresh(app).status_code == 200
+    finally:
+        release.set()
+        worker.join(2)
+        chiller.disconnect()
+
+
+def test_run_dashboard_shutdown_closes_real_http_server(monkeypatch):
+    import json
+    from urllib.request import Request, urlopen
+
+    from tark_chiller import gui
+
+    chiller = FakeChiller()
+    ready = Event()
+    servers, errors = [], []
+    make_server = gui.make_server
+
+    def capture_server(*args, **kwargs):
+        server = make_server(*args, **kwargs)
+        servers.append(server)
+        ready.set()
+        return server
+
+    monkeypatch.setattr(gui, "make_server", capture_server)
+
+    def run():
+        try:
+            gui.run_dashboard(chiller, port=0)
+        except BaseException as exc:
+            errors.append(exc)
+
+    worker = Thread(target=run)
+    worker.start()
+    try:
+        assert ready.wait(2)
+        url = f"http://127.0.0.1:{servers[0].server_port}"
+        with urlopen(url + "/_dash-layout", timeout=2) as response:
+            assert "Shutdown GUI" in response.read().decode()
+        assert not chiller.is_connected
+        # Generate a real callback payload, then send it over HTTP to the live server.
+        app = gui.create_app(chiller, on_shutdown=lambda: None)
+        output = next(key for key in app.callback_map if "session-result" in key)
+        inputs = [{"id": name, "property": "n_clicks", "value": 1}
+                  for name in ("connect-device", "toggle-monitoring", "shutdown-gui")]
+        for action in ("connect-device", "toggle-monitoring", "shutdown-gui"):
+            payload = {"output": output,
+                       "outputs": [{"id": "session-result", "property": "children"},
+                                   {"id": "refresh", "property": "disabled"},
+                                   {"id": "live-status", "property": "children"},
+                                   {"id": "toggle-monitoring", "property": "children"}],
+                       "inputs": inputs,
+                       "state": [{"id": "monitor-interval", "property": "value", "value": 0.01},
+                                 {"id": "monitor-csv", "property": "value", "value": ""}],
+                       "changedPropIds": [f"{action}.n_clicks"]}
+            request = Request(url + "/_dash-update-component", data=json.dumps(payload).encode(),
+                              headers={"Content-Type": "application/json"})
+            with urlopen(request, timeout=2) as response:
+                assert "failed" not in response.read().decode()
+        worker.join(3)
+        assert not worker.is_alive() and not errors
+        assert not chiller.running and not chiller.is_connected
+        assert servers[0].socket.fileno() == -1
+    finally:
+        if worker.is_alive() and servers:
+            servers[0].shutdown()
+        worker.join(3)
+        chiller.disconnect()
 
 
 def test_simulator_monitor_csv_and_dash_share_real_readings(dashboard):
@@ -156,7 +480,7 @@ def test_refresh_and_reload_do_not_start_or_read_a_device(dashboard, monkeypatch
         layout = client.get("/_dash-layout")
         assert layout.status_code == 200
         assert "telemetry unavailable" in text(layout.json)
-        assert "connect-device" not in text(layout.json)
+        assert "connect-device" in text(layout.json)
         assert refresh(app).status_code == 200
     assert chiller.snapshot()["sample_count"] == count
     assert not chiller.running
@@ -165,14 +489,14 @@ def test_refresh_and_reload_do_not_start_or_read_a_device(dashboard, monkeypatch
 def test_pending_device_read_does_not_block_gui_refresh(dashboard, monkeypatch):
     chiller, app, _path = dashboard
     entered, release, responded = Event(), Event(), Event()
-    original = chiller.read_temperature
+    original = chiller._read_sample
 
     def pending_read():
         entered.set()
         assert release.wait(2)
         return original()
 
-    monkeypatch.setattr(chiller, "read_temperature", pending_read)
+    monkeypatch.setattr(chiller, "_read_sample", pending_read)
     assert entered.wait(1)
     response = []
 
@@ -251,6 +575,21 @@ def test_fault_and_csv_failure_are_explicit(dashboard):
     )
     assert "20.00" not in text(cards)
     assert figure.data[0].y[-1] is None and figure.data[0].connectgaps is False
+
+
+def test_partial_temperature_is_identified_as_historical_after_target_failure(dashboard):
+    chiller, _, _ = dashboard
+    snapshot = chiller.snapshot()
+    partial = {**snapshot["history"][-1], "setpoint_c": None,
+               "status": {"connected": False, "backend": "simulator", "detail": "poll failed"},
+               "error": "bad command"}
+    cards, figure = render_snapshot({**snapshot, "running": False, "history": [partial],
+                                    "service_error": "Monitoring stopped: bad command"})
+    content = text(cards)
+    assert "Last validated temperature 20.00" in content
+    assert "No fresh reading" in content and "Waiting for fresh readback" in content
+    assert "Device readback" not in content
+    assert figure.data[0].y[-1] == 20 and figure.data[1].y[-1] is None
 
 
 def test_csv_failure_preserves_temperature_and_empty_history_is_honest(dashboard):

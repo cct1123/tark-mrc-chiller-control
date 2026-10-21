@@ -40,6 +40,7 @@ def test_simulator_monitor_csv_dash(tmp_path, backend):
                         "outputs": [
                             {"id": "live-status", "property": "children"},
                             {"id": "temperature-history", "property": "figure"},
+                            {"id": "toggle-monitoring", "property": "children"},
                         ],
                         "inputs": [{"id": "refresh", "property": "n_intervals", "value": 1}],
                         "state": [],
@@ -104,17 +105,18 @@ def test_fake_serial_monitor_reports_outage_and_recovers(tmp_path):
             assert monotonic() < deadline
             sleep(0.005)
         assert not chiller.snapshot()["history"][-1]["status"]["connected"]
-        opens = endpoint.open_count
-        sleep(0.05)
-        assert endpoint.open_count == opens
+        assert chiller.running and chiller.snapshot()["logging_enabled"]
+        assert not chiller.snapshot()["service_error"]
         endpoint.read_error = None
-        chiller.connect()
-        while chiller.snapshot()["history"][-1]["error"]:
+        deadline = monotonic() + 2
+        while not chiller.snapshot()["history"][-1]["status"]["connected"]:
             assert monotonic() < deadline
             sleep(0.005)
         assert chiller.snapshot()["history"][-1]["temperature_c"] == 20
         assert endpoint.applied_writes == 0
+        chiller.stop_monitoring()  # Finish the poll before disconnect cancels serial I/O.
     with path.open(newline="") as stream:
         rows = list(csv.DictReader(stream))
     assert any(row["error"] and row["temperature_c"] == "" for row in rows)
+    assert rows[-1]["temperature_c"] == "20.0" and not rows[-1]["error"]
     assert not endpoint.is_open

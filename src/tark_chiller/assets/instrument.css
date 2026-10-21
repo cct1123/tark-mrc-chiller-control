@@ -17,6 +17,8 @@ h1 { font-size: clamp(1.75rem, 3vw, 2.2rem); font-weight: 650; letter-spacing: -
 .card-body { padding: 22px; }
 .reading-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 16px; }
 .instrument-panels { display: grid; grid-template-columns: minmax(0, 2fr) minmax(280px, 1fr); gap: 16px; }
+.session-buttons { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; margin-top: 14px; }
+#shutdown-gui { grid-column: 1 / -1; }
 .metric-label { font-size: .8rem; color: var(--instrument-muted); font-weight: 600; margin-bottom: 12px; }
 .metric-value { font-variant-numeric: tabular-nums; font-size: clamp(2.4rem, 4vw, 3.3rem); letter-spacing: -.035em; line-height: 1.1; font-weight: 600; white-space: nowrap; }
 .metric-value span { font-size: 1.25rem; font-weight: 400; margin-left: .5rem; }

@@ -76,7 +76,8 @@ chiller = TarkChiller(settings, protocol=T255P())
 assert not chiller.is_connected
 assert not chiller.read_status()["connected"]
 assert threading.active_count() == before
-assert not {'dash', 'plotly', 'serial'} & sys.modules.keys()
+assert 'serial' in sys.modules
+assert not {'dash', 'plotly'} & sys.modules.keys()
 """,
         ],
         check=True,

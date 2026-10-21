@@ -11,6 +11,7 @@ __pycache__/
 .pytest_cache/
 .venv/
 .venv-review/
+.uv-cache/
 .DS_Store
 Thumbs.db
 ~$*

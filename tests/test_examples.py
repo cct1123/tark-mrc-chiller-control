@@ -49,11 +49,12 @@ def test_notebooks_are_sectioned_and_have_no_sibling_dependencies(name):
 
 
 def test_examples_have_both_formats_except_script_only_dashboard():
-    assert len(TUTORIALS) == 5 and len(SCRIPTS) == 6
+    assert len(TUTORIALS) == 6 and len(SCRIPTS) == 7
+    assert SCRIPTS[-1] == "06_dashboard.py"
     assert {Path(name).stem for name in TUTORIALS} == {
-        Path(name).stem for name in SCRIPTS if name != "04_dashboard.py"
+        Path(name).stem for name in SCRIPTS if name != "06_dashboard.py"
     }
-    assert not (EXAMPLES / "04_dashboard.ipynb").exists()
+    assert not (EXAMPLES / "06_dashboard.ipynb").exists()
 
 
 @pytest.fixture
@@ -236,6 +237,88 @@ def test_target_tutorial_applies_one_request(hardware, run_tutorial, monkeypatch
     assert endpoint.applied_writes == 1 and not endpoint.is_open
 
 
+@pytest.mark.parametrize("mode, expected, frame", [
+    ("STANDBY", "1", b".G0A5\r"), ("RUN", "2", b".G1A6\r"),
+])
+def test_mode_tutorial_sends_one_published_request_and_closes(
+    hardware, run_tutorial, monkeypatch, capsys, mode, expected, frame
+):
+    _, endpoint = hardware
+    endpoint.mode = "1" if mode == "RUN" else "2"
+    requests = []
+    write = endpoint.write
+
+    def capture(request):
+        requests.append(request)
+        return write(request)
+
+    monkeypatch.setattr(endpoint, "write", capture)
+    monkeypatch.setattr("builtins.input", lambda prompt: mode)
+    run_tutorial("05_run_standby.ipynb", MODE=mode)
+    assert requests == [b".U83\r", b".J78\r", frame, b".U83\r"]
+    assert f"Reported {mode} matches" in capsys.readouterr().out
+    assert endpoint.mode == expected and not endpoint.is_open
+    assert not endpoint.applied_writes  # No temperature target writes.
+
+
+@pytest.mark.parametrize("answer", ["", "run", "NO"])
+def test_mode_tutorial_cancel_does_not_open_port(
+    hardware, run_tutorial, monkeypatch, answer
+):
+    _, endpoint = hardware
+    monkeypatch.setattr("builtins.input", lambda prompt: answer)
+    monkeypatch.setattr(endpoint, "open", lambda: pytest.fail("Cancelled example opened port"))
+    with pytest.raises(ValueError, match="Cancelled"):
+        run_tutorial("05_run_standby.ipynb")
+
+
+@pytest.mark.parametrize("mode", ["RUN", "STANDBY"])
+def test_mode_tutorial_allows_standby_but_refuses_run_with_alarm(
+    hardware, run_tutorial, monkeypatch, mode
+):
+    _, endpoint = hardware
+    endpoint.mode, endpoint.alarms = "2", "010000"
+    monkeypatch.setattr("builtins.input", lambda prompt: mode)
+    if mode == "RUN":
+        with pytest.raises(ProtocolError, match="RUN refused"):
+            run_tutorial("05_run_standby.ipynb", MODE=mode)
+        assert endpoint.mode == "2"
+    else:
+        run_tutorial("05_run_standby.ipynb", MODE=mode)
+        assert endpoint.mode == "1"
+    assert not endpoint.is_open
+
+
+@pytest.mark.parametrize("fault", ["lost_ack", "wrong_echo", "wrong_mode", "bad_checksum"])
+def test_mode_tutorial_uncertain_result_is_not_replayed(
+    hardware, run_tutorial, monkeypatch, fault
+):
+    _, endpoint = hardware
+    write = endpoint.write
+    commits = []
+
+    def fail_after_commit(request):
+        count = write(request)
+        if request[1:2] == b"G":
+            commits.append(request)
+            if fault == "lost_ack":
+                raise TimeoutError("Lost mode acknowledgement")
+            if fault == "wrong_echo":
+                endpoint._buffer = b"#G01CB\r"
+            if fault == "wrong_mode":
+                endpoint.mode = "2"
+            if fault == "bad_checksum":
+                endpoint._buffer = b"#G0000\r"
+        return count
+
+    monkeypatch.setattr(endpoint, "write", fail_after_commit)
+    monkeypatch.setattr("builtins.input", lambda prompt: "STANDBY")
+    with pytest.raises((ProtocolError, TimeoutError)) as raised:
+        run_tutorial("05_run_standby.ipynb", MODE="STANDBY")
+    assert any("do not replay" in note for note in raised.value.__notes__)
+    assert commits == [b".G0A5\r"] and not endpoint.is_open
+
+
 @pytest.mark.parametrize("target", [float("nan"), float("inf"), True, -1, 46])
 def test_target_tutorial_keeps_public_value_guards(hardware, run_tutorial, monkeypatch, target):
     _, endpoint = hardware
@@ -329,8 +412,6 @@ def test_csv_tutorial_ctrl_c_closes_worker_file_and_port(
 def test_dashboard_tutorial_allows_one_target_and_joins_on_ctrl_c(
     hardware, run_tutorial, monkeypatch, tmp_path
 ):
-    from dash import Dash
-
     _, endpoint = hardware
     closed = []
 
@@ -339,12 +420,28 @@ def test_dashboard_tutorial_allows_one_target_and_joins_on_ctrl_c(
         layout = app.test_client().get("/_dash-layout").get_data(as_text=True)
         assert "Read-only session" not in layout
 
-    def run(app, **settings):
-        assert settings == dict(host="127.0.0.1", port=8056, threaded=True,
-                                debug=False, use_reloader=False)
-        check_app(app.server)
+    def run(app):
+        check_app(app)
+        assert not endpoint.is_open  # Opening the dashboard does not connect.
+        output = next(callback["output"] for callback in app.test_client().get(
+            "/_dash-dependencies"
+        ).json if "session-result" in callback["output"])
+        for action in ("connect-device", "toggle-monitoring"):
+            response = app.test_client().post("/_dash-update-component", json={
+                "output": output,
+                "outputs": [{"id": "session-result", "property": "children"},
+                            {"id": "refresh", "property": "disabled"},
+                            {"id": "live-status", "property": "children"},
+                            {"id": "toggle-monitoring", "property": "children"}],
+                "inputs": [{"id": name, "property": "n_clicks", "value": int(name == action)}
+                           for name in ("connect-device", "toggle-monitoring", "shutdown-gui")],
+                "state": [{"id": "monitor-interval", "property": "value", "value": 0.01},
+                          {"id": "monitor-csv", "property": "value", "value": "outputs/dashboard.csv"}],
+                "changedPropIds": [f"{action}.n_clicks"],
+            })
+            assert response.status_code == 200 and "failed" not in response.get_data(as_text=True)
         assert endpoint.is_open
-        response = app.server.test_client().post("/_dash-update-component", json={
+        response = app.test_client().post("/_dash-update-component", json={
                 "output": "setpoint-result.children",
                 "outputs": {"id": "setpoint-result", "property": "children"},
                 "inputs": [{"id": "apply-setpoint", "property": "n_clicks", "value": 1}],
@@ -352,11 +449,15 @@ def test_dashboard_tutorial_allows_one_target_and_joins_on_ctrl_c(
                 "changedPropIds": ["apply-setpoint.n_clicks"],
         })
         assert response.status_code == 200 and "completed" in response.get_data(as_text=True)
-        closed.append(True)
         raise KeyboardInterrupt
 
-    monkeypatch.setattr(Dash, "run", run)
-    result = run_tutorial("04_dashboard.py", CSV_PATH="outputs/dashboard.csv", INTERVAL_S=0.01)
+    def make_server(host, port, app, *, threaded):
+        assert (host, port, threaded) == ("127.0.0.1", 8056, True)
+        return SimpleNamespace(serve_forever=lambda: run(app),
+                               server_close=lambda: closed.append(True))
+
+    monkeypatch.setattr("tark_chiller.gui.make_server", make_server)
+    result = run_tutorial("06_dashboard.py", CSV_PATH="outputs/dashboard.csv", INTERVAL_S=0.01)
     assert closed == [True]
     assert not result["chiller"].snapshot()["running"]
     assert not endpoint.is_open and endpoint.applied_writes == 1
@@ -367,7 +468,7 @@ def test_dashboard_tutorial_allows_one_target_and_joins_on_ctrl_c(
 
 def test_timing_notebook_connects_and_releases(hardware, run_tutorial, capsys):
     _, endpoint = hardware
-    result = run_tutorial("05_connection_timing.ipynb")
+    result = run_tutorial("04_connection_timing.ipynb")
     output = capsys.readouterr().out
     assert "connect():" in output and "disconnect():" in output
     assert output.count("success=True") == 2
@@ -389,7 +490,7 @@ def test_timing_notebook_attempts_disconnect_after_failed_connect(
 
     monkeypatch.setattr(TarkChiller, "connect", interrupted_connect)
     with pytest.raises(KeyboardInterrupt):
-        run_tutorial("05_connection_timing.ipynb")
+        run_tutorial("04_connection_timing.ipynb")
     output = capsys.readouterr().out
     assert "success=False" in output and "success=True" in output
     assert not endpoint.is_open and not endpoint.applied_writes

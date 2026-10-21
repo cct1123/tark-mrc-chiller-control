@@ -2,8 +2,12 @@
 
 [Quick start](../README.md#hardware-quick-start) · [API](api.md) · [Protocol sources](protocol.md)
 
-Both protocols have automated software tests; neither has been tested on a
-physical chiller. Verify your equipment and compare initial readings with the
+Both protocols have automated software tests. Limited T255P bench records from
+21 October 2026 cover read-only serial diagnostics and 120 production monitoring
+polls with zero errors; the operator also reported running notebook 05 successfully.
+CAL hardware, target writes and the new API/dashboard mode controls have no
+recorded bench validation. See [evidence and limits](protocol.md#bench-evidence-and-limits).
+Verify your equipment and compare initial readings with the
 panel before using the driver in an experiment. Use one process per device.
 Use the installed Python API directly from your application.
 
@@ -28,7 +32,7 @@ Use the direct Python example in the README with these settings:
 | Baud/framing | 9600, 8 data bits, no parity, 1 stop bit |
 | Flow control | `xonxoff=True`, `rtscts=False`, `dsrdtr=False` |
 | Port / RTS / DTR | Actual port and verified adapter line levels |
-| Protocol | `T255P()` initially; target writes disabled |
+| Protocol | `T255P()` initially; target and mode writes disabled |
 | Water bounds | `setpoint_range=(5.0, 45.0)` with the documented coolant source |
 
 Port opening can toggle RTS/DTR. Verify the complete cable mapping. The manual's
@@ -43,7 +47,7 @@ These are human-operated hardware tests; software tests do not establish a pass.
 Install the package and configure the device cell in each notebook using the
 [T255P tutorial setup](../examples/README.md#t255p-setup).
 
-**Read-only here means no target writes. Connecting sends U, takes serial control
+**Read-only here means no target or mode writes. Connecting sends U, takes serial control
 and can change AUTO START to RUN.** Prepare the physical loop for that effect.
 
 ### Prepare
@@ -76,11 +80,11 @@ from its first cell, entering the verified settings independently in each one.
   samples, increasing timestamps/elapsed time, unchanged target and blank error
   fields. The operation cell must finish without poll, logging or cleanup errors.
   Do not require exactly ten rows; serial query time affects the count.
-- [ ] **Optional dashboard:** run `python examples/04_dashboard.py` from a terminal
+- [ ] **Optional dashboard:** run `python examples/06_dashboard.py` from a terminal
   with the GUI extra installed. Open `http://127.0.0.1:8056`.
-  Expect fresh readings and no
-  reported faults. Press Ctrl+C in that terminal and wait for cleanup to finish
-  before continuing. Target controls are enabled; leave Apply untouched during
+  Press **Connect**, then **Start monitoring**; expect fresh readings and no
+  reported faults. Use **Shutdown GUI** or Ctrl+C in that terminal and wait for cleanup
+  before continuing. Target and mode controls are enabled; leave Apply, RUN and STANDBY untouched during
   read-only checks. Closing the browser alone does not stop acquisition.
 
 ### One setpoint change
@@ -125,7 +129,7 @@ traffic, without a timing guarantee or separate keepalive worker. Idle synchrono
 use or stopping the monitor can relinquish control; the next operation sends U
 again. A running unit continues running after communication is lost.
 
-For an uncertain target write, inspect the panel, target, mode and coolant state.
+For an uncertain target or mode write, inspect the panel, target, mode and coolant state.
 Wait at least the 3 s response interval before a fresh read-only session; a new
 process cannot inherit the old controller's quarantine. Compare the actual target
 before any corrective request. Do not blindly retry, power-cycle or induce alarms
@@ -191,18 +195,21 @@ creating a new read-only session. Compare target and units before considering
 another write. Process exit alone does not unlock the panel.
 
 Record model/firmware, settings, observed commands/results, target/readings in °C,
-reference calibration, physical timing and final state for your setup. The driver
-does not save raw wire traces. Do not induce physical faults solely to repeat
+reference calibration, physical timing and final state for your setup. The T255P
+driver emits exact TX/RX frames through Python logging at DEBUG level and rejected
+replies at ERROR level; configure a handler to retain them. CAL has no equivalent
+raw-frame logger. Do not induce physical faults solely to repeat
 software tests; memory endpoints cover those error paths.
 
 ## Hardware tutorials
 
-The [six script examples and five notebooks](../examples/README.md) show serial-port discovery,
-read/status, one target change, CSV recording, a dashboard with target controls and connection
-timing. Each script and notebook spells out its T255P connection directly; set
-its `PORT` before running either format.
+The [seven script examples and six notebooks](../examples/README.md) show serial-port discovery,
+read/status, one target change, CSV recording, connection timing, RUN/STANDBY and
+a dashboard with target and mode controls. Each script and notebook spells out its
+T255P connection directly; review its `PORT` before running either format.
 For notebooks, run cells in order.
-Tutorial 02 and dashboard script 04 enable explicit target writes. For CAL hardware, use the explicit
+Tutorial 02 enables a confirmed target write; example 05 confirms one mode change.
+Dashboard script 06 enables explicit target and mode requests. For CAL hardware, use the explicit
 [CAL API setup](api.md) with the actual address and expected identity codes.
 These tutorials use the installed package's real serial path without a simulator
 fallback. Controller contexts close software resources; equipment shutdown

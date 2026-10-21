@@ -3,9 +3,9 @@
 [Home / quick start](../README.md#hardware-quick-start) · [Hardware setup](hardware.md)
 
 Use one TarkChiller per serial port and share it with your experiment code.
-The [six T255P hardware examples](../examples/README.md) provide standalone scripts
-and five notebooks; the dashboard is script-only. They use plain driver construction
-and connection code. Set `PORT` in
+The [seven T255P hardware examples](../examples/README.md) provide standalone scripts
+and six notebooks; the dashboard is script-only. Example 05 uses pyserial directly
+with the production reply validator; the others construct `TarkChiller`. Review `PORT` in
 each example; an unset port raises `ValueError` before port creation. CAL clients
 use the explicit API shown below.
 
@@ -25,7 +25,8 @@ pyserial object, polling worker, history and CSV file directly.
 `start_monitoring()` returns `None`; use `chiller.snapshot()` to read its state.
 The GUI reads these dictionaries directly. All memory-only simulators live in
 `tark_chiller.simulator`; importing or constructing a hardware controller does
-not load simulators, Dash or pyserial. Opening a hardware connection constructs
+not load simulators or Dash. Importing the controller loads the required pyserial
+dependency but opens no ports. Opening a hardware connection constructs
 `serial.Serial(port=None, ...)`, sets the reviewed RTS/DTR levels and optional
 native RS-485 mode, then opens the port.
 An injected `serial_factory` is for reviewed in-memory tests; there is no automatic
@@ -39,10 +40,11 @@ Only `Cal33xx` and `T255P` protocols are supported; arbitrary protocols are refu
 before opening a port.
 
 For T255P use `T255P()` for reads or `T255P(allow_writes=True)` for approved
-targets, and `TarkChiller(settings, protocol=protocol,
+target/mode changes, and `TarkChiller(settings, protocol=protocol,
 setpoint_range=(5.0, 45.0), coolant_source="ThermoTek T255P Rev C pp9/20; verified water")`.
 The protocol independently restricts writes to 5-45 °C in 0.1 °C steps.
-The tutorial setup supplies this profile; direct clients must explicitly supply
+The driver-based tutorials supply this profile; the standalone mode example
+does not change targets. Direct clients must explicitly supply
 their approved application bounds. The generic TarkChiller default remains the MRC
 2-40 °C policy and does not expand automatically to the T255P's full range.
 Use the [T255P configuration and first-use procedure](hardware.md#configure-a-t255p).
@@ -67,6 +69,9 @@ An optional `rs485` dictionary requires `rts_level_for_tx`, `rts_level_for_rx`,
 | `read_temperature()` | Return a finite Celsius measurement |
 | `read_setpoint()` | Return the device's reported Celsius target |
 | `set_setpoint(value_c)` | Validate target; CAL saves/restarts; T255P checks state, sends one M and checks echo/H readback |
+| `run()` | T255P only: start pump and temperature regulation at the existing target; requires write opt-in |
+| `standby()` | T255P only: stop pump and temperature regulation; requires write opt-in; monitoring continues |
+| `supports_mode_control` | Whether the selected protocol is T255P; no I/O; write opt-in is checked separately |
 | `read_status()` | Return a dict with `connected`, `backend` and `detail` |
 | `start_monitoring(interval_s=1, csv_path=None, history_size=3600)` | Start one worker; returns `None` |
 | `snapshot()` | Return a detached dict of history, progress and errors; no device query |
@@ -123,17 +128,37 @@ with TarkChiller(
 - `logging_enabled`: whether a CSV handle is owned, including a failed close.
 - `logged_samples`, `logging_error`: recording progress and any recording/close failure.
 - `service_error`: an acquisition or shutdown error.
+- `poll_in_progress`, `recovery_error`: a pending poll and the current retry reason.
 
 Each sample has `timestamp_utc` (a UTC `datetime`), `elapsed_s`,
-`sampled_monotonic` (poll start in monotonic seconds), `temperature_c`, `setpoint_c`,
-a nested `status` dictionary and `error`. Failed samples have `None` readings and
-an `error`. Check failed polls as well
+`sampled_monotonic` (poll start), `completed_monotonic` (poll completion),
+`temperature_c`, `setpoint_c`,
+a nested `status` dictionary and `error`. Unavailable fields are `None`. A failed
+T255P poll may retain independently validated fields from that same attempt; it
+still carries an error and disconnected status. The GUI labels a retained
+temperature as historical, never as a live reading. Check failed polls as well
 as service/recording errors. History is bounded by `history_size`; that limit does
 not truncate CSV. Each successful restart clears history, counters and errors;
 later acquisition does not change previously returned snapshots. Editing a snapshot,
 its history list, a sample or its nested status cannot change live monitoring
 data. Before the first run, `snapshot()` returns an empty stopped state. The interval is read-only; stop and restart monitoring
 to change it. A stop timeout can leave work active, including possible CSV cleanup.
+
+The GUI reports age since poll completion and distinguishes Recovering, Waiting
+for device, Stale and Monitoring stopped. An active worker with a service error
+shows Monitoring fault; Monitoring stopped is reserved for a finished worker.
+Poll completion is not a simultaneous physical
+measurement timestamp; the sequential readings may have been acquired earlier.
+
+Monitoring shares repeated protocol checks within one poll: CAL uses 13 exchanges
+and T255P uses four. Replies are not cached across polls or reused for writes.
+Standalone read methods keep their own checks. Buffered serial bytes are read
+together; pending reads check disconnect cancellation between read calls, using
+a fixed timeout of at most 50 ms per read while
+retaining the configured overall transaction timeout. OS/adapter calls and port
+close can still take longer; the last read can extend to the end of its 50 ms
+slice. Read/write timeouts are configured once before opening the port, avoiding
+Windows UART reconfiguration during a transaction.
 
 ## Shutdown and cleanup
 
@@ -174,7 +199,7 @@ paths are refused. There is no append.
 | --- | --- |
 | `timestamp_utc` | Poll start time in UTC |
 | `elapsed_s` | Seconds since monitoring began |
-| `temperature_c`, `setpoint_c` | Celsius readings; blank for failed polls |
+| `temperature_c`, `setpoint_c` | Validated Celsius readings; unavailable fields are blank |
 | `backend`, `connected` | Backend label and poll connection state |
 | `status` | Device/connection detail |
 | `error` | Poll failure, or blank |
@@ -199,9 +224,19 @@ T255P reads signed manifold temperature at 0.01 °C resolution and target at
 0.1 °C resolution. Status includes last-reported mode, summary/chiller/dryer bits
 and six alarm flags. Sensor alarm invalidates temperature. Reported float-switch
 state does not measure flow or establish coolant suitability; flow/leaks remain
-unknown. Run/standby, sensor selection and sub-zero writes are not exposed.
+unknown. Sensor selection and sub-zero writes are not exposed.
 
-T255P begins every operation with U, re-establishing communication after idle
+For a connected controller configured with `T255P(allow_writes=True)`, call
+`chiller.run()` or `chiller.standby()`. Both acquire the same I/O lock as polling
+and target changes, read U/J diagnostics, send one G request, validate its echo,
+and check U mode and chiller-on readback. RUN is refused with SAFETY DEFAULT or
+any reported alarm; STANDBY can be requested with alarms. They do not change the
+target or start/stop monitoring. RUN uses the existing target: review it and
+prepare the filled loop first. CAL mode requests raise `ProtocolError` without
+sending a command. These are synchronous requests with no automatic retry,
+rollback or standby on exit. Physical flow is not measured by mode readback.
+
+T255P begins each standalone operation or monitor poll with U, re-establishing communication after idle
 expiry or reconnection. Normal one-second monitoring supplies the manual's
 five-second traffic cadence; there is no separate keepalive worker. Arbitrary
 poll intervals, process stalls and idle synchronous sessions can relinquish
@@ -218,7 +253,26 @@ transaction IDs. See [protocol limits](protocol.md#thermotek-t255p-rev-c).
 Set `reconnect_attempts` to 1–10 for bounded read/connect recovery;
 `reconnect_delay_s` defaults to 0.05 s. Each operation has its own finite recovery
 budget.
-Protocol errors suspend recovery; exhaustion requires explicit `connect()`.
+Read-side I/O failures, checksum-valid T255P communication errors 1/2
+(checksum/bad command), and replies with error code zero but the wrong command echo
+can use that budget. The rejected payload is always discarded: the driver
+closes the port, preserves the 3 s quarantine, reopens, performs a fresh U
+handshake, and repeats the whole read/poll. Each retry is logged with its reason;
+echo mismatches include the expected command and received frame. Device error
+codes take precedence over echo mismatch. Rejected
+transactions log exact TX/RX frames. With recovery
+disabled, an echo mismatch still suspends the session.
+Other protocol errors (including invalid reply checksums, malformed data,
+qualifier/unknown error codes and sensor alarms) suspend recovery. Synchronous
+read/connect exhaustion requires explicit `connect()`. With read recovery enabled,
+monitoring records an exhausted read as a failed poll and attempts a fresh
+connection on the next interval, keeping CSV open. Fatal faults still stop the
+worker, close CSV and expose their reason in `service_error`.
+Transient retries that succeed do not increment `failed_samples`.
+After correcting a latched fault, call `stop_monitoring()` to finish cleanup,
+`connect()`, then `start_monitoring()` with a new CSV path if recording again.
+The dashboard script can instead be stopped with Ctrl+C and restarted after the
+fault is corrected.
 No write is retried or replayed. Resolve an uncertain write by documented readback
 before considering another request.
 
@@ -228,8 +282,9 @@ connect calls. It may have locked the panel or staged/saved a target. Follow the
 does not send an automatic exit-program command. Inspect the actual panel and
 target before starting a fresh read-only session.
 
-T255P similarly latches after starting M until echo and H readback both succeed.
-A failed reply can mean the target was applied. Neither reconnect nor a new
+T255P similarly latches after starting M until echo and H readback both succeed,
+or after starting G until echo and U mode/chiller-on readback succeed.
+A failed reply can mean the target or mode was applied. Neither reconnect nor a new
 object authorizes a retry: inspect actual state and follow the T255P recovery
 procedure. Disconnect sends no G command and does not stop an operating chiller.
 
@@ -243,18 +298,42 @@ procedure. Disconnect sends no G command and does not stop an operating chiller.
 
 ## GUI
 
-`create_app(chiller)` from `tark_chiller.gui` displays controller snapshots;
-it neither connects nor starts acquisition. The
-[dashboard tutorial](../examples/04_dashboard.py) owns their lifecycle, disables
-the reloader and passes `allow_setpoints=False` for read-only operation. The
-CAL and T255P protocols independently enforce their write permissions.
+`run_dashboard(chiller, host="127.0.0.1", port=8056)` from `tark_chiller.gui`
+serves a standalone Dash app without connecting or starting acquisition.
+The [dashboard script](../examples/06_dashboard.py) uses this runner. Press
+**Connect**, then **Start monitoring**. The polling interval and optional CSV path
+are editable; use a new path for each recording. Each new monitoring run resets
+history. The monitoring button toggles to **Stop monitoring**, which joins
+acquisition and closes CSV while keeping the connection. **Shutdown GUI**
+disconnects and stops the HTTP server; Ctrl+C also
+releases resources. Neither shutdown nor disconnect sends a physical standby command.
+Connection can trigger T255P AUTO START; prepare the cooling loop first.
+
+**RUN** and **STANDBY** under Pump and temperature control call these API methods.
+They require a connected, write-enabled T255P. Buttons remain separate from
+monitoring controls: STANDBY leaves acquisition running, and GUI shutdown leaves
+the equipment's mode unchanged. Results report verified mode or the failure;
+monitoring status contains subsequent mode/alarm diagnostics.
+
+Both `create_app` and `run_dashboard` accept `allow_mode_changes=None`, which
+follows `allow_setpoints`. Set `allow_mode_changes=False` to disable mode changes
+independently. The callback enforces this policy even for direct HTTP requests;
+CAL mode buttons are disabled. Driver write opt-in remains required separately.
+
+The runner accepts `interval_s=1.0`, `csv_path=None`, `history_size=3600`,
+`stale_after_s=3.0` and `allow_setpoints=True`.
+`create_app(chiller)` returns the Dash app for an embedded host with the same
+controls. Startup and browser refresh only read snapshots. The shutdown button
+is enabled only when the host supplies a thread-safe `on_shutdown()` hook;
+the app calls it after disconnect succeeds. The host owns final cleanup on exit.
+The CAL and T255P protocols independently enforce their write permissions.
 
 The display shows temperature, reported target, sample age, controller detail, faults and recording
-status. The [README screenshot](../README.md#optional-dashboard) illustrates it
-using simulator data, not physical measurements.
+status. The [README screenshot](../README.md#optional-dashboard) illustrates the earlier
+layout using simulator data; the current session and mode controls are described above.
 Drag the graph to zoom, double-click to reset, or select legend entries to hide
 traces. Missing readings leave gaps; stale readings are marked.
 
 Apply only approved targets. A successful request does not establish that the
 liquid has reached its target. Closing or refreshing the page does not stop or
-create acquisition workers; end the host with Ctrl+C in its terminal.
+create acquisition workers; use Shutdown GUI or Ctrl+C to end the standalone host.

@@ -7,6 +7,7 @@ import sys
 from pathlib import Path
 
 import pytest
+import serial
 
 import tark_chiller.controller as controller
 from tark_chiller import simulator as cli
@@ -63,6 +64,7 @@ def test_protocol_simulator_selection_is_exclusive_and_refuses_before_io(tmp_pat
 def test_installed_core_without_optional_packages(headless, tmp_path):
     package_root = tmp_path / "bare"
     shutil.copytree(Path(controller.__file__).resolve().parent, package_root / "tark_chiller")
+    shutil.copytree(Path(serial.__file__).resolve().parent, package_root / "serial")
     args = ["--csv", str(tmp_path / "core.csv")]
     if headless:
         args += ["--headless", "--duration", "0.1"]
@@ -219,7 +221,7 @@ def test_cli_exits_unsuccessfully_on_failed_poll(model, monkeypatch):
     def failed_read():
         raise OSError("Simulated poll failure")
 
-    monkeypatch.setattr(chiller, "read_temperature", failed_read)
+    monkeypatch.setattr(chiller, "_read_sample", failed_read)
     with pytest.raises(SystemExit, match="simulator poll failed"):
         cli.main(["--cal" if model == "CalSimulator" else "--t255p", "--headless"])
     assert chiller.snapshot()["failed_samples"] > 0

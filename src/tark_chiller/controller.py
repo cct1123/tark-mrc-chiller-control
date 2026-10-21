@@ -5,6 +5,7 @@ CAL 3300/9300 and ThermoTek T255P protocol details are in docs/protocol.md.
 """
 
 import csv
+import logging
 import math
 import time
 from _thread import LockType
@@ -12,15 +13,29 @@ from collections import deque
 from collections.abc import Callable, Iterator
 from contextlib import contextmanager
 from datetime import UTC, datetime
+from functools import cache
 from numbers import Real
 from pathlib import Path
 from threading import TIMEOUT_MAX, Event, Lock, Thread, current_thread
 from time import monotonic, perf_counter, sleep
 from typing import Any, Literal, TextIO, cast
 
+import serial
+from serial.rs485 import RS485Settings
+
+logger = logging.getLogger(__name__)
+
 
 class ProtocolError(RuntimeError):
-    """Missing or invalid protocol; automatic read recovery is suspended."""
+    """Invalid protocol or device response; never accept its payload."""
+
+
+class _T255PReadError(ProtocolError):
+    """Discarded link response; a read may restart with a fresh handshake."""
+
+
+class _T255PCommandMismatch(_T255PReadError):
+    """Checksum-valid reply to another command; never use its payload."""
 
 
 def _finite(value: object, name: str) -> float:
@@ -68,7 +83,7 @@ def _locked_until(lock: LockType, deadline: float | None = None) -> Iterator[Non
         lock.release()
 
 
-Operation = Literal["get_temperature", "get_setpoint", "set_setpoint", "get_status"]
+Operation = Literal["get_temperature", "get_setpoint", "set_setpoint", "get_status", "run", "standby"]
 
 
 def _validate_serial(settings: dict[str, Any]) -> dict[str, Any]:
@@ -177,8 +192,8 @@ def _t255p_payload(frame: bytes, prefix: bytes) -> bytes:
 class T255P:
     """ThermoTek Rev C water protocol; explicitly select for an identified unit.
 
-    U establishes remote communication and can change AUTO START to RUN. Every
-    operation starts with U, including after idle expiry; no hidden worker runs.
+    U establishes remote communication and can change AUTO START to RUN. Each
+    standalone operation or monitor poll starts with U; no hidden worker runs.
     No identity query exists in the documented subset: selection is human-owned.
     """
 
@@ -196,12 +211,21 @@ class T255P:
     @staticmethod
     def reply(command: bytes, response: bytes) -> bytes:
         payload = _t255p_payload(response, b"#")
-        if len(payload) < 2 or payload[:1] != command:
-            raise ProtocolError("T255P command echo mismatch")
+        if len(payload) < 2:
+            raise ProtocolError("Malformed T255P command/error fields")
         error = payload[1:2]
         if error != b"0":
             message = {b"1": "checksum", b"2": "bad command", b"3": "qualifier out of bounds"}
-            raise ProtocolError(f"T255P communication error: {message.get(error, 'unknown code')}")
+            error_type = _T255PReadError if error in (b"1", b"2") else ProtocolError
+            raise error_type(
+                f"T255P communication error: {message.get(error, 'unknown code')}; "
+                f"expected={command!r}, echo={payload[:1]!r}, frame={response!r}"
+            )
+        if payload[:1] != command:
+            raise _T255PCommandMismatch(
+                f"T255P command echo mismatch: expected {command!r}, "
+                f"received {payload[:1]!r}; frame={response!r}"
+            )
         return payload[2:]
 
     @staticmethod
@@ -233,13 +257,26 @@ class T255P:
     def verify(self, io: AsciiIO) -> str:
         return self._watchdog(io(b"U", b""))
 
+    def sample(self, io: AsciiIO, partial: dict[str, Any] | None = None) -> tuple[str, float, float]:
+        # Share watchdog/alarm replies only within this read-only poll.
+        read = cache(io)
+        fields = partial if partial is not None else {}
+        for field, operation in (
+            ("detail", "get_status"), ("temperature_c", "get_temperature"),
+            ("setpoint_c", "get_setpoint"),
+        ):
+            value = self.execute(cast(Operation, operation), None, read)
+            fields[field] = value if field == "detail" else _reading(value)
+        return fields["detail"], fields["temperature_c"], fields["setpoint_c"]
+
     def execute(self, operation: Operation, value: float | None, io: AsciiIO) -> float | str | None:
         target = b""
-        if operation == "set_setpoint":
+        if operation in ("set_setpoint", "run", "standby"):
             if not self._allow_writes:
                 raise ProtocolError(
                     "T255P writes disabled; enable with T255P(allow_writes=True) after checking setup"
                 )
+        if operation == "set_setpoint":
             number = _finite(value, "Setpoint")
             if not 5 <= number <= 45:
                 raise ProtocolError("T255P water protocol supports targets from 5 to 45 C only")
@@ -263,6 +300,19 @@ class T255P:
             if alarms[3] == "1":
                 raise ProtocolError("T255P sensor alarm; temperature unavailable")
             return self._signed(io(b"I", b""), 4)
+        if operation in ("run", "standby"):
+            running = operation == "run"
+            if running and (state[0] == "3" or state[1] != "0" or "1" in alarms):
+                raise ProtocolError("RUN refused: safety-default mode or active alarms")
+            qualifier = b"1" if running else b"0"
+            if io(b"G", qualifier) != qualifier:
+                raise ProtocolError("T255P mode echo mismatch; outcome uncertain")
+            reported = self.verify(io)
+            if reported[0] != ("2" if running else "1") or reported[2] != qualifier.decode("ascii"):
+                raise ProtocolError("T255P mode/chiller-on readback mismatch; outcome uncertain")
+            if running and reported[1] != "0":
+                raise ProtocolError("T255P alarm after RUN request; outcome uncertain")
+            return None
         if state[0] != "2" or state[1] != "0" or "1" in alarms:
             raise ProtocolError("T255P must report RUN with no active alarms before a target write")
         if io(b"M", target) != target:
@@ -351,6 +401,15 @@ class Cal33xx:
             )
         return round(value * 10)
 
+    def sample(self, io: RegisterIO) -> tuple[str, float, float]:
+        # Identity, units and display checks share replies within one poll.
+        read = cache(io)
+        return (
+            cast(str, self.execute("get_status", None, read)),
+            cast(float, self.execute("get_temperature", None, read)),
+            cast(float, self.execute("get_setpoint", None, read)),
+        )
+
     def execute(
         self, operation: Operation, value: float | None, io: RegisterIO
     ) -> float | str | None:
@@ -418,15 +477,8 @@ class Cal33xx:
 
 
 def _io_error(error: Exception) -> OSError:
-    if isinstance(error, TimeoutError):
+    if isinstance(error, (TimeoutError, serial.SerialTimeoutException)):
         return TimeoutError(str(error))
-    try:
-        from serial import SerialTimeoutException
-    except ImportError:
-        pass
-    else:
-        if isinstance(error, SerialTimeoutException):
-            return TimeoutError(str(error))
     return OSError(f"Serial operation failed: {error}")
 
 
@@ -478,7 +530,6 @@ class TarkChiller:
         self._cancel = Event()
         self._cancel.set()
         self._fault = ""
-        self._backend_name = "unknown"
         self._monitor_lock = Lock()
         self._data_lock = Lock()
         self._interval_s = 1.0
@@ -486,6 +537,9 @@ class TarkChiller:
         self._stop = Event()
         self._thread: Thread | None = None
         self._service_error = ""
+        self._recovery_error = ""
+        self._poll_in_progress = False
+        self._partial_sample: dict[str, Any] = {}
         self._logging_error = ""
         self._logged_samples = 0
         self._sample_count = 0
@@ -575,26 +629,17 @@ class TarkChiller:
             config = self._settings.copy()
             rts = config.pop("rts")
             dtr = config.pop("dtr")
-            config.update(port=None, timeout=self.timeout_s, write_timeout=self.timeout_s)
-            if self._serial_factory is None:
-                try:
-                    from serial import Serial
-                except ImportError as exc:
-                    raise OSError(
-                        "pyserial is required for hardware communication; reinstall tark-mrc-chiller "
-                        "with its dependencies or run: python -m pip install pyserial"
-                    ) from exc
-                self._serial = Serial(**config)
-            else:
-                self._serial = self._serial_factory(**config)
+            # Configure once, while closed. On Windows each timeout assignment
+            # calls SetCommState as well as SetCommTimeouts, disturbing live traffic.
+            config.update(port=None, timeout=min(self.timeout_s, 0.05),
+                          write_timeout=self.timeout_s)
+            self._serial = (self._serial_factory or serial.Serial)(**config)
             if self._serial.is_open:
                 raise OSError("Serial factory must return an unopened endpoint")
             self._serial.port = self._settings["port"]
             self._serial.rts = rts
             self._serial.dtr = dtr
             if self._rs485 is not None:
-                from serial.rs485 import RS485Settings
-
                 self._serial.rs485_mode = RS485Settings(**self._rs485)
             self._serial.open()
             if not self._serial.is_open:
@@ -625,10 +670,11 @@ class TarkChiller:
         try:
             self._close_port()
         except BaseException as cleanup:
-            error.add_note(f"Serial cleanup failed: {type(cleanup).__name__}: {cleanup}")
+            error.add_note(f"Serial cleanup failed: {cleanup}")
 
     def _transfer(self, request: bytes, is_complete: Callable[[bytes], bool]) -> bytes:
         deadline = perf_counter() + self.timeout_s
+        cancel = self._cancel
 
         def remaining() -> float:
             budget = deadline - perf_counter()
@@ -638,22 +684,30 @@ class TarkChiller:
 
         if not isinstance(request, bytes) or not request:
             raise ProtocolError("Protocol must supply a nonempty byte request")
-        self._serial.write_timeout = remaining()
+        self._check_cancel(cancel)
+        remaining()
         written = self._serial.write(request)
         if type(written) is not int or written != len(request):
             raise OSError("Partial serial write; outcome unknown, not retried")
         response = bytearray()
         while True:
-            self._serial.timeout = remaining()
-            chunk = self._serial.read(1)
+            self._check_cancel(cancel)
+            # The fixed short read timeout keeps shutdown responsive. Enforce
+            # the whole transaction deadline here without reconfiguring the UART.
             remaining()
-            if not isinstance(chunk, bytes) or len(chunk) > 1:
+            size = max(1, min(self._serial.in_waiting, self.max_response_bytes - len(response)))
+            chunk = self._serial.read(size)
+            self._check_cancel(cancel)
+            remaining()
+            if not isinstance(chunk, bytes) or len(chunk) > size:
                 raise OSError("Serial read violated requested byte count")
-            response.extend(chunk)
-            if chunk:
+            for index, byte in enumerate(chunk):
+                response.append(byte)
                 complete = is_complete(bytes(response))
                 remaining()
                 if complete:
+                    if index != len(chunk) - 1:
+                        raise ProtocolError("Unexpected trailing response bytes")
                     return bytes(response)
             if len(response) >= self.max_response_bytes:
                 raise ProtocolError("Response exceeded byte budget")
@@ -706,47 +760,57 @@ class TarkChiller:
         # Preserve this quarantine across close/reopen on this owned endpoint.
         delay = self._t255p_next_command_at - perf_counter()
         if delay > 0:
-            sleep(delay)
+            cancel = self._cancel
+            cancel.wait(delay)
+            self._check_cancel(cancel)
         self._serial.reset_input_buffer()
         request = _t255p_frame(b"." + command + data)
+        logger.debug("T255P TX %r", request)
         self._t255p_next_command_at = perf_counter() + 3.0
-        if command == b"M":
+        if command in (b"M", b"G"):
             self._write_uncertain = True
         response = self._transfer(request, self._protocol.is_complete)
-        result = self._protocol.reply(command, response)
+        logger.debug("T255P RX %r", response)
+        try:
+            result = self._protocol.reply(command, response)
+        except ProtocolError:
+            logger.error(
+                "T255P rejected transaction: TX %r RX %r", request, response
+            )
+            raise
         if self._serial.in_waiting:
             raise ProtocolError("Unexpected trailing T255P response bytes")
         self._t255p_next_command_at = 0.0
         return result
 
     def _exchange(
-        self, operation: Operation, value: float | None = None
-    ) -> float | dict[str, Any] | None:
+        self, operation: Operation | Literal["get_sample"], value: float | None = None
+    ) -> float | dict[str, Any] | tuple[dict[str, Any], float, float] | None:
         if not self._port_connected:
             raise ConnectionError("Serial device is disconnected")
         assert self._protocol is not None
         try:
+            if operation == "get_sample":
+                self._partial_sample = {"status": self._status("poll failed")}
+                if isinstance(self._protocol, Cal33xx):
+                    detail, temperature, setpoint = self._protocol.sample(self._cal_io)
+                else:
+                    detail, temperature, setpoint = self._protocol.sample(
+                        self._t255p_io, self._partial_sample
+                    )
+                return self._status(detail), _reading(temperature), _reading(setpoint)
             if isinstance(self._protocol, Cal33xx):
                 result = self._protocol.execute(operation, value, self._cal_io)
-                if operation == "set_setpoint":
-                    self._write_uncertain = False
-            elif isinstance(self._protocol, T255P):
+            else:
                 result = self._protocol.execute(operation, value, self._t255p_io)
-                if operation == "set_setpoint":
-                    self._write_uncertain = False
+            if operation in ("set_setpoint", "run", "standby"):
+                self._write_uncertain = False
             if operation in ("get_temperature", "get_setpoint"):
                 return _reading(result)
             if operation == "get_status":
-                if not isinstance(result, str):
-                    raise ProtocolError("Protocol returned invalid hardware status")
-                simulated = getattr(self._serial, "_simulated", False) is True
-                return {
-                    "connected": True,
-                    "backend": "simulator" if simulated else "hardware",
-                    "detail": ("Simulation; " if simulated else "") + result,
-                }
+                return self._status(result)
             if result is not None:
-                raise ProtocolError("Protocol did not acknowledge the setpoint write")
+                raise ProtocolError("Protocol did not acknowledge the control write")
             return None
         except BaseException as exc:
             self._failed(exc)
@@ -759,6 +823,19 @@ class TarkChiller:
             if not isinstance(exc, Exception) or isinstance(exc, ProtocolError):
                 raise
             raise _io_error(exc) from exc
+
+    def _status(self, detail: object) -> dict[str, Any]:
+        if not isinstance(detail, str):
+            raise ProtocolError("Protocol returned invalid hardware status")
+        simulated = getattr(self._serial, "_simulated", False) is True
+        return {
+            "connected": True,
+            "backend": "simulator" if simulated else "hardware",
+            "detail": ("Simulation; " if simulated else "") + detail,
+        }
+
+    def _read_sample(self) -> tuple[dict[str, Any], float, float]:
+        return cast(tuple[dict[str, Any], float, float], self._exchange("get_sample"))
 
     def _read_temperature(self) -> float:
         return cast(float, self._exchange("get_temperature"))
@@ -844,12 +921,19 @@ class TarkChiller:
 
     def _suspend(self, message: str, error: BaseException) -> None:
         self._fault = message
-        self._failed(error)
+        with self._data_lock:
+            self._recovery_error = ""
+        try:
+            self._close_port()
+        except BaseException as cleanup:
+            error.add_note(str(cleanup))
 
-    def _read[T](self, operation: Callable[[], T], token: Event, *, connecting: bool = False) -> T:
+    def _read[T](self, operation: Callable[[], T], token: Event, *, connecting: bool = False,
+                 monitoring: bool = False) -> T:
         """Recover reads and connection attempts; writes never enter this loop."""
         for attempt in range(self._reconnect_attempts + 1):
             try:
+                self._partial_sample = {}  # Never carry fields across recovery attempts.
                 self._check_cancel(token)
                 if self._fault:
                     raise ConnectionError(self._fault)
@@ -861,20 +945,42 @@ class TarkChiller:
                         self._open(token)
                         self._check_cancel(token)
                 elif not connecting:
-                    self._require_connected()
+                    if monitoring and self._reconnect_attempts and not self._port_connected:
+                        self._open(token)
+                    else:
+                        self._require_connected()
                 result = operation()
                 self._check_cancel(token)
+                with self._data_lock:
+                    self._recovery_error = ""
                 return result
-            except ProtocolError as exc:
-                self._suspend(f"Protocol failure; recovery suspended: {exc}", exc)
-                raise
-            except OSError as exc:
+            except (OSError, ProtocolError) as exc:
                 self._check_cancel(token)
-                if self._fault or self._reconnect_attempts == 0:
+                if self._fault:
+                    raise
+                protocol_error = isinstance(exc, ProtocolError)
+                retryable = isinstance(exc, (OSError, _T255PReadError))
+                if protocol_error and (not retryable or not self._reconnect_attempts):
+                    self._suspend(f"Protocol failure; recovery suspended: {exc}", exc)
+                    raise
+                if self._reconnect_attempts == 0:
                     raise
                 if attempt == self._reconnect_attempts:
+                    if monitoring and retryable:
+                        # Record this failed poll, then try again on the next
+                        # monitoring interval. Writes and fatal protocol faults
+                        # never enter this path. Keep ownership and cancellation.
+                        self._failed(exc)
+                        raise
                     self._suspend(f"Recovery exhausted: {exc}; call connect() explicitly", exc)
+                    if protocol_error:
+                        raise
                     raise ConnectionError(self._fault) from exc
+                logger.warning(
+                    "Read recovery %d/%d: %s", attempt + 1, self._reconnect_attempts, exc
+                )
+                with self._data_lock:
+                    self._recovery_error = str(exc)
         raise AssertionError("Unreachable recovery state")
 
     def read_temperature(self) -> float:
@@ -903,12 +1009,39 @@ class TarkChiller:
                 self._suspend(f"Protocol failure; recovery suspended: {exc}", exc)
                 raise
 
+    @property
+    def supports_mode_control(self) -> bool:
+        """Whether the selected protocol implements RUN/STANDBY; no device I/O."""
+        return isinstance(self._protocol, T255P)
+
+    def run(self) -> None:
+        """T255P: start pump and temperature regulation at the existing target."""
+        self._set_mode("run")
+
+    def standby(self) -> None:
+        """T255P: stop pump and temperature regulation; monitoring can continue."""
+        self._set_mode("standby")
+
+    def _set_mode(self, operation: Literal["run", "standby"]) -> None:
+        with self._intent_lock:
+            token = self._cancel
+        with self._lock:
+            self._check_cancel(token)
+            self._require_connected()
+            if not self.supports_mode_control:
+                raise ProtocolError("RUN/STANDBY control is supported only for T255P")
+            try:
+                self._exchange(operation)
+            except ProtocolError as exc:
+                self._suspend(f"Protocol failure; recovery suspended: {exc}", exc)
+                raise
+
     def read_status(self) -> dict[str, Any]:
         with self._lock:
             if self._cancel.is_set() or self._fault:
                 return {
                     "connected": False,
-                    "backend": self._backend_name,
+                    "backend": "unknown",
                     "detail": self._fault or "disconnected",
                 }
 
@@ -921,7 +1054,6 @@ class TarkChiller:
                     or (not isinstance(status.get("detail"), str))
                 ):
                     raise ProtocolError("Controller returned an invalid status")
-                self._backend_name = status["backend"]
                 return {
                     "connected": status["connected"],
                     "backend": status["backend"],
@@ -946,15 +1078,13 @@ class TarkChiller:
                 self._require_connected()
             if self.running:
                 raise RuntimeError("Monitoring already started; stop it before another run")
-            self._close_csv()
-            if self._file is not None:
-                raise OSError(self._logging_error)
-            stop = Event()
+            self._close_csv()  # A failed close must finish before opening a replacement.
             stream = None
             if csv_path is not None:
                 path = Path(csv_path)
                 path.parent.mkdir(parents=True, exist_ok=True)
                 stream = path.open("x", newline="", encoding="utf-8")
+                self._file = stream  # Retain ownership even if header/cleanup fails.
                 try:
                     csv.writer(stream).writerow(
                         [
@@ -970,21 +1100,20 @@ class TarkChiller:
                     )
                     stream.flush()
                 except BaseException as error:
-                    self._file = stream
                     try:
                         self._close_csv()
                     except BaseException as cleanup:
-                        error.add_note(f"CSV cleanup failed: {type(cleanup).__name__}: {cleanup}")
-                    if self._file is not None:
-                        error.add_note(self._logging_error)
+                        error.add_note(f"CSV cleanup failed: {cleanup}")
                     raise
             with self._data_lock:
                 self._file = stream
                 self._interval_s = interval
                 self._history = deque(maxlen=history_size)
-                self._stop = stop
+                self._stop.clear()
                 self._thread = None
                 self._service_error = self._logging_error = ""
+                self._recovery_error = ""
+                self._poll_in_progress = False
                 self._logged_samples = self._sample_count = self._failed_samples = 0
             self._start()
 
@@ -995,11 +1124,7 @@ class TarkChiller:
             self._join(max(0.0, deadline - monotonic()))
 
     def __enter__(self) -> "TarkChiller":
-        try:
-            self.connect()
-        except BaseException as error:
-            self.__exit__(None, error, None)
-            raise
+        self.connect()
         return self
 
     def __exit__(self, _type: object, error: BaseException | None, _traceback: object) -> None:
@@ -1028,6 +1153,8 @@ class TarkChiller:
                 ],
                 "running": self.running,
                 "service_error": self._service_error,
+                "recovery_error": self._recovery_error,
+                "poll_in_progress": self._poll_in_progress,
                 "logging_error": self._logging_error,
                 "logging_enabled": self._file is not None,
                 "logged_samples": self._logged_samples,
@@ -1041,11 +1168,10 @@ class TarkChiller:
                 self._file.close()
             except BaseException as exc:
                 with self._data_lock:
-                    detail = f"CSV close failed: {type(exc).__name__}: {exc}"
-                    if detail not in self._logging_error:
-                        self._logging_error = "\n".join(filter(None, (self._logging_error, detail)))
-                if not isinstance(exc, OSError):
-                    raise
+                    message = f"CSV close failed: {exc}"
+                    if message not in self._logging_error:
+                        self._logging_error = "; ".join(filter(None, (self._logging_error, message)))
+                raise
             else:
                 with self._data_lock:
                     self._file = None
@@ -1064,9 +1190,7 @@ class TarkChiller:
                 try:
                     self._close_csv()
                 except BaseException as cleanup:
-                    error.add_note(f"CSV cleanup failed: {type(cleanup).__name__}: {cleanup}")
-                if self._file is not None:
-                    error.add_note(self._logging_error)
+                    error.add_note(f"CSV cleanup failed: {cleanup}")
             raise
         finally:
             if ready is not None:
@@ -1085,23 +1209,33 @@ class TarkChiller:
                     self._service_error = "Monitor stop timed out; worker and CSV are still owned"
                 raise TimeoutError(self._service_error)
         self._close_csv()
-        if self._file is not None:
-            raise OSError(self._logging_error)
 
     def _poll(self, started: float) -> dict[str, Any]:
         sampled_monotonic = time.monotonic()
         timestamp_utc = datetime.now(UTC)
-        status = {"connected": False, "backend": "unknown", "detail": "unavailable"}
+        with self._data_lock:
+            self._poll_in_progress = True
+            backend = self._history[-1]["status"]["backend"] if self._history else "unknown"
+        status = {"connected": False, "backend": backend, "detail": "unavailable"}
         error = ""
+        temperature: float | None = None
+        setpoint: float | None = None
         try:
-            status = self.read_status()
-            temperature = self.read_temperature()
-            setpoint = self.read_setpoint()
+            with self._lock:
+                status, temperature, setpoint = self._read(
+                    self._read_sample, self._cancel, monitoring=True
+                )
         except (OSError, ProtocolError) as exc:
-            temperature = None
-            setpoint = None
-            status = {"connected": False, "backend": status["backend"], "detail": "poll failed"}
+            temperature = self._partial_sample.get("temperature_c")
+            setpoint = self._partial_sample.get("setpoint_c")
+            status = {**self._partial_sample.get("status", status), "connected": False,
+                      "detail": "poll failed"}
             error = str(exc) or type(exc).__name__
+        finally:
+            completed_monotonic = time.monotonic()
+            with self._data_lock:
+                self._poll_in_progress = False
+                self._recovery_error = ""
         return {
             "timestamp_utc": timestamp_utc,
             "elapsed_s": sampled_monotonic - started,
@@ -1110,6 +1244,7 @@ class TarkChiller:
             "status": status,
             "error": error,
             "sampled_monotonic": sampled_monotonic,
+            "completed_monotonic": completed_monotonic,
         }
 
     def _publish(self, sample: dict[str, Any]) -> None:
@@ -1133,7 +1268,10 @@ class TarkChiller:
             except (OSError, ValueError) as exc:
                 with self._data_lock:
                     self._logging_error = f"CSV recording stopped: {exc}"
-                self._close_csv()
+                try:
+                    self._close_csv()
+                except BaseException as cleanup:
+                    exc.add_note(f"CSV cleanup failed: {cleanup}")
         with self._data_lock:
             self._history.append(sample)
             self._sample_count += 1
@@ -1148,7 +1286,15 @@ class TarkChiller:
         try:
             while not self._stop.is_set():
                 poll_started = time.monotonic()
-                self._publish(self._poll(started))
+                sample = self._poll(started)
+                self._publish(sample)
+                if sample["error"]:
+                    with self._lock:
+                        fault = self._fault
+                    if fault:
+                        with self._data_lock:
+                            self._service_error = f"Monitoring stopped: {fault}"
+                        break
                 poll_duration_s = time.monotonic() - poll_started
                 remaining_interval_s = max(0, self.interval_s - poll_duration_s)
                 self._stop.wait(remaining_interval_s)
@@ -1160,4 +1306,5 @@ class TarkChiller:
                 self._close_csv()
             except BaseException as exc:
                 with self._data_lock:
-                    self._logging_error = f"CSV close failed: {type(exc).__name__}: {exc}"
+                    if not self._logging_error:
+                        self._logging_error = f"CSV close failed: {type(exc).__name__}: {exc}"

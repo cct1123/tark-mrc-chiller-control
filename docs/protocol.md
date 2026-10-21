@@ -125,6 +125,55 @@ There are 35 PDF pages; the printed page number is the one-based PDF page +1.
 The command table and signed formats were also inspected visually. The manual is
 linked, not redistributed.
 
+### Bench evidence and limits
+
+The following records describe the COM9 setup on 21 October 2026. They are
+local acquisition files under ignored `outputs/`, not packaged release artifacts.
+They do not establish behavior on other units, firmware, adapters or operating systems.
+
+Manual review against the October 21 bench trace: section 16.2 (printed p24)
+allows the next command after a complete response, or after 3 s without one.
+It specifies no fixed 100 ms delay after a successful response; no such delay is
+enabled in the driver or dashboard. Section 16.1.4 assigns receive readiness to
+XON/XOFF, which remains enabled. The command table (printed p28) confirms the
+literal requests `.U83\r`, `.J78\r`, `.I77\r` and `.H0A6\r`.
+
+The supplied trace contains valid replies to those requests, followed by
+`TX .U83\r / RX #i2BE\r`. The response checksum is valid and its error digit 2
+means Bad Command (section 16.2.2, printed p25). Lowercase `i` is absent from the
+command table. The manual does not explain that anomalous echo. An on-device
+A/B/A test isolated the trigger to the host's repeated timeout assignments:
+
+| COM9 diagnostic, 21 October 2026 | Transactions | Bad-command replies | Port configurations |
+| --- | ---: | ---: | ---: |
+| Original dynamic timeouts | 51 | 5 | 246 |
+| Fixed timeouts | 120 | 0 | 1 |
+| Original dynamic timeouts restored | 60 | 5 | 291 |
+
+All phases sent the same U/J/I/H requests at one poll per second with the same
+9600/8N1/XON/XOFF settings. In pySerial 3.5 on Windows, assigning `timeout` or
+`write_timeout` on an open port invokes `_reconfigure_port()`, including
+`SetCommState`, even for an unchanged timeout. See the primary
+[timeout setters](https://github.com/pyserial/pyserial/blob/v3.5/serial/serialutil.py)
+and [Windows implementation](https://github.com/pyserial/pyserial/blob/v3.5/serial/serialwin32.py).
+The driver now sets both timeouts before opening and checks the overall deadline
+without changing live port settings. The A/B/A evidence establishes the host
+trigger on this setup; the exact UART/firmware mechanism producing lowercase `i` was not measured
+electrically. Raw trace: `outputs/communication_ab_20261021T200006Z.jsonl`.
+
+The corrected production controller then completed 120 one-second monitoring
+polls on COM9 in 120.3 s: zero failed polls, one port open/configuration, successful
+CSV recording and dashboard snapshot rendering, and clean serial shutdown.
+Only U/J/I/H were permitted by the diagnostic; no target changes were sent.
+Recording: `outputs/communication_fixed_20261021T200211Z.csv`.
+
+The operator reported successfully running standalone mode notebook 05 on
+21 October 2026. This is a separate report from the retained read-only traces;
+the new `TarkChiller.run()`/`standby()` and dashboard mode callbacks have software
+validation only. CAL hardware, target writes, thermal accuracy/settling, physical
+flow, fault response and long-duration watchdog/recovery timing remain unverified
+by these records. No hardware was contacted during this documentation review.
+
 ### Implemented wire contract
 
 - RS-232 at 9600 baud, 8 data bits, no parity, one stop bit, XON/XOFF enabled.
@@ -148,6 +197,7 @@ linked, not redistributed.
 | Target / maximum power | H, qualifier 0 | `0` + sign/three digits + comma + three power digits | Target in tenths of °C; power field validated but not exposed as calibrated watts |
 | Alarm flags | J | Six binary ASCII flags | Float switch, high temp, low temp, sensor, EEPROM, watchdog |
 | Set target | M, sign/three digits | Echoed sign/three digits | 0.1 °C; driver allows water targets 5-45 °C only |
+| Set mode | G, qualifier 0 or 1 | Echoed qualifier | 0 STANDBY; 1 RUN; subsequent U reports mode 1 or 2 respectively |
 
 Published startup vector (printed p27):
 
@@ -164,15 +214,20 @@ Signed reads are implemented; sub-zero writes are deliberately not enabled.
 ### Session ownership and write behavior
 
 `T255P()` is read-only; `T255P(allow_writes=True)` explicitly enables target
-requests. It does not claim remote model identification. The lab script selects
+and mode requests. It does not claim remote model identification. The lab script selects
 the actual model and supplies a source-backed 5-45 °C water profile. CAL uses its
 separate, unchanged protocol and application policy.
 
-Connection sends U. Every subsequent API operation also starts with U, so idle
+Connection sends U. Each standalone read/control operation or monitor poll starts with U, so idle
 expiry and read reconnection re-establish the documented session. AUTO START
-changes to RUN on the first watchdog exchange. The driver never sends G
-(run/standby), O (sensor selection), a startup target or an automatic rollback.
-The write path requires RUN, no aggregate alarm and six clear J flags; it then
+changes to RUN on the first watchdog exchange. Explicit `run()`/`standby()` calls
+send G after U/J preflight, then validate its qualifier echo and U mode/chiller-on
+readback. RUN requires no summary or J alarms and refuses SAFETY DEFAULT; STANDBY
+permits reported alarms. Both require write opt-in. A failed/interrupted G latches
+the controller closed across reconnect; requests are never replayed. The driver
+never sends G during connection, monitoring, disconnect or GUI shutdown. It sends
+no O (sensor selection), startup target or automatic rollback.
+The target-write path requires RUN, no aggregate alarm and six clear J flags; it then
 sends one M, checks the echoed value, and checks a subsequent H readback.
 Any failure/interrupt after starting M latches the port closed, including
 across reconnect. No write is retried. Sensor alarm makes temperature unavailable;
@@ -194,14 +249,32 @@ inspection regardless of the apparent reply. A new process cannot retain a
 previous process's in-memory quarantine; human recovery must allow at least the
 manual's response interval before a new connection.
 
+When bounded read recovery is enabled, a checksum-valid reply with communication
+error 1/2 (checksum/bad command), or error zero but echoing a different command,
+is discarded and triggers close/quarantine/reopen plus a new U handshake.
+Nonzero device errors take precedence over echo checking.
+The entire read-only poll is retried with fresh checks; no mismatched payload is
+accepted. Retry reasons and raw rejected frames are logged. A failed reply checksum,
+data-format error, sensor fault or qualifier/unknown error still suspends recovery. Write
+sequences are never replayed, including on a wrong-command acknowledgement.
+When monitor read retries are exhausted, the failed poll is recorded and the
+next interval attempts a fresh connection. CSV and monitoring remain active;
+an intermittent link error does not latch a permanent monitoring stop.
+
+T255P polling retains independently validated fields from the final read attempt
+if a later query fails. For example, a valid I temperature followed by an H
+failure retains the temperature and leaves setpoint unavailable. The poll still
+fails and the connection closes; the GUI labels the retained temperature
+as historical. Partial fields are cleared before every recovery attempt.
+
 ### Simulator scope
 
 `T255PSimulator` accepts production frames and models AUTO START/RUN/STANDBY,
 U establishment, valid-traffic watchdog reset, local return after >10 s, repeated
 startup/expired-session XON, XON/XOFF filtering and paused-output write timeout.
 It retains targets over a synthetic power cycle and continues modeled control
-when the serial endpoint closes. G is modeled solely for testing standby;
-production applications cannot request it through T255P.
+when the serial endpoint closes. G models explicit production RUN/STANDBY calls
+and the standalone serial example.
 
 Synthetic choices: initial liquid and retained target 20 °C, 30 s exponential
 response, max-power field 100, dryer off, initially clear alarms, and instantaneous

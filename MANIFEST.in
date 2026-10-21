@@ -1,4 +1,6 @@
 include requirements-tested.txt
+include uv.lock
+include .python-version
 recursive-include examples *.py *.ipynb
 include examples/README.md
 recursive-include tests *.py

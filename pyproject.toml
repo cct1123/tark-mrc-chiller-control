@@ -12,7 +12,10 @@ dependencies = ["pyserial>=3.5,<4"]
 
 [project.optional-dependencies]
 gui = ["dash>=3.0.4,<5", "plotly>=6,<7", "dash-bootstrap-components>=2.0.4,<3"]
+
+[dependency-groups]
 dev = ["pytest>=8,<10", "ruff>=0.11,<1", "build>=1,<2", "mypy>=1.15,<2", "types-pyserial>=3.5"]
+notebooks = ["jupyterlab>=4,<5", "ipykernel>=6,<8"]
 
 [project.scripts]
 tark-chiller = "tark_chiller.simulator:main"

@@ -1,4 +1,4 @@
-"""05 · Measure connection timing. Run one device owner at a time."""
+"""04 · Measure connection timing. Run one device owner at a time."""
 
 from time import perf_counter
 

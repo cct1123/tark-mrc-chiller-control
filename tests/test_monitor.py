@@ -263,7 +263,7 @@ def test_start_gate_interruption_closes_csv(tmp_path, monkeypatch):
     def interrupted_event():
         nonlocal calls
         calls += 1
-        if calls == 2:
+        if calls == 1:
             raise KeyboardInterrupt
         return real_event()
 

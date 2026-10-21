@@ -126,3 +126,6 @@ class FakeChiller(TarkChiller):
 
     def _read_status(self):
         return self._model._read_status()
+
+    def _read_sample(self):
+        return self._read_status(), self._read_temperature(), self._read_setpoint()
