@@ -121,7 +121,7 @@ def test_successful_slow_poll_records_completion_and_clears_recovery_state(link,
 
 def test_failed_poll_keeps_known_backend_label(link, monkeypatch):
     chiller, endpoint, _ = link
-    chiller._publish(chiller._poll(monotonic()))
+    chiller._record_and_publish_sample(chiller._poll(monotonic()))
     monkeypatch.setattr(endpoint, "_respond", lambda request: b"#i2BE\r")
     sample = chiller._poll(monotonic())
     assert sample["error"] and sample["status"]["backend"] == "simulator"

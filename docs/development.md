@@ -4,13 +4,40 @@ Start with the memory simulators. They run the production protocol and transport
 code without opening a hardware port. Software tests cannot establish electrical
 timing, physical flow, calibration or safe operation on equipment.
 
+## First exercise: read a simulated temperature
+
+Use the development environment in the README. Run this in its Python interpreter:
+
+```python
+from tark_chiller.simulator import T255PSimulator
+
+with T255PSimulator().chiller(allow_writes=False) as chiller:
+    print(chiller.read_temperature())
+    print(chiller.read_status()["backend"])
+```
+
+Expected output is `20.0` followed by `simulator`. This uses the production driver
+with an in-memory endpoint; it cannot open a hardware port. An injected simulator
+clock advances modeled temperature/watchdog state. Serial timeout waits still
+use real time, so changing the model clock does not shorten a serial read timeout.
+
+Run one focused test from the repository root:
+
+```sh
+uv run --locked --extra gui pytest -q -p no:cacheprovider tests/test_t255p.py::test_malformed_fields_close_session
+```
+
+For a first code exercise, add `(b"I", b"+1.60")` to that test's malformed-field
+cases. It should still pass: the decimal point is invalid in the fixed-width wire
+format, and the test checks that the session closes instead of returning a number.
+
 ## Where to make a change
 
 | Change | Start here | Tests to read first |
 | --- | --- | --- |
 | Parse a device response or change a command sequence | `controller.py`: `T255P` or `Cal33xx` | `test_t255p.py`, `test_cal.py` |
 | Change serial deadlines, connection or recovery | `controller.py`: `TarkChiller` | `test_serial.py`, `test_read_recovery.py` |
-| Change acquisition, history or CSV | `controller.py`: `_poll`, `_publish`, `_run` | `test_monitor.py` |
+| Change acquisition, history or CSV | `controller.py`: `_poll`, `_record_and_publish_sample`, `_run` | `test_monitor.py` |
 | Change the display or a button | `gui.py` | `test_gui.py` |
 | Model a device state or inject a fault | `simulator.py` | Protocol tests and `test_communication.py` |
 
@@ -50,7 +77,7 @@ for editor/type-checker assistance; values remain ordinary dictionaries. Wire
 validation still happens in the protocol and transport. When adding a sample
 field, update its schema, `_poll()`, the consumer that needs it, and relevant
 tests. CSV columns are an explicit contract in `start_monitoring()` and
-`_publish()`; adding a display field does not automatically change the CSV.
+`_record_and_publish_sample()`; adding a display field does not automatically change the CSV.
 
 In `gui.py`, `render_status()` builds status cards and `render_history()` builds
 the graph. `render_snapshot()` returns both for initial layout and refresh.
@@ -62,7 +89,10 @@ Session actions request status alone, so they do not construct a discarded graph
 - Keep one device owner and one serial transaction at a time.
 - Validate framing, checksums, echoes and device errors before accepting data.
 - Retry only eligible reads. Never retry a write: a lost reply can hide an
-  applied target or mode change. Keep the uncertain-write latch until inspection.
+  applied target or mode change. An uncertain-write latch stays set in the existing
+  controller object, even after inspection or reconnect. Follow the protocol's
+  [hardware recovery procedure](hardware.md) before creating a fresh read-only
+  session; a new object never authorizes replaying an uncertain write.
 - Preserve the T255P incomplete-response quarantine, CAL frame gaps and fresh
   write preflight/readback. Never reuse a poll's cached replies for a write.
 - Configure serial timeouts before opening; live timeout changes disturbed the
@@ -70,6 +100,15 @@ Session actions request status alone, so they do not construct a discarded graph
 - Monitoring stop ends acquisition. Disconnect releases software resources.
   Neither commands equipment standby. T255P standby is a separate explicit write.
 - If closing a resource fails, keep ownership so cleanup can be retried.
+
+`chiller.running` means the monitoring thread is alive; `chiller.run()` requests
+equipment RUN. Monitoring can be stopped while equipment remains in RUN, or can
+continue while equipment is in STANDBY.
+
+Example 05 is an advanced direct-serial diagnostic. It deliberately retains its
+U/J/G/U exchange and explicit cleanup. Replacing it with a controller context and
+`run()`/`standby()` would add a connection U exchange, so do not treat that as a
+mechanical readability refactor.
 
 ## Understanding concurrency
 

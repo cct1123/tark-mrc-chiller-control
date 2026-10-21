@@ -280,7 +280,8 @@ class T255P:
         return int(data) / (100 if digits == 4 else 10)
 
     @staticmethod
-    def _watchdog(data: bytes) -> str:
+    def _parse_session_state(data: bytes) -> str:
+        """Validate U data: mode, summary alarm, chiller-on and dryer-on flags."""
         if len(data) != 4 or data[:1] not in b"0123" or any(c not in b"01" for c in data[1:]):
             raise ProtocolError("Malformed T255P watchdog state")
         return data.decode("ascii")
@@ -291,7 +292,8 @@ class T255P:
             raise ProtocolError("Malformed T255P alarm flags")
         return data.decode("ascii")
 
-    def _memory(self, data: bytes) -> float:
+    def _parse_target_memory(self, data: bytes) -> float:
+        """Validate H0 memory fields and decode the Celsius target; power is ignored."""
         if len(data) != 9 or data[:1] != b"0" or data[5:6] != b"," or not data[6:].isdigit():
             raise ProtocolError("Malformed T255P memory response")
         target = self._signed(data[1:5], 3)
@@ -301,7 +303,7 @@ class T255P:
 
     def verify(self, io: AsciiIO) -> str:
         """Send U; return four characters: mode, alarm, chiller-on, dryer-on."""
-        return self._watchdog(io(b"U", b""))
+        return self._parse_session_state(io(b"U", b""))
 
     def read_temperature(self, io: AsciiIO) -> float:
         """Read U/J diagnostics, reject a sensor fault, then read I in Celsius."""
@@ -314,7 +316,7 @@ class T255P:
     def read_setpoint(self, io: AsciiIO) -> float:
         """Establish remote communication with U, then read target memory H0."""
         self.verify(io)
-        return self._memory(io(b"H", b"0"))
+        return self._parse_target_memory(io(b"H", b"0"))
 
     def read_status(self, io: AsciiIO) -> str:
         """Format the last U mode/on flags and J alarm flags as diagnostics."""
@@ -362,7 +364,7 @@ class T255P:
             raise ProtocolError("T255P must report RUN with no active alarms before a target write")
         if io(b"M", target) != target:
             raise ProtocolError("T255P target echo mismatch; outcome uncertain")
-        if self._memory(io(b"H", b"0")) != int(target) / 10:
+        if self._parse_target_memory(io(b"H", b"0")) != int(target) / 10:
             raise ProtocolError("T255P target readback mismatch; outcome uncertain")
 
     def set_mode(self, running: bool, io: AsciiIO) -> None:
@@ -715,7 +717,7 @@ class TarkChiller:
             elif isinstance(self._protocol, T255P):
                 self._protocol.verify(self._t255p_io)
         except BaseException as exc:
-            self._failed(exc)
+            self._close_after_error(exc)
             if not isinstance(exc, Exception) or isinstance(exc, ProtocolError):
                 raise
             raise _io_error(exc) from exc
@@ -731,7 +733,8 @@ class TarkChiller:
                 raise _io_error(exc) from exc
             self._serial = None
 
-    def _failed(self, error: BaseException) -> None:
+    def _close_after_error(self, error: BaseException) -> None:
+        """Try closing the port; attach cleanup failure to the original error."""
         try:
             self._close_port()
         except BaseException as cleanup:
@@ -857,7 +860,7 @@ class TarkChiller:
                 # Transport latches before sending; clear only after full readback.
                 self._write_uncertain = False
         except BaseException as exc:
-            self._failed(exc)
+            self._close_after_error(exc)
             if self._write_uncertain and isinstance(exc, Exception):
                 device = "T255P" if isinstance(self._protocol, T255P) else "CAL"
                 raise ProtocolError(
@@ -989,11 +992,11 @@ class TarkChiller:
                         self._close_port()
             except BaseException as error:
                 try:
-                    self._join(max(0.0, deadline - monotonic()))
+                    self._stop_and_join_monitor(max(0.0, deadline - monotonic()))
                 except BaseException as cleanup:
                     error.add_note(f"Monitor cleanup failed: {type(cleanup).__name__}: {cleanup}")
                 raise
-            self._join(max(0.0, deadline - monotonic()))
+            self._stop_and_join_monitor(max(0.0, deadline - monotonic()))
 
     @property
     def is_connected(self) -> bool:
@@ -1001,7 +1004,8 @@ class TarkChiller:
         with self._io_lock:
             return not self._cancel.is_set() and not self._fault and self._port_connected
 
-    def _suspend(self, message: str, error: BaseException) -> None:
+    def _suspend_session(self, message: str, error: BaseException) -> None:
+        """Block device use with a fault, clear retry state and try closing the port."""
         self._fault = message
         with self._data_lock:
             self._recovery_error = ""
@@ -1055,7 +1059,7 @@ class TarkChiller:
                 protocol_error = isinstance(exc, ProtocolError)
                 retryable = isinstance(exc, (OSError, _T255PReadError))
                 if protocol_error and (not retryable or not self._reconnect_attempts):
-                    self._suspend(f"Protocol failure; recovery suspended: {exc}", exc)
+                    self._suspend_session(f"Protocol failure; recovery suspended: {exc}", exc)
                     raise
                 if self._reconnect_attempts == 0:
                     raise
@@ -1064,9 +1068,11 @@ class TarkChiller:
                         # Record this failed poll, then try again on the next
                         # monitoring interval. Writes and fatal protocol faults
                         # never enter this path. Keep ownership and cancellation.
-                        self._failed(exc)
+                        self._close_after_error(exc)
                         raise
-                    self._suspend(f"Recovery exhausted: {exc}; call connect() explicitly", exc)
+                    self._suspend_session(
+                        f"Recovery exhausted: {exc}; call connect() explicitly", exc
+                    )
                     if protocol_error:
                         raise
                     raise ConnectionError(self._fault) from exc
@@ -1114,7 +1120,7 @@ class TarkChiller:
             try:
                 self._write_setpoint(value)
             except ProtocolError as exc:
-                self._suspend(f"Protocol failure; recovery suspended: {exc}", exc)
+                self._suspend_session(f"Protocol failure; recovery suspended: {exc}", exc)
                 raise
 
     @property
@@ -1123,11 +1129,21 @@ class TarkChiller:
         return isinstance(self._protocol, T255P)
 
     def run(self) -> None:
-        """T255P: start pump and temperature regulation at the existing target."""
+        """T255P: start pump and temperature regulation at the existing target.
+
+        Requires a connected, write-enabled session. Check the target and prepare
+        the loop first. This writes once and verifies readback; an uncertain
+        outcome latches the session. It does not start monitoring.
+        """
         self._set_mode("run")
 
     def standby(self) -> None:
-        """T255P: stop pump and temperature regulation; monitoring can continue."""
+        """T255P: stop pump and temperature regulation; monitoring can continue.
+
+        Requires a connected, write-enabled session. This writes once and verifies
+        readback; an uncertain outcome latches the session. Reported alarms do not
+        prevent this request. Disconnect alone does not perform this operation.
+        """
         self._set_mode("standby")
 
     def _set_mode(self, operation: Literal["run", "standby"]) -> None:
@@ -1143,7 +1159,7 @@ class TarkChiller:
                     assert isinstance(self._protocol, T255P)
                     self._protocol.set_mode(operation == "run", self._t255p_io)
             except ProtocolError as exc:
-                self._suspend(f"Protocol failure; recovery suspended: {exc}", exc)
+                self._suspend_session(f"Protocol failure; recovery suspended: {exc}", exc)
                 raise
 
     def read_status(self) -> _Status:
@@ -1241,7 +1257,7 @@ class TarkChiller:
         """Bound lock wait plus worker join; keep the connection for synchronous use."""
         deadline = monotonic() + _seconds(timeout_s, "Stop timeout")
         with _locked_until(self._monitor_lock, deadline):
-            self._join(max(0.0, deadline - monotonic()))
+            self._stop_and_join_monitor(max(0.0, deadline - monotonic()))
 
     def __enter__(self) -> "TarkChiller":
         self.connect()
@@ -1263,6 +1279,10 @@ class TarkChiller:
 
     @property
     def running(self) -> bool:
+        """Whether the monitor thread is alive, including pending shutdown/cleanup.
+
+        This is acquisition state, not the equipment mode controlled by run().
+        """
         return self._thread is not None and self._thread.is_alive()
 
     def snapshot(self) -> _Snapshot:
@@ -1328,7 +1348,8 @@ class TarkChiller:
             if ready is not None:
                 ready.set()
 
-    def _join(self, timeout_s: float) -> None:
+    def _stop_and_join_monitor(self, timeout_s: float) -> None:
+        """Request monitor stop, join it, then close CSV; retain resources on failure."""
         timeout = _seconds(timeout_s, "Stop timeout", allow_zero=True)
         self._stop.set()
         thread = self._thread
@@ -1383,7 +1404,12 @@ class TarkChiller:
             "completed_monotonic": completed_monotonic,
         }
 
-    def _publish(self, sample: _Sample) -> None:
+    def _record_and_publish_sample(self, sample: _Sample) -> None:
+        """Write/flush CSV if enabled, then publish history and counters.
+
+        Recording failure is reported separately and does not discard the sample.
+        Filesystem operations stay outside the data lock so snapshots remain usable.
+        """
         row_written = False
         if self._file is not None and not self._logging_error:
             try:
@@ -1423,7 +1449,7 @@ class TarkChiller:
             while not self._stop.is_set():
                 poll_started = time.monotonic()
                 sample = self._poll(started)
-                self._publish(sample)
+                self._record_and_publish_sample(sample)
                 if sample["error"]:
                     with self._io_lock:
                         fault = self._fault

@@ -537,7 +537,7 @@ def test_csv_tutorial_preserves_loop_error_when_stop_also_fails(
         },
     )
     monkeypatch.setattr("time.sleep", failed_sleep)
-    monkeypatch.setattr(TarkChiller, "_join", failed_join)
+    monkeypatch.setattr(TarkChiller, "_stop_and_join_monitor", failed_join)
     with pytest.raises(RuntimeError) as raised:
         run_tutorial("03_record_csv.ipynb")
     assert raised.value is primary

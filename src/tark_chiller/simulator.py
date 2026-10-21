@@ -267,6 +267,12 @@ class T255PSimulator:
         self._buffer = b""
 
     def chiller(self, *, allow_writes: bool = True, **options: Any) -> TarkChiller:
+        """Build a disconnected controller for this memory endpoint; no hardware I/O.
+
+        Writes default to enabled for simulation exercises. Pass controller options
+        such as timeout_s directly; the injected clock affects modeled device state,
+        while serial timeout waits still use real time.
+        """
         settings = {
             "port": "MEMORY-ONLY",
             "baudrate": 9600,
@@ -491,10 +497,16 @@ def main(argv: list[str] | None = None) -> None:
                         pass
                     chiller.stop_monitoring()
             else:
-                print("Open http://127.0.0.1:8056. Press Connect, then Start monitoring.",
-                      flush=True)
-                run_dashboard(chiller, stale_after_s=max(3.0, args.interval * 3),
-                              interval_s=args.interval, csv_path=args.csv, history_size=args.history)
+                print(
+                    "Open http://127.0.0.1:8056. Press Connect, then Start monitoring.", flush=True
+                )
+                run_dashboard(
+                    chiller,
+                    stale_after_s=max(3.0, args.interval * 3),
+                    interval_s=args.interval,
+                    csv_path=args.csv,
+                    history_size=args.history,
+                )
         except KeyboardInterrupt:
             pass
     except (OSError, ValueError) as exc:
