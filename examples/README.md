@@ -26,6 +26,10 @@ Consult the [hardware setup and first-use guide](../docs/hardware.md) for cable,
 line levels, coolant, initial checks and recovery. Physical hardware has not been
 tested with this package; verify readings against the panel/reference first.
 
+For a first T255P bench session, follow the
+[T255P hardware checklist](../docs/hardware.md#t255p-human-hardware-test):
+read-only checks first, then one setpoint change, response recording and cleanup.
+
 ### T255P setup
 
 Select `DEVICE_MODEL = "t255p"` and replace `SERIAL_SETTINGS = None` with this

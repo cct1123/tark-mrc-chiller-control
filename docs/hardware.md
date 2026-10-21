@@ -38,19 +38,88 @@ DTE/DCE compatibility.
 
 ## T255P human hardware test
 
-The first frame is `.U83` followed by CR. **U takes serial control and can change
-AUTO START to RUN, even with target writes disabled.** Prepare the connected loop
-for that effect before entering the controller context. The driver sends no G
-run/standby, O sensor-selection or startup-target command.
+Use this checklist in order. Run one script at a time from the repository root.
+These are human-operated hardware tests; software tests do not establish a pass.
+Install the package and configure [`examples/hardware.py`](../examples/hardware.py)
+using the [T255P tutorial setup](../examples/README.md#t255p-setup).
 
-| Step | Check |
-| --- | --- |
-| Connect | Start with `T255P()`; expect a valid U response. Compare reported mode with the panel. |
-| Compare | Read temperature, target and status; compare with panel and an independent calibrated reference using your experiment's tolerance. Reads use U/J/I, U/H0 and U/J. |
-| Record | Start one-second monitoring with a new CSV. Check timestamps, units, sample age, failed polls and recording errors. |
-| Change a target | Only after checking coolant, limits, panel RUN/no alarms, observation time and recovery: enable writes and choose one target within 5–45 °C in 0.1 °C steps. Expect one M, matching echo and H0 readback. |
-| Observe | Compare the physical temperature trajectory with the reference. Matching target readback is not thermal settling. |
-| Finish | Restore the original target only if appropriate; exit the context and perform equipment shutdown separately. Record final panel target/mode. |
+**Read-only here means no target writes. Connecting sends U, takes serial control
+and can change AUTO START to RUN.** Prepare the physical loop for that effect.
+
+### Prepare
+
+- [ ] Confirm the identified T255P, verified RS-232 cable/adapter, filled
+  distilled-water loop, ventilation, flow and absence of leaks using the manual.
+- [ ] Set `DEVICE_MODEL = "t255p"` and the actual port/RTS/DTR levels in
+  `hardware.py`: 9600 baud, 8N1, XON/XOFF enabled; hardware flow control disabled.
+  Leave CAL fields and `RS485_MODE` as `None`.
+- [ ] Record the tested Git revision, unit/firmware, port/adapter, coolant,
+  original panel target and mode. Choose the allowed temperature difference
+  against your reference (°C), one approved new target (°C), observation time (s)
+  and final equipment state before starting. Do not infer safe limits from an
+  example value.
+
+Use the Python environment where the package is installed:
+
+```powershell
+$chillerPython = ".\.venv\Scripts\python.exe"
+```
+
+### Read-only checks
+
+- [ ] **Read once:** run `& $chillerPython examples/01_read_status.py`.
+  Expect `Connected: True`, `Backend: hardware`, finite Celsius readings and
+  T255P mode/alarm details. Compare temperature with the panel/reference within
+  the chosen tolerance and target with the panel. The target must remain
+  unchanged. Record any AUTO START → RUN transition; do not assume every
+  starting mode becomes RUN. The script should exit without a cleanup error.
+- [ ] **Record a baseline:** run `& $chillerPython examples/03_record_csv.py`
+  with its default ten-second duration and one-second interval.
+  Expect a new `outputs/hardware_<UTC>.csv`, nonzero samples, saved rows equal to
+  samples, increasing timestamps/elapsed time, unchanged target and blank error
+  fields. The script must finish without poll, logging or cleanup errors.
+  Do not require exactly ten rows; serial query time affects the count.
+- [ ] **Optional dashboard:** run `& $chillerPython examples/04_dashboard.py`
+  with the GUI extra installed. Open `http://127.0.0.1:8050`.
+  Expect fresh readings, an unchanged target, disabled target changes and no
+  reported faults. Press Ctrl+C in the terminal and wait for the script to exit
+  before continuing. Closing the browser alone does not stop acquisition.
+
+### One setpoint change
+
+- [ ] Proceed only after the read-only checks pass and the panel reports RUN
+  with no active alarms. In [`02_set_temperature.py`](../examples/02_set_temperature.py),
+  set `TARGET_C` to the approved target, different from the original target,
+  within both your setup's limits and 5–45 °C, in 0.1 °C steps.
+- [ ] Run `& $chillerPython examples/02_set_temperature.py`. Check the printed
+  existing target and requested value before pressing Enter once. Ctrl+C before
+  Enter cancels the target request. Expect the printed reported setpoint to
+  equal `TARGET_C`, a readback-match message, the same target on the panel and
+  a clean exit. The driver sends one M target command and verifies its echo and
+  H0 readback; this script does not save a wire trace.
+- [ ] Run `03_record_csv.py` again to create a separate post-change CSV. Set
+  `DURATION_S` beforehand to your chosen observation time if ten seconds is
+  insufficient. Expect the new target in every successful row and no poll or
+  recording errors. Compare the temperature response with the panel/reference
+  using the chosen tolerance and observation time. Matching target readback
+  alone does not demonstrate thermal settling.
+
+### Cleanup and results
+
+- [ ] Wait for each script to exit; controller contexts stop acquisition, close
+  CSV and release the serial port on normal exit. If an error or cleanup timeout
+  occurs, inspect the exception and cleanup notes; do not assume resources were
+  released or start a competing process. Follow the [cleanup procedure](api.md#shutdown-and-cleanup).
+- [ ] Record final panel target/mode, CSV paths, observed readings, errors and
+  PASS/FAIL for each step. Leave unperformed checks UNTESTED.
+- [ ] Follow the manual and your test plan for physical shutdown. **Disconnecting
+  software does not stop the chiller/pump or restore the original target.** Any
+  necessary target restoration is a separate operator action, outside this one
+  setpoint-change test.
+
+Stop the checklist on an unexpected mode, alarm, leak, mismatch or communication
+failure. For an uncertain write, inspect the actual panel/target; do not rerun
+`02_set_temperature.py` to find out whether the first request succeeded.
 
 The manual calls for valid traffic every five seconds and returns to local control
 after more than ten seconds without it. Normal one-second monitoring supplies
