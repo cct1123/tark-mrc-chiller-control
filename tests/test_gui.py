@@ -10,8 +10,10 @@ from time import monotonic, sleep
 import pytest
 from plotly.utils import PlotlyJSONEncoder
 
-from tark_chiller.controller import ProtocolError
-from tark_chiller.gui import create_app, render_snapshot
+from tark_chiller import _views
+from tark_chiller._views import render_history, render_status
+from tark_chiller.gui import create_app
+from tark_chiller.protocols import ProtocolError
 from tark_chiller.simulator import CalSimulator, T255PSimulator
 
 
@@ -34,7 +36,7 @@ def test_latched_protocol_fault_stops_polling_and_is_visible_in_dashboard():
         wait_for(lambda: not chiller.running)
         snapshot = chiller.snapshot()
         assert snapshot["sample_count"] == snapshot["failed_samples"] == 1
-        status, _ = render_snapshot(snapshot)
+        status = render_status(snapshot)
         content = text(status)
         assert "Monitoring stopped" in content
         assert "T255P sensor alarm" in content
@@ -42,14 +44,12 @@ def test_latched_protocol_fault_stops_polling_and_is_visible_in_dashboard():
 
 
 def test_freshness_uses_poll_completion_instead_of_start(dashboard, monkeypatch):
-    from tark_chiller import gui
 
     chiller, _, _ = dashboard
     snapshot = chiller.snapshot()
-    latest = {**snapshot["history"][-1], "sampled_monotonic": 100.0,
-              "completed_monotonic": 110.0}
-    monkeypatch.setattr(gui, "monotonic", lambda: 110.5)
-    cards, _ = render_snapshot({**snapshot, "history": [latest]})
+    latest = {**snapshot["history"][-1], "sampled_monotonic": 100.0, "completed_monotonic": 110.0}
+    monkeypatch.setattr(_views, "monotonic", lambda: 110.5)
+    cards = render_status({**snapshot, "history": [latest]})
     content = text(cards)
     assert "20.00" in content and "Monitoring" in content
     assert "0.5 s ago" in content and "Stale" not in content
@@ -58,12 +58,13 @@ def test_freshness_uses_poll_completion_instead_of_start(dashboard, monkeypatch)
 def test_recovery_and_service_fault_have_distinct_consistent_states(dashboard):
     chiller, _, _ = dashboard
     snapshot = chiller.snapshot()
-    cards, _ = render_snapshot({**snapshot, "recovery_error": "Wrong command"})
+    cards = render_status({**snapshot, "recovery_error": "Wrong command"})
     content = text(cards)
     assert "Recovering" in content and "Wrong command" in content
     assert "20.00" not in content and "Monitoring stopped" not in content
-    cards, _ = render_snapshot({**snapshot, "service_error": "Device rejected command",
-                               "recovery_error": "Wrong command"})
+    cards = render_status(
+        {**snapshot, "service_error": "Device rejected command", "recovery_error": "Wrong command"}
+    )
     content = text(cards)
     assert "Monitoring fault" in content and "20.00" not in content
     assert "Monitoring stopped" not in content  # The worker has not finished yet.
@@ -73,9 +74,12 @@ def test_recovery_and_service_fault_have_distinct_consistent_states(dashboard):
 def test_failed_poll_between_retries_still_shows_recovering(dashboard):
     chiller, _, _ = dashboard
     snapshot = chiller.snapshot()
-    latest = {**snapshot["history"][-1], "error": "T255P bad command",
-              "status": {"connected": False, "backend": "hardware", "detail": "poll failed"}}
-    cards, _ = render_snapshot({**snapshot, "history": [latest], "recovery_error": ""})
+    latest = {
+        **snapshot["history"][-1],
+        "error": "T255P bad command",
+        "status": {"connected": False, "backend": "hardware", "detail": "poll failed"},
+    }
+    cards = render_status({**snapshot, "history": [latest], "recovery_error": ""})
     content = text(cards)
     assert "Recovering" in content and "bad command" in content
     assert "Monitoring stopped" not in content
@@ -103,6 +107,9 @@ def refresh(app):
                 {"id": "live-status", "property": "children"},
                 {"id": "temperature-history", "property": "figure"},
                 {"id": "toggle-monitoring", "property": "children"},
+                {"id": "equipment-panel", "property": "children"},
+                {"id": "toggle-mode", "property": "children"},
+                {"id": "toggle-mode", "property": "disabled"},
             ],
             "inputs": [{"id": "refresh", "property": "n_intervals", "value": 1}],
             "state": [],
@@ -124,31 +131,50 @@ def submit(app, value):
     )
 
 
-def submit_mode(app, action):
-    return app.server.test_client().post("/_dash-update-component", json={
-        "output": "mode-result.children",
-        "outputs": {"id": "mode-result", "property": "children"},
-        "inputs": [{"id": "run-device", "property": "n_clicks", "value": 1},
-                   {"id": "standby-device", "property": "n_clicks", "value": 1}],
-        "state": [], "changedPropIds": [f"{action}.n_clicks"],
-    })
+def submit_mode(app, mode):
+    return app.server.test_client().post(
+        "/_dash-update-component",
+        json={
+            "output": "mode-result.children",
+            "outputs": {"id": "mode-result", "property": "children"},
+            "inputs": [{"id": "toggle-mode", "property": "n_clicks", "value": 1}],
+            "state": [{"id": "toggle-mode", "property": "children", "value": mode}],
+            "changedPropIds": ["toggle-mode.n_clicks"],
+        },
+    )
 
 
-def test_mode_buttons_use_production_api_and_leave_monitoring_active():
+def test_mode_toggle_uses_production_api_and_leaves_monitoring_active():
     endpoint = T255PSimulator()
     with endpoint.chiller() as chiller:
         chiller.start_monitoring(interval_s=0.01)
+        wait_for(lambda: chiller.snapshot()["sample_count"] > 0)
         app = create_app(chiller)
         layout = app.server.test_client().get("/_dash-layout").get_data(as_text=True)
-        assert "run-device" in layout and "standby-device" in layout
-        for action, mode in [("standby-device", "1"), ("run-device", "2")]:
+        assert (
+            "toggle-mode" in layout
+            and "run-device" not in layout
+            and "standby-device" not in layout
+        )
+        assert "RUN starts circulation" not in layout
+        for action, mode in [("STANDBY", "1"), ("RUN", "2")]:
             result = submit_mode(app, action)
-            assert result.status_code == 200 and "verified" in text(result.json)
+            assert (
+                result.status_code == 200
+                and result.json["response"]["mode-result"]["children"] == ""
+            )
             assert endpoint.mode == mode and chiller.running
+            wait_for(
+                lambda: chiller.snapshot()["history"][-1]["status"]["chiller_on"] == (mode == "2")
+            )
+            button = refresh(app).json["response"]["toggle-mode"]
+            assert button == {"children": "RUN" if mode == "1" else "STANDBY", "disabled": False}
+            assert submit_mode(app, action).status_code == 200
+            assert endpoint.mode == mode  # Repeat the displayed intent, rather than invert again.
         assert not endpoint.applied_writes
 
 
-@pytest.mark.parametrize("action", ["run-device", "standby-device"])
+@pytest.mark.parametrize("action", ["RUN", "STANDBY"])
 def test_read_only_gui_rejects_direct_mode_callbacks(action):
     endpoint = T255PSimulator()
     with endpoint.chiller() as chiller:
@@ -163,23 +189,40 @@ def test_mode_http_errors_are_visible_without_connecting_or_retrying():
     endpoint = T255PSimulator()
     chiller = endpoint.chiller()
     app = create_app(chiller)
-    assert "disconnected" in text(submit_mode(app, "run-device").json).lower()
+    assert "disconnected" in text(submit_mode(app, "RUN").json).lower()
     assert not endpoint.is_open
     with chiller:
+        assert "Mode unavailable" in text(submit_mode(app, "Mode unavailable").json)
         endpoint.alarms = "010000"
-        assert "RUN refused" in text(submit_mode(app, "run-device").json)
+        assert submit_mode(app, "RUN").json["response"]["mode-result"]["children"] == ""
+        assert endpoint.is_open and endpoint.alarms == "010000"
+        original = endpoint._respond
+        mode_requests = []
+
+        def lose_ack(request):
+            result = original(request)
+            if request[1:2] == b"G":
+                mode_requests.append(request)
+                raise OSError("Mode reply lost")
+            return result
+
+        endpoint._respond = lose_ack
+        assert "uncertain" in text(submit_mode(app, "STANDBY").json)
+        assert len(mode_requests) == 1
         assert not endpoint.is_open
 
 
 def test_cal_api_and_dashboard_refuse_mode_control_without_io(monkeypatch):
     endpoint = CalSimulator()
     with endpoint.chiller() as chiller:
-        monkeypatch.setattr(endpoint, "write", lambda *_args: pytest.fail("CAL mode request sent I/O"))
+        monkeypatch.setattr(
+            endpoint, "write", lambda *_args: pytest.fail("CAL mode request sent I/O")
+        )
         assert not chiller.supports_mode_control
         app = create_app(chiller)
-        for method, action in [(chiller.run, "run-device"), (chiller.standby, "standby-device")]:
+        for mode, action in [("RUN", "RUN"), ("STANDBY", "STANDBY")]:
             with pytest.raises(ProtocolError, match="only for T255P"):
-                method()
+                chiller.set_mode(mode)
             assert "unsupported" in text(submit_mode(app, action).json)
         assert chiller.is_connected
 
@@ -189,19 +232,19 @@ def test_mode_callbacks_share_action_lock_and_refuse_requests_after_shutdown(mon
     with endpoint.chiller() as chiller:
         app = create_app(chiller, on_shutdown=lambda: None)
         entered, release = Event(), Event()
-        original = chiller.run
+        original = chiller.set_mode
 
-        def slow_run():
+        def slow_set_mode(mode):
             entered.set()
             assert release.wait(2)
-            original()
+            return original(mode)
 
-        monkeypatch.setattr(chiller, "run", slow_run)
-        worker = Thread(target=lambda: submit_mode(app, "run-device"))
+        monkeypatch.setattr(chiller, "set_mode", slow_set_mode)
+        worker = Thread(target=lambda: submit_mode(app, "RUN"))
         worker.start()
         try:
             assert entered.wait(1)
-            assert "in progress" in text(submit_mode(app, "standby-device").json)
+            assert "in progress" in text(submit_mode(app, "STANDBY").json)
             assert "in progress" in text(submit(app, 18).json)
             assert "in progress" in text(session_action(app, "shutdown-gui").json)
             assert refresh(app).status_code == 200
@@ -210,7 +253,7 @@ def test_mode_callbacks_share_action_lock_and_refuse_requests_after_shutdown(mon
             worker.join(2)
         assert not worker.is_alive()
         assert "shut down" in text(session_action(app, "shutdown-gui").json)
-        assert "shut down" in text(submit_mode(app, "standby-device").json)
+        assert "shut down" in text(submit_mode(app, "STANDBY").json)
         assert endpoint.mode == "2" and not endpoint.is_open
 
 
@@ -219,14 +262,23 @@ def session_action(app, action, *, interval=0.01, path=""):
         "/_dash-update-component",
         json={
             "output": next(key for key in app.callback_map if "session-result" in key),
-            "outputs": [{"id": "session-result", "property": "children"},
-                        {"id": "refresh", "property": "disabled"},
-                        {"id": "live-status", "property": "children"},
-                        {"id": "toggle-monitoring", "property": "children"}],
-            "inputs": [{"id": name, "property": "n_clicks", "value": int(name == action)}
-                       for name in ("connect-device", "toggle-monitoring", "shutdown-gui")],
-            "state": [{"id": "monitor-interval", "property": "value", "value": interval},
-                      {"id": "monitor-csv", "property": "value", "value": path}],
+            "outputs": [
+                {"id": "session-result", "property": "children"},
+                {"id": "refresh", "property": "disabled"},
+                {"id": "live-status", "property": "children"},
+                {"id": "toggle-monitoring", "property": "children"},
+                {"id": "equipment-panel", "property": "children"},
+                {"id": "toggle-mode", "property": "children"},
+                {"id": "toggle-mode", "property": "disabled"},
+            ],
+            "inputs": [
+                {"id": name, "property": "n_clicks", "value": int(name == action)}
+                for name in ("connect-device", "toggle-monitoring", "shutdown-gui")
+            ],
+            "state": [
+                {"id": "monitor-interval", "property": "value", "value": interval},
+                {"id": "monitor-csv", "property": "value", "value": path},
+            ],
             "changedPropIds": [f"{action}.n_clicks"],
         },
     )
@@ -361,20 +413,34 @@ def test_run_dashboard_shutdown_closes_real_http_server(monkeypatch):
         # Generate a real callback payload, then send it over HTTP to the live server.
         app = gui.create_app(chiller, on_shutdown=lambda: None)
         output = next(key for key in app.callback_map if "session-result" in key)
-        inputs = [{"id": name, "property": "n_clicks", "value": 1}
-                  for name in ("connect-device", "toggle-monitoring", "shutdown-gui")]
+        inputs = [
+            {"id": name, "property": "n_clicks", "value": 1}
+            for name in ("connect-device", "toggle-monitoring", "shutdown-gui")
+        ]
         for action in ("connect-device", "toggle-monitoring", "shutdown-gui"):
-            payload = {"output": output,
-                       "outputs": [{"id": "session-result", "property": "children"},
-                                   {"id": "refresh", "property": "disabled"},
-                                   {"id": "live-status", "property": "children"},
-                                   {"id": "toggle-monitoring", "property": "children"}],
-                       "inputs": inputs,
-                       "state": [{"id": "monitor-interval", "property": "value", "value": 0.01},
-                                 {"id": "monitor-csv", "property": "value", "value": ""}],
-                       "changedPropIds": [f"{action}.n_clicks"]}
-            request = Request(url + "/_dash-update-component", data=json.dumps(payload).encode(),
-                              headers={"Content-Type": "application/json"})
+            payload = {
+                "output": output,
+                "outputs": [
+                    {"id": "session-result", "property": "children"},
+                    {"id": "refresh", "property": "disabled"},
+                    {"id": "live-status", "property": "children"},
+                    {"id": "toggle-monitoring", "property": "children"},
+                    {"id": "equipment-panel", "property": "children"},
+                    {"id": "toggle-mode", "property": "children"},
+                    {"id": "toggle-mode", "property": "disabled"},
+                ],
+                "inputs": inputs,
+                "state": [
+                    {"id": "monitor-interval", "property": "value", "value": 0.01},
+                    {"id": "monitor-csv", "property": "value", "value": ""},
+                ],
+                "changedPropIds": [f"{action}.n_clicks"],
+            }
+            request = Request(
+                url + "/_dash-update-component",
+                data=json.dumps(payload).encode(),
+                headers={"Content-Type": "application/json"},
+            )
             with urlopen(request, timeout=2) as response:
                 assert "failed" not in response.read().decode()
         worker.join(3)
@@ -392,7 +458,7 @@ def test_simulator_monitor_csv_and_dash_share_real_readings(dashboard):
     chiller, app, path = dashboard
     response = submit(app, 18)
     assert response.status_code == 200
-    assert "completed" in text(response.json)
+    assert response.json["response"]["setpoint-result"]["children"] == ""
     wait_for(lambda: chiller.snapshot()["history"][-1]["temperature_c"] < 19.5)
     response = refresh(app)
     assert response.status_code == 200
@@ -469,9 +535,17 @@ def test_refresh_and_reload_do_not_start_or_read_a_device(dashboard, monkeypatch
 
     for method in (
         "connect",
+        "get_temperature",
+        "get_memory",
+        "get_alarms",
+        "get_status",
+        "set_setpoint",
+        "set_mode",
+        "set_sensor_mode",
         "read_temperature",
         "read_setpoint",
-        "read_status",
+        "collect_status",
+        "apply_setpoint",
         "start_monitoring",
     ):
         monkeypatch.setattr(chiller, method, forbidden)
@@ -517,15 +591,14 @@ def test_pending_device_read_does_not_block_gui_refresh(dashboard, monkeypatch):
 
 
 def test_reload_uses_latest_readback_and_current_monotonic_age(dashboard, monkeypatch):
-    from tark_chiller import gui
 
     chiller, app, _path = dashboard
     client = app.server.test_client()
     assert "20.00" in text(client.get("/_dash-layout").json)
-    chiller.set_setpoint(18)
+    chiller.apply_setpoint(18)
     wait_for(lambda: chiller.snapshot()["history"][-1]["setpoint_c"] == 18)
     assert "18.00" in text(client.get("/_dash-layout").json)
-    monkeypatch.setattr(gui, "monotonic", lambda: monotonic() + 10)
+    monkeypatch.setattr(_views, "monotonic", lambda: monotonic() + 10)
     result = text(client.get("/_dash-layout").json)
     assert "Stale" in result and "No fresh reading" in result
     assert "18.00" not in result
@@ -533,7 +606,6 @@ def test_reload_uses_latest_readback_and_current_monotonic_age(dashboard, monkey
 
 @pytest.mark.parametrize("running, stale", [(False, False), (True, True)])
 def test_old_readings_remain_in_history_but_are_not_live(dashboard, monkeypatch, running, stale):
-    from tark_chiller import gui
 
     chiller, _app, _path = dashboard
     snapshot = chiller.snapshot()
@@ -543,9 +615,10 @@ def test_old_readings_remain_in_history_but_are_not_live(dashboard, monkeypatch,
     }
     snapshot = {**snapshot, "running": running, "history": [latest]}
     monkeypatch.setattr(
-        gui, "monotonic", lambda: latest["sampled_monotonic"] + (10 if stale else 0)
+        _views, "monotonic", lambda: latest["sampled_monotonic"] + (10 if stale else 0)
     )
-    cards, figure = render_snapshot(snapshot)
+    cards = render_status(snapshot)
+    figure = render_history((snapshot)["history"])
     assert "No fresh reading" in text(cards)
     assert "20.00" not in text(cards)
     assert figure.data[0].y[-1] == 20
@@ -562,7 +635,7 @@ def test_fault_and_csv_failure_are_explicit(dashboard):
         "status": {**snapshot["history"][-1]["status"], "connected": False},
         "error": "Read timed out",
     }
-    cards, figure = render_snapshot(
+    cards = render_status(
         {
             **snapshot,
             "history": snapshot["history"] + [failed],
@@ -570,6 +643,7 @@ def test_fault_and_csv_failure_are_explicit(dashboard):
             "failed_samples": 1,
         }
     )
+    figure = render_history(snapshot["history"] + [failed])
     assert all(
         word in text(cards)
         for word in ("Unavailable", "Read timed out", "CSV Failed", "CSV disk full")
@@ -581,11 +655,21 @@ def test_fault_and_csv_failure_are_explicit(dashboard):
 def test_partial_temperature_is_identified_as_historical_after_target_failure(dashboard):
     chiller, _, _ = dashboard
     snapshot = chiller.snapshot()
-    partial = {**snapshot["history"][-1], "setpoint_c": None,
-               "status": {"connected": False, "backend": "simulator", "detail": "poll failed"},
-               "error": "bad command"}
-    cards, figure = render_snapshot({**snapshot, "running": False, "history": [partial],
-                                    "service_error": "Monitoring stopped: bad command"})
+    partial = {
+        **snapshot["history"][-1],
+        "setpoint_c": None,
+        "status": {"connected": False, "backend": "simulator", "detail": "poll failed"},
+        "error": "bad command",
+    }
+    cards = render_status(
+        {
+            **snapshot,
+            "running": False,
+            "history": [partial],
+            "service_error": "Monitoring stopped: bad command",
+        }
+    )
+    figure = render_history([partial])
     content = text(cards)
     assert "Last validated temperature 20.00" in content
     assert "No fresh reading" in content and "Waiting for fresh readback" in content
@@ -596,9 +680,10 @@ def test_partial_temperature_is_identified_as_historical_after_target_failure(da
 def test_csv_failure_preserves_temperature_and_empty_history_is_honest(dashboard):
     chiller, _app, _path = dashboard
     snapshot = chiller.snapshot()
-    cards, _figure = render_snapshot({**snapshot, "logging_error": "CSV disk full"})
+    cards = render_status({**snapshot, "logging_error": "CSV disk full"})
     assert "CSV Failed" in text(cards) and "20.00" in text(cards)
-    cards, figure = render_snapshot({**snapshot, "history": [], "sample_count": 0})
+    cards = render_status({**snapshot, "history": [], "sample_count": 0})
+    figure = render_history([])
     assert "Waiting for the first sample" in text(cards)
     assert "No sample" in text(cards) and "simulator" not in text(cards)
     assert "20.00" not in text(cards) and not figure.data[0].y
@@ -622,7 +707,7 @@ def test_dashboard_follows_controller_monitoring_restart(dashboard):
     chiller, app, _path = dashboard
     chiller.stop_monitoring()
     previous = chiller.snapshot()
-    chiller.set_setpoint(18)
+    chiller.apply_setpoint(18)
     chiller.start_monitoring(interval_s=0.01)
     wait_for(lambda: bool(chiller.snapshot()["history"]))
     assert chiller.snapshot()["history"][-1]["setpoint_c"] == 18

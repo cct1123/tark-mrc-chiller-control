@@ -7,7 +7,7 @@ from time import monotonic, sleep
 import pytest
 
 import tark_chiller.controller as controller
-from tark_chiller.controller import ProtocolError
+from tark_chiller.protocols import ProtocolError
 from tark_chiller.simulator import T255PSimulator
 
 
@@ -21,7 +21,9 @@ def link(monkeypatch, request):
     now = [100.0]
     monkeypatch.setattr(controller, "perf_counter", lambda: now[0])
     endpoint = T255PSimulator()
-    chiller = endpoint.chiller(reconnect_attempts=getattr(request, "param", 2), reconnect_delay_s=0.5)
+    chiller = endpoint.chiller(
+        reconnect_attempts=getattr(request, "param", 2), reconnect_delay_s=0.5
+    )
     requests = []
     original = endpoint._respond
 
@@ -243,7 +245,7 @@ def test_rejected_write_ack_never_retries_or_recovers(link, monkeypatch, rejecti
 
     monkeypatch.setattr(endpoint, "_respond", respond)
     with pytest.raises(ProtocolError, match="write outcome uncertain"):
-        chiller.set_setpoint(19)
+        chiller.apply_setpoint(19)
     assert endpoint.applied_writes == 1
     assert [cmd for cmd, _ in requests].count(b"M") == 1
     before = len(requests)

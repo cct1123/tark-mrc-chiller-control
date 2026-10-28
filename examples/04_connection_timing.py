@@ -2,7 +2,8 @@
 
 from time import perf_counter
 
-from tark_chiller.controller import T255P, TarkChiller
+from tark_chiller.controller import TarkChiller
+from tark_chiller.protocols import T255P
 
 # 2. Choose the port and operation options
 PORT = None  # Set the identified serial port, e.g. "COM9".
@@ -32,6 +33,7 @@ chiller = TarkChiller(
 )
 
 print(f"Port: {chiller.settings['port']}; transaction timeout: {chiller.timeout_s:g} s")
+print("connect() includes the U handshake; disconnect() sends no equipment command.")
 assert not chiller.is_connected
 
 connect_ok = disconnect_ok = False
@@ -42,7 +44,7 @@ try:
         connect_ok = True
     finally:
         connect_ms = (perf_counter() - started) * 1000
-        print(f'connect():    {connect_ms:10.3f} ms | success={connect_ok}')
+        print(f"connect():    {connect_ms:10.3f} ms | success={connect_ok}")
     assert chiller.is_connected
 finally:
     started = perf_counter()
@@ -51,7 +53,7 @@ finally:
         disconnect_ok = True
     finally:
         disconnect_ms = (perf_counter() - started) * 1000
-        print(f'disconnect(): {disconnect_ms:10.3f} ms | success={disconnect_ok}')
+        print(f"disconnect(): {disconnect_ms:10.3f} ms | success={disconnect_ok}")
 
 assert not chiller.is_connected
-print('Connection cycle complete; serial port released.')
+print("Connection cycle complete; serial port released.")

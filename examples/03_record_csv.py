@@ -5,7 +5,8 @@ from math import isfinite
 from pathlib import Path
 from time import monotonic, sleep
 
-from tark_chiller.controller import T255P, TarkChiller
+from tark_chiller.controller import TarkChiller
+from tark_chiller.protocols import T255P
 
 # 2. Choose the port and operation options
 PORT = None  # Set the identified serial port, e.g. "COM9".
@@ -70,6 +71,11 @@ with chiller:
         )
     print(f"Samples: {snapshot['sample_count']}; saved rows: {snapshot['logged_samples']}")
     print(f"CSV saved to: {csv_path.resolve()}")
+    if snapshot["history"]:
+        # Read structured fields from memory; no command is sent after recording.
+        latest_status = snapshot["history"][-1]["status"]
+        print(f"Last recorded mode: {latest_status['mode']}")
+        print(f"Last recorded alarms: {latest_status['alarms']}")
 
 # Rows include UTC time, elapsed seconds, Celsius readings, status and errors.
 # Failed measurements are blank. Ending acquisition does not stop equipment.

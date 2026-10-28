@@ -13,8 +13,8 @@ this in its Python interpreter:
 from tark_chiller.simulator import T255PSimulator
 
 with T255PSimulator().chiller(allow_writes=False) as chiller:
-    print(chiller.read_temperature())
-    print(chiller.read_status()["backend"])
+    print(chiller.get_temperature())
+    print(chiller.get_status()["backend"])
 ```
 
 Expected output is `20.0` followed by `simulator`. This uses the production driver
@@ -25,7 +25,7 @@ use real time, so changing the model clock does not shorten a serial read timeou
 Run one focused test from the repository root:
 
 ```sh
-uv run --locked --extra gui pytest -q -p no:cacheprovider tests/test_t255p.py::test_malformed_fields_close_session
+uv run --extra gui pytest -q -p no:cacheprovider tests/test_t255p.py::test_malformed_fields_close_session
 ```
 
 For a first code exercise, add `(b"I", b"+1.60")` to that test's malformed-field
@@ -36,10 +36,11 @@ format, and the test checks that the session closes instead of returning a numbe
 
 | Change | Start here | Tests to read first |
 | --- | --- | --- |
-| Parse a device response or change a command sequence | `controller.py`: `T255P` or `Cal33xx` | `test_t255p.py`, `test_cal.py` |
+| Parse a device response or change a command sequence | `protocols.py`: `T255P` or `Cal33xx` | `test_t255p.py`, `test_cal.py` |
 | Change serial deadlines, connection or recovery | `controller.py`: `TarkChiller` | `test_serial.py`, `test_read_recovery.py` |
 | Change acquisition, history or CSV | `controller.py`: `_poll`, `_record_and_publish_sample`, `_run` | `test_monitor.py` |
-| Change the display or a button | `gui.py` | `test_gui.py` |
+| Change the display or controls layout | `_views.py` | `test_gui_status.py`, `test_gui.py` |
+| Change a button action or dashboard lifecycle | `gui.py` | `test_gui.py` |
 | Model a device state or inject a fault | `simulator.py` | Protocol tests and `test_communication.py` |
 
 Public callers use `TarkChiller`. Its protocol translates an operation into
@@ -47,19 +48,28 @@ commands; its transport sends and validates one frame at a time. The monitor
 calls the same protocol code and publishes history. The GUI reads snapshots;
 refreshing it must never query the serial port or start another worker.
 
-To trace a T255P temperature read:
+To trace a single T255P command, `TarkChiller.get_temperature()` enters
+`_t255p_command()`, holds serial ownership and calls `T255P.get_temperature()`.
+That sends only I through `_t255p_io()`. There is no handshake, alarm query,
+reconnect or retry inside this getter. Other getters and target/sensor setters follow that rule. `set_mode()` owns the state-aware U/(G/U) sequence.
+
+To trace a checked T255P temperature workflow:
 
 1. `TarkChiller.read_temperature()` holds `_io_lock` and calls
    `_read_with_recovery()` with the operation to run.
-2. `_read_temperature()` enters `_device_operation()`, which closes failed I/O
+2. `_call_protocol("read_temperature")` enters `_device_operation()`, which closes failed I/O
    and preserves uncertain writes, then calls `T255P.read_temperature()`.
 3. The protocol reads U/J diagnostics and I temperature through `_t255p_io()`.
 4. `_t255p_io()` enforces quarantine and validates the frame returned by
    `_transfer()`. The latter sends once and collects bytes within its deadline.
 
 CAL uses the same ownership/recovery path, with `Cal33xx` and `_cal_io()` supplying
-its register operations. Explicit protocol methods keep the return type and
-command sequence visible without looking up an operation string in a dispatcher.
+its register operations. `_call_protocol()` selects the protocol's I/O function
+and invokes the named operation. It replaces separate forwarding methods for
+temperature, target, status and verified writes. `collect_status()`,
+`apply_setpoint()` and `set_mode()` are explicitly named workflows.
+`_control_operation()` shares locking,
+cancellation and fault handling for explicit target and mode requests.
 
 The protocol's `io` argument is a function supplied by the controller:
 `_t255p_io` accepts command/data bytes, and `_cal_io` accepts function/address/value
@@ -72,8 +82,9 @@ Calling it runs one complete read attempt; retrying calls it again. A `lambda`
 at a call site supplies arguments to the underlying function without running it
 yet. This is why writes must never be passed to the recovery function.
 
-`_Status`, `_Sample` and `_Snapshot` near the top of `controller.py` describe the
-dictionary fields used across acquisition and the display. They use `TypedDict`
+`_Status` and the device/read-attempt fields live in `protocols.py`;
+`_Sample` and `_Snapshot` live in `controller.py`. They describe the
+dictionary fields used across acquisition and the display, using `TypedDict`
 for editor/type-checker assistance; values remain ordinary dictionaries. Wire
 validation still happens in the protocol and transport. When adding a sample
 field, update its schema, `_poll()`, the consumer that needs it, and relevant
@@ -81,10 +92,13 @@ tests. CSV columns are an explicit contract in `start_monitoring()` and
 `_record_and_publish_sample()`; adding a display field does not automatically
 change the CSV.
 
-In `gui.py`, `render_status()` builds status cards and `render_history()` builds
-the graph. `render_snapshot()` returns both for initial layout and refresh.
-Session actions request status alone, so they do not construct a discarded graph.
-`_build_controls()` contains the controls markup. `create_app()` validates options,
+In `_views.py`, `render_status()` returns the session panel, bottom equipment panel
+and available mode action from one snapshot; `render_history()` builds the graph.
+Initial layout and refresh call these functions directly. Session actions render
+the status panels and mode action without constructing a discarded graph.
+`_build_controls()` returns the top-right connection buttons, monitoring controls
+inside the figure panel, and the mode/target cards below it. In `gui.py`,
+`create_app()` validates options,
 builds the app and registers callbacks. The session callback passes the triggering
 button ID to `perform_session_action()` explicitly; that helper returns a message
 and `disable_refresh`, which refers to browser refresh, not equipment or monitor
@@ -96,27 +110,29 @@ actions can provide immediate feedback; their duplicate outputs are intentional.
 - Construction opens no port. T255P connection sends U and can start AUTO START.
 - Keep one device owner and one serial transaction at a time.
 - Validate framing, checksums, echoes and device errors before accepting data.
-- Retry only eligible reads. Never retry a write: a lost reply can hide an
+- Retry only eligible checked-read workflows. Single-command getters never retry.
+  Never retry a write: a lost reply can hide an
   applied target or mode change. An uncertain-write latch stays set in the existing
   controller object, even after inspection or reconnect. Follow the protocol's
   [hardware recovery procedure](hardware.md) before creating a fresh read-only
   session; a new object never authorizes replaying an uncertain write.
-- Preserve the T255P incomplete-response quarantine, CAL frame gaps and fresh
-  write preflight/readback. Never reuse a poll's cached replies for a write.
+- Preserve the T255P incomplete-response quarantine and CAL frame gaps.
+  Verified write workflows own preflight/readback; command setters own only their
+  acknowledgement. Never reuse poll readings for workflow verification.
 - Configure serial timeouts before opening; live timeout changes disturbed the
   retained Windows bench setup.
 - Monitoring stop ends acquisition. Disconnect releases software resources.
   Neither commands equipment standby. T255P standby is a separate explicit write.
 - If closing a resource fails, keep ownership so cleanup can be retried.
 
-`chiller.running` means the monitoring thread is alive; `chiller.run()` requests
+`chiller.running` means the monitoring thread is alive; `chiller.set_mode("RUN")` requests
 equipment RUN. Monitoring can be stopped while equipment remains in RUN, or can
 continue while equipment is in STANDBY.
 
-Example 05 is an advanced direct-serial diagnostic. It deliberately retains its
-U/J/G/U exchange and explicit cleanup. Replacing it with a controller context and
-`run()`/`standby()` would add a connection U exchange, so do not treat that as a
-mechanical readability refactor.
+Example 05 uses an explicit serial transport. Its initial U/J diagnostics are
+followed by `set_mode()`, which performs its own U check and conditional G/U
+verification. Controller context entry supplies a startup U as well; compare
+traces by individual exchanges rather than assuming identical query counts.
 
 ## Readings from a failed attempt
 

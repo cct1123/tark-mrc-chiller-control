@@ -10,7 +10,8 @@ from time import sleep
 
 import pytest
 
-from tark_chiller.controller import Cal33xx, ProtocolError, TarkChiller, _rtu
+from tark_chiller.controller import TarkChiller
+from tark_chiller.protocols import Cal33xx, ProtocolError, _rtu
 from tark_chiller.simulator import CalSimulator
 
 
@@ -57,9 +58,9 @@ def test_identification_reads_only_and_five_write_sequence():
         assert words(requests, 3) == [(0x04FC, 1), (0x04FD, 1), (0x0198, 1), (0x0199, 1)]
         assert not words(requests, 6)
         assert c.read_setpoint() == 10
-        assert c.read_status()["backend"] == "simulator"
+        assert c.collect_status()["backend"] == "simulator"
         requests.clear()
-        c.set_setpoint(18.5)
+        c.apply_setpoint(18.5)
         assert c.read_setpoint() == 18.5
         assert words(requests, 6) == [
             (0x0300, 5),
@@ -130,7 +131,7 @@ def test_read_only_opt_in_blocks_every_write():
     c, endpoint, requests = setup(writable=False)
     with c:
         with pytest.raises(ProtocolError, match="writes disabled"):
-            c.set_setpoint(18)
+            c.apply_setpoint(18)
     assert not words(requests, 6)
 
 
@@ -140,7 +141,7 @@ def test_public_guard_precedes_any_cal_io(value):
     with c:
         requests.clear()
         with pytest.raises(ValueError):
-            c.set_setpoint(value)
+            c.apply_setpoint(value)
         assert requests == []
 
 
@@ -164,7 +165,7 @@ def test_preflight_refuses_unsafe_or_unsupported_state(register, value):
     with c:
         endpoint.registers[register] = value
         with pytest.raises(ProtocolError):
-            c.set_setpoint(18)
+            c.apply_setpoint(18)
     assert not words(requests, 6)
 
 
@@ -183,10 +184,10 @@ def test_panel_lock_and_resolution(locked, high_resolution, target, succeeds):
     endpoint.coils.update({0x28: locked, 0x2A: high_resolution})
     with c:
         if succeeds:
-            c.set_setpoint(target)
+            c.apply_setpoint(target)
         else:
             with pytest.raises(ProtocolError):
-                c.set_setpoint(target)
+                c.apply_setpoint(target)
             assert not words(requests, 6)
 
 
@@ -211,7 +212,7 @@ def test_each_uncertain_write_stage_stops_without_cleanup_commit_or_retry(stage,
 
     endpoint._respond = respond
     with pytest.raises(KeyboardInterrupt if fault == "interrupt" else ProtocolError):
-        c.set_setpoint(18)
+        c.apply_setpoint(18)
     assert len(words(requests, 6)) == stage
     assert endpoint.applied_writes == (stage == 5)
     assert not endpoint.is_open
@@ -253,7 +254,7 @@ def test_front_panel_busy_exception_has_no_setpoint_or_exit():
     with c:
         endpoint.front_panel_busy = True
         with pytest.raises(ProtocolError, match="exception 6"):
-            c.set_setpoint(18)
+            c.apply_setpoint(18)
     assert words(requests, 6) == [(0x0300, 5), (0x1500, 0)]
 
 
@@ -270,7 +271,7 @@ def test_post_lock_changes_are_rechecked_before_staging():
 
         endpoint._respond = respond
         with pytest.raises(ProtocolError, match="uncertain"):
-            c.set_setpoint(18)
+            c.apply_setpoint(18)
     assert words(requests, 6) == [(0x0300, 5), (0x1500, 0)]
 
 
@@ -304,7 +305,7 @@ def test_protocol_simulator_monitor_csv_and_gui(tmp_path):
 
     c, _, _ = setup()
     with c:
-        c.set_setpoint(18)
+        c.apply_setpoint(18)
         c.start_monitoring(interval_s=0.05, csv_path=tmp_path / "cal.csv")
         sleep(0.5)
         app = create_app(c)
@@ -329,7 +330,7 @@ def test_post_commit_readback_failure_is_uncertain_without_replay(failure):
 
         endpoint._respond = respond
         with pytest.raises(ProtocolError, match="uncertain"):
-            c.set_setpoint(18)
+            c.apply_setpoint(18)
     assert endpoint.applied_writes == 1 and len(words(requests, 6)) == 5
 
 
@@ -337,7 +338,7 @@ def test_fail_display_invalidates_measurement_but_status_is_diagnostic():
     c, endpoint, _ = setup()
     with c:
         endpoint.registers[0x0306] = 0x26
-        assert "INPT FAIL" in c.read_status()["detail"]
+        assert "INPT FAIL" in c.collect_status()["detail"]
         with pytest.raises(ProtocolError, match="reports FAIL"):
             c.read_temperature()
 
@@ -347,4 +348,4 @@ def test_documented_firmware_codes_are_accepted_read_only(firmware):
     s = CalSimulator()
     s.registers[0x04FD] = firmware
     with TarkChiller(s.chiller().settings, protocol=Cal33xx(1), serial_factory=s.factory) as c:
-        assert f"firmware=0x{firmware:04x}" in c.read_status()["detail"]
+        assert f"firmware=0x{firmware:04x}" in c.collect_status()["detail"]

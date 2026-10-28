@@ -8,7 +8,8 @@ from time import perf_counter
 import pytest
 from fakes import FakeSerial, fake_settings, make_serial
 
-from tark_chiller.controller import Cal33xx, ProtocolError, TarkChiller, _rtu
+from tark_chiller.controller import TarkChiller
+from tark_chiller.protocols import Cal33xx, ProtocolError, _rtu
 
 
 @pytest.mark.parametrize("protocol", [None, object()])
@@ -49,9 +50,9 @@ def test_common_api_uses_explicit_settings_and_no_startup_actuation(rs485):
         else:
             assert endpoint.rs485_mode is None
         assert chiller.read_temperature() == chiller.read_setpoint() == 20
-        chiller.set_setpoint(18)
+        chiller.apply_setpoint(18)
         assert chiller.read_setpoint() == 18
-        assert chiller.read_status()["backend"] == "simulator"
+        assert chiller.collect_status()["backend"] == "simulator"
         assert endpoint.applied_writes == 1
     chiller.disconnect()
     assert not endpoint.is_open and endpoint.close_count == 1
@@ -61,7 +62,7 @@ def test_common_api_uses_explicit_settings_and_no_startup_actuation(rs485):
 def test_public_guard_rejects_before_endpoint_access(value):
     chiller, endpoint = make_serial()
     with pytest.raises(ValueError):
-        chiller.set_setpoint(value)
+        chiller.apply_setpoint(value)
     assert not endpoint.factory_arguments and not endpoint.write_count
 
 
@@ -228,7 +229,7 @@ def test_io_failure_closes_endpoint_and_never_retries_write(kind):
 
             endpoint.write_error = SerialTimeoutException("fake write timeout")
         with pytest.raises(TimeoutError if kind == "pyserial_timeout" else OSError):
-            chiller.set_setpoint(18)
+            chiller.apply_setpoint(18)
         assert endpoint.write_count == baseline + 1 and endpoint.open_count == 1
         assert not endpoint.is_open and not endpoint.applied_writes
 
@@ -244,7 +245,7 @@ def test_lost_write_acknowledgement_is_latched_and_never_replayed(monkeypatch):
     monkeypatch.setattr(endpoint, "_respond", lost_ack)
     with chiller as chiller:
         with pytest.raises(ProtocolError, match="uncertain"):
-            chiller.set_setpoint(18)
+            chiller.apply_setpoint(18)
         before = endpoint.write_count
         assert endpoint.applied_writes == 1 and not endpoint.is_open
         with pytest.raises(ProtocolError, match="uncertain"):
@@ -382,7 +383,7 @@ def test_interruption_closes_endpoint_and_preserves_exception(stage, interruptio
     try:
         with pytest.raises(interruption, match="fake interruption"):
             chiller.connect()
-            chiller.set_setpoint(18) if stage == "write" else chiller.read_temperature()
+            chiller.apply_setpoint(18) if stage == "write" else chiller.read_temperature()
         assert not endpoint.is_open and endpoint.open_count == 1
         assert endpoint.applied_writes == (1 if stage == "write" else 0)
     finally:
@@ -477,7 +478,7 @@ def test_rs485_dictionary_schema_rejects_before_factory(mode):
 def test_controller_constructs_and_owns_pyserial_directly(model, monkeypatch):
     import serial
 
-    from tark_chiller.controller import T255P
+    from tark_chiller.protocols import T255P
     from tark_chiller.simulator import CalSimulator, T255PSimulator
 
     endpoint = CalSimulator(clock=lambda: 0) if model == "cal" else T255PSimulator(clock=lambda: 0)

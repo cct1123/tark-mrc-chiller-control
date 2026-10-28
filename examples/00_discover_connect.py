@@ -2,7 +2,8 @@
 
 from serial.tools import list_ports
 
-from tark_chiller.controller import T255P, TarkChiller
+from tark_chiller.controller import TarkChiller
+from tark_chiller.protocols import T255P
 
 # Discover serial adapters without probing
 ports = sorted(list_ports.comports(), key=lambda port: port.device)
@@ -43,4 +44,5 @@ chiller = TarkChiller(
 print(f"Connecting to configured port: {chiller.settings['port']}")
 with chiller:
     print(f"Connected: {chiller.is_connected}")
+    print("Session established with U. is_connected reads software state only.")
 print(f"Connected after cleanup: {chiller.is_connected}")

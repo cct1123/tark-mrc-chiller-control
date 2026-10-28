@@ -80,8 +80,9 @@ from its first cell, entering the verified settings independently in each one.
   samples, increasing timestamps/elapsed time, unchanged target and blank error
   fields. The operation cell must finish without poll, logging or cleanup errors.
   Do not require exactly ten rows; serial query time affects the count.
-- [ ] **Optional dashboard:** run `python examples/06_dashboard.py` from a terminal
-  with the GUI extra installed. Open `http://127.0.0.1:8056`.
+- [ ] **Optional dashboard:** run `python examples/07_dashboard.py` from a terminal
+  with the GUI extra installed. Open the printed URL (`http://127.0.0.1:8006`
+  with the script's current `PORT_HTTP` setting).
   Press **Connect**, then **Start monitoring**; expect fresh readings and no
   reported faults. Use **Shutdown GUI** or Ctrl+C in that terminal and wait for cleanup
   before continuing. Target and mode controls are enabled; leave Apply, RUN and STANDBY untouched during
@@ -89,14 +90,14 @@ from its first cell, entering the verified settings independently in each one.
 
 ### One setpoint change
 
-- [ ] Proceed only after the read-only checks pass and the panel reports RUN
-  with no active alarms. In [`02_set_temperature.ipynb`](../examples/02_set_temperature.ipynb),
+- [ ] Review the read-only checks and reported alarms. Target changes are allowed
+  in standby and do not clear physical alarms. In [`02_set_temperature.ipynb`](../examples/02_set_temperature.ipynb),
   set `TARGET_C` to the approved target, different from the original target,
   within both your setup's limits and 5–45 °C, in 0.1 °C steps.
-- [ ] Run the cells in [`02_set_temperature.ipynb`](../examples/02_set_temperature.ipynb). Check the printed
-  existing target and requested value before pressing Enter once. Ctrl+C before
-  Enter cancels the target request. Expect the printed reported setpoint to
-  equal `TARGET_C`, a readback-match message, the same target on the panel and
+- [ ] Check `TARGET_C` before running the operation cell in
+  [`02_set_temperature.ipynb`](../examples/02_set_temperature.ipynb); it applies the
+  configured target without another prompt. Expect the printed reported setpoint to
+  equal `TARGET_C`, a verification message, the same target on the panel and
   a clean exit. The driver sends one M target command and verifies its echo and
   H0 readback; this notebook does not save a wire trace.
 - [ ] Run `03_record_csv.ipynb` again to create a separate post-change CSV. Set
@@ -126,8 +127,8 @@ failure. For an uncertain write, inspect the actual panel/target; do not rerun
 The manual calls for valid traffic every five seconds and returns to local control
 after more than ten seconds without it. Normal one-second monitoring supplies
 traffic, without a timing guarantee or separate keepalive worker. Idle synchronous
-use or stopping the monitor can relinquish control; the next operation sends U
-again. A running unit continues running after communication is lost.
+use or stopping the monitor can relinquish control. Checked workflows send U
+again; single-command callers must explicitly renew with `get_status()`. A running unit continues running after communication is lost.
 
 For an uncertain target or mode write, inspect the panel, target, mode and coolant state.
 Wait at least the 3 s response interval before a fresh read-only session; a new
@@ -203,13 +204,16 @@ software tests; memory endpoints cover those error paths.
 
 ## Hardware tutorials
 
-The [seven script examples and six notebooks](../examples/README.md) show serial-port discovery,
+The [eight script examples and seven notebooks](../examples/README.md) show serial-port discovery,
 read/status, one target change, CSV recording, connection timing, RUN/STANDBY and
 a dashboard with target and mode controls. Each script and notebook spells out its
 T255P connection directly; review its `PORT` before running either format.
 For notebooks, run cells in order.
-Tutorial 02 enables a confirmed target write; example 05 confirms one mode change.
-Dashboard script 06 enables explicit target and mode requests. For CAL hardware, use the explicit
+Tutorial 02 applies the configured target without another prompt; review
+`TARGET_C` before running its operation cell. Example 05 prompts for the exact
+requested mode before opening the port and skips G if that mode is already satisfied.
+Example 06 monitors status and temperature without CSV recording. Dashboard
+script 07 enables explicit target and mode requests. For CAL hardware, use the explicit
 [CAL API setup](api.md) with the actual address and expected identity codes.
 These tutorials use the installed package's real serial path without a simulator
 fallback. Controller contexts close software resources; equipment shutdown

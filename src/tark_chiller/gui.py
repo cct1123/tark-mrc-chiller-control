@@ -3,317 +3,15 @@
 from collections.abc import Callable
 from pathlib import Path
 from threading import Event, Lock, Thread
-from time import monotonic
+from typing import Literal
 
 import dash_bootstrap_components as dbc
 import plotly.graph_objects as go
 from dash import Dash, Input, Output, State, ctx, dcc, html
 from werkzeug.serving import make_server
 
-from .controller import ProtocolError, TarkChiller, _Sample, _seconds, _Snapshot
-
-
-def _reading(label: str, value: float | None, caption: str, color: str) -> dbc.Card:
-    return dbc.Card(
-        [
-            html.H2(label, className="metric-label"),
-            html.Div(
-                ["—" if value is None else f"{value:.2f}", html.Span("°C")],
-                className=f"metric-value {color}",
-            ),
-            html.P(caption, className="metric-caption"),
-        ],
-        body=True,
-    )
-
-
-def render_status(snapshot: _Snapshot, *, stale_after_s: float = 3.0) -> html.Div:
-    """Build status cards from a snapshot; never query hardware or build a graph."""
-    history = snapshot["history"]
-    latest = history[-1] if history else None
-    age = None
-    if latest:
-        completed_at = latest.get("completed_monotonic", latest["sampled_monotonic"])
-        age = max(0.0, monotonic() - completed_at)
-    stopped = not snapshot["running"]
-    recovery = ""
-    if not stopped and not snapshot["service_error"]:
-        recovery = snapshot.get("recovery_error", "")
-    stale = age is not None and age > stale_after_s
-
-    if stopped:
-        state = "Monitoring stopped"
-    elif snapshot["service_error"]:
-        state = "Monitoring fault"
-    elif recovery or (latest and latest["error"]):
-        state = "Recovering"
-    elif stale:
-        state = "Waiting for device" if snapshot.get("poll_in_progress") else "Stale"
-    else:
-        state = "Monitoring"
-    live = bool(latest and latest["status"]["connected"] and state == "Monitoring")
-    caption = f"Last poll completed {age:.1f} s ago" if age is not None else "Waiting for a reading"
-    if latest and not live:
-        caption += " · No fresh reading"
-        if latest["error"] and latest["temperature_c"] is not None:
-            caption += f" · Last validated temperature {latest['temperature_c']:.2f} °C"
-
-    issues = [snapshot["service_error"], snapshot["logging_error"]]
-    if latest and latest["error"] not in snapshot["service_error"]:
-        issues.append(latest["error"])
-    issues = list(dict.fromkeys(issue for issue in issues if issue))
-    if snapshot["logging_error"]:
-        recording = "Failed"
-    elif snapshot["logging_enabled"]:
-        recording = "Enabled"
-    else:
-        recording = "Off"
-    if not latest:
-        connection = "Waiting for the first sample"
-    elif latest["status"]["connected"]:
-        connection = "Last poll: Connected"
-    else:
-        connection = "Last poll: Unavailable"
-    session = dbc.Card(
-        [
-            html.H2("Session status", className="metric-label"),
-            html.Div(
-                [
-                    dbc.Badge(
-                        latest["status"]["backend"] if latest else "No sample",
-                        color="light",
-                        text_color="dark",
-                    ),
-                    dbc.Badge(state, color="success" if live else "warning", text_color="dark"),
-                ],
-                className="status-badges",
-            ),
-            html.P(connection, className="connection-status"),
-            html.P(
-                f"CSV {recording} · Rows written {snapshot['logged_samples']:,}",
-                className="recording-status",
-            ),
-        ],
-        body=True,
-    )
-    alerts = [dbc.Alert(issue, color="danger", className="fault-message") for issue in issues]
-    if recovery:
-        alerts.insert(0, dbc.Alert(f"Recovering communication: {recovery}", color="warning"))
-    status = html.Div(
-        [
-            html.Div(
-                [
-                    _reading(
-                        "Temperature",
-                        latest["temperature_c"] if latest and live else None,
-                        caption,
-                        "temperature-color",
-                    ),
-                    _reading(
-                        "Reported setpoint",
-                        latest["setpoint_c"] if latest and live else None,
-                        "Device readback" if live else "Waiting for fresh readback",
-                        "setpoint-color",
-                    ),
-                    session,
-                ],
-                className="reading-grid",
-            ),
-            html.Div(
-                [
-                    html.Span(
-                        f"Samples {snapshot['sample_count']:,} · Failed polls {snapshot['failed_samples']:,}"
-                    ),
-                    html.Span("Software fault" if issues else "No reported software fault"),
-                ],
-                className="session-summary",
-            ),
-            html.P(latest["status"]["detail"] if latest else "", className="panel-caption"),
-            *alerts,
-        ]
-    )
-    return status
-
-
-def render_history(history: list[_Sample]) -> go.Figure:
-    """Plot sequential readings; missing values remain gaps in each trace."""
-    timestamps = [sample["timestamp_utc"] for sample in history]
-    figure = go.Figure(
-        [
-            go.Scatter(
-                x=timestamps,
-                y=[sample["temperature_c"] for sample in history],
-                name="Temperature",
-                mode="lines",
-                connectgaps=False,
-                line={"color": "#087f8c", "width": 3},
-            ),
-            go.Scatter(
-                x=timestamps,
-                y=[sample["setpoint_c"] for sample in history],
-                name="Setpoint",
-                mode="lines",
-                connectgaps=False,
-                line={"color": "#b76b18", "width": 2, "dash": "dash"},
-            ),
-        ]
-    )
-    figure.update_traces(hovertemplate="%{y:.2f} °C")
-    figure.update_layout(
-        template="plotly_white",
-        xaxis_title="Time (UTC)",
-        yaxis_title="Temperature (°C)",
-        margin={"l": 55, "r": 20, "t": 45, "b": 55},
-        uirevision="history",
-        hovermode="x unified",
-        legend={"orientation": "h", "y": 1.16, "x": 0},
-        height=410,
-        font={"family": "Segoe UI, sans-serif", "color": "#304b58"},
-    )
-    return figure
-
-
-def render_snapshot(
-    snapshot: _Snapshot, *, stale_after_s: float = 3.0
-) -> tuple[html.Div, go.Figure]:
-    """Build both display parts; session actions can request status cards alone."""
-    return render_status(snapshot, stale_after_s=stale_after_s), render_history(snapshot["history"])
-
-
-def _build_controls(
-    chiller: TarkChiller,
-    *,
-    modes_enabled: bool,
-    allow_setpoints: bool,
-    interval_s: float,
-    csv_path: str | Path | None,
-    on_shutdown: Callable[[], None] | None,
-) -> dbc.Card:
-    """Build controls from current settings; callbacks enforce each action's policy."""
-    low, high = chiller.setpoint_range
-    return dbc.Card(
-        [
-            html.H2("Session controls", className="panel-heading"),
-            html.P(f"Port: {chiller.settings['port']}", className="panel-caption"),
-            html.Div(
-                [
-                    dbc.Button("Connect", id="connect-device", n_clicks=0, color="primary"),
-                    dbc.Button(
-                        "Stop monitoring" if chiller.running else "Start monitoring",
-                        id="toggle-monitoring",
-                        n_clicks=0,
-                        color="primary",
-                    ),
-                    dbc.Button(
-                        "Shutdown GUI",
-                        id="shutdown-gui",
-                        n_clicks=0,
-                        color="danger",
-                        outline=True,
-                        disabled=on_shutdown is None,
-                    ),
-                ],
-                className="session-buttons",
-            ),
-            dbc.Label("Poll interval (s)", html_for="monitor-interval", className="mt-3"),
-            dbc.Input(id="monitor-interval", type="number", min=0.01, step="any", value=interval_s),
-            dbc.Label(
-                "CSV path (optional; use a new path for each run)",
-                html_for="monitor-csv",
-                className="mt-3",
-            ),
-            dbc.Input(
-                id="monitor-csv",
-                type="text",
-                value=str(csv_path) if csv_path else "",
-                placeholder="Leave blank for no recording",
-            ),
-            html.Div(
-                "Connect, then start monitoring. Reloading this page does not connect.",
-                id="session-result",
-                role="status",
-                className="action-result",
-            ),
-            html.P(
-                "Connect takes serial control and may trigger T255P AUTO START. "
-                "Shutdown stops monitoring and releases the port; the chiller/pump may keep running.",
-                className="panel-caption mt-3",
-            ),
-            html.P(
-                "" if on_shutdown else "Embedded host: stop the GUI from its calling program.",
-                className="panel-caption",
-            ),
-            html.Hr(),
-            html.H2("Pump and temperature control", className="panel-heading"),
-            html.Div(
-                [
-                    dbc.Button(
-                        "RUN",
-                        id="run-device",
-                        n_clicks=0,
-                        color="primary",
-                        disabled=not modes_enabled,
-                    ),
-                    dbc.Button(
-                        "STANDBY",
-                        id="standby-device",
-                        n_clicks=0,
-                        color="secondary",
-                        outline=True,
-                        disabled=not modes_enabled,
-                    ),
-                ],
-                className="session-buttons",
-            ),
-            html.P(
-                "RUN starts circulation and temperature regulation at the existing target. "
-                "STANDBY stops both; monitoring continues.",
-                className="panel-caption mt-3",
-            ),
-            html.P(
-                "" if modes_enabled else "Mode changes disabled; T255P write access is required.",
-                className="panel-caption",
-            ),
-            html.Div(id="mode-result", role="status", className="action-result"),
-            html.Hr(),
-            html.H2("Set temperature", className="panel-heading"),
-            html.P(f"{chiller.coolant} · {low:g}–{high:g} °C", className="coolant-profile"),
-            dbc.Label("Requested temperature (°C)", html_for="setpoint-input"),
-            dbc.InputGroup(
-                [
-                    dbc.Input(
-                        id="setpoint-input",
-                        type="number",
-                        min=low,
-                        max=high,
-                        step=0.1,
-                        placeholder="Enter a setpoint",
-                    ),
-                    dbc.InputGroupText("°C"),
-                ]
-            ),
-            dbc.Button(
-                "Apply setpoint",
-                id="apply-setpoint",
-                n_clicks=0,
-                color="primary",
-                className="w-100 mt-3",
-                disabled=not allow_setpoints,
-            ),
-            html.P(
-                "" if allow_setpoints else "Read-only session; target changes disabled.",
-                className="panel-caption",
-            ),
-            html.Div(id="setpoint-result", role="status", className="action-result"),
-            html.P(
-                "Every request is checked against the coolant limits. Readback appears above.",
-                className="panel-caption mt-3",
-            ),
-            html.Hr(),
-            html.P("Closing this page does not stop monitoring.", className="panel-caption"),
-        ],
-        body=True,
-    )
+from . import _views, protocols
+from .controller import TarkChiller, _seconds
 
 
 def create_app(
@@ -349,17 +47,20 @@ def create_app(
     app.title = "Chiller · Temperature monitor"
     action_lock = Lock()
     shut_down = Event()
-    controls = _build_controls(
-        chiller,
-        modes_enabled=modes_enabled,
-        allow_setpoints=allow_setpoints,
-        interval_s=interval_s,
-        csv_path=csv_path,
-        on_shutdown=on_shutdown,
-    )
 
     def layout() -> dbc.Container:
-        status, figure = render_snapshot(chiller.snapshot(), stale_after_s=stale_after_s)
+        snapshot = chiller.snapshot()
+        status, equipment, mode = _views.render_status(snapshot, stale_after_s=stale_after_s)
+        header_actions, monitoring, controls = _views._build_controls(
+            chiller,
+            modes_enabled=modes_enabled,
+            mode_action=mode,
+            allow_setpoints=allow_setpoints,
+            interval_s=interval_s,
+            csv_path=csv_path,
+            on_shutdown=on_shutdown,
+        )
+        figure = _views.render_history(snapshot["history"])
         header = html.Header(
             [
                 html.Div(
@@ -369,7 +70,7 @@ def create_app(
                         html.P("Local laboratory session · Celsius · UTC", className="subtitle"),
                     ]
                 ),
-                html.Span("LAB CONTROL", className="instrument-mark"),
+                header_actions,
             ],
             className="page-header",
         )
@@ -380,6 +81,7 @@ def create_app(
                     "Drag to zoom. Double-click to reset. Gaps mark unavailable readings.",
                     className="panel-caption",
                 ),
+                monitoring,
                 dcc.Graph(
                     id="temperature-history",
                     figure=figure,
@@ -393,7 +95,9 @@ def create_app(
             [
                 header,
                 html.Div(status, id="live-status", role="status"),
-                html.Div([chart, controls], className="instrument-panels"),
+                chart,
+                controls,
+                html.Div(equipment, id="equipment-panel", role="status"),
                 html.Footer(
                     "Physical flow/leak telemetry unavailable; verify coolant and setup independently. "
                     "Reported controller/alarm flags are diagnostic only. "
@@ -412,12 +116,23 @@ def create_app(
         Output("live-status", "children"),
         Output("temperature-history", "figure"),
         Output("toggle-monitoring", "children"),
+        Output("equipment-panel", "children"),
+        Output("toggle-mode", "children"),
+        Output("toggle-mode", "disabled"),
         Input("refresh", "n_intervals"),
     )
-    def refresh(_ticks: int) -> tuple[html.Div, go.Figure, str]:
+    def refresh(_ticks: int) -> tuple[html.Div, go.Figure, str, html.Div, str, bool]:
         snapshot = chiller.snapshot()
-        status, figure = render_snapshot(snapshot, stale_after_s=stale_after_s)
-        return status, figure, "Stop monitoring" if snapshot["running"] else "Start monitoring"
+        status, equipment, mode = _views.render_status(snapshot, stale_after_s=stale_after_s)
+        figure = _views.render_history(snapshot["history"])
+        return (
+            status,
+            figure,
+            "Stop monitoring" if snapshot["running"] else "Start monitoring",
+            equipment,
+            mode or "Mode unavailable",
+            not modes_enabled or mode is None,
+        )
 
     @app.callback(
         Output("setpoint-result", "children"),
@@ -433,20 +148,20 @@ def create_app(
         try:
             if shut_down.is_set():
                 return "Rejected: dashboard has shut down."
-            chiller.set_setpoint(value)
-        except (ValueError, OSError, ProtocolError) as exc:
+            chiller.apply_setpoint(value)
+        except (ValueError, OSError, protocols.ProtocolError) as exc:
             return f"Rejected / failed: {exc}"
         finally:
             action_lock.release()
-        return "Setpoint request completed; monitor readback will show the reported value."
+        return ""
 
     @app.callback(
         Output("mode-result", "children"),
-        Input("run-device", "n_clicks"),
-        Input("standby-device", "n_clicks"),
+        Input("toggle-mode", "n_clicks"),
+        State("toggle-mode", "children"),
         prevent_initial_call=True,
     )
-    def apply_mode(_run: int, _standby: int) -> str:
+    def apply_mode(_clicks: int, mode: Literal["RUN", "STANDBY"]) -> str:
         if not modes_enabled:
             return "Rejected: mode changes disabled or protocol unsupported."
         if not action_lock.acquire(blocking=False):
@@ -454,19 +169,14 @@ def create_app(
         try:
             if shut_down.is_set():
                 return "Rejected: dashboard has shut down."
-            if ctx.triggered_id == "run-device":
-                chiller.run()
-                mode = "RUN"
-            elif ctx.triggered_id == "standby-device":
-                chiller.standby()
-                mode = "STANDBY"
-            else:
-                return "Choose RUN or STANDBY."
-        except (ValueError, OSError, ProtocolError) as exc:
+            if mode not in ("RUN", "STANDBY"):
+                return "Mode unavailable; wait for fresh monitoring readings."
+            chiller.set_mode(mode)
+        except (ValueError, OSError, protocols.ProtocolError) as exc:
             return f"Rejected / failed: {exc}"
         finally:
             action_lock.release()
-        return f"{mode} verified by controller readback. Check physical flow and panel separately."
+        return ""
 
     # Timer refresh and session actions both update status/button labels.
     # Actions give immediate feedback; allow_duplicate declares the two writers.
@@ -475,6 +185,9 @@ def create_app(
         Output("refresh", "disabled"),
         Output("live-status", "children", allow_duplicate=True),
         Output("toggle-monitoring", "children", allow_duplicate=True),
+        Output("equipment-panel", "children", allow_duplicate=True),
+        Output("toggle-mode", "children", allow_duplicate=True),
+        Output("toggle-mode", "disabled", allow_duplicate=True),
         Input("connect-device", "n_clicks"),
         Input("toggle-monitoring", "n_clicks"),
         Input("shutdown-gui", "n_clicks"),
@@ -488,15 +201,18 @@ def create_app(
         _shutdown: int,
         interval: object,
         path: str | None,
-    ) -> tuple[str, bool, html.Div, str]:
+    ) -> tuple[str, bool, html.Div, str, html.Div, str, bool]:
         message, disable_refresh = perform_session_action(ctx.triggered_id, interval, path)
         snapshot = chiller.snapshot()
-        status = render_status(snapshot, stale_after_s=stale_after_s)
+        status, equipment, mode = _views.render_status(snapshot, stale_after_s=stale_after_s)
         return (
             message,
             disable_refresh,
             status,
             "Stop monitoring" if snapshot["running"] else "Start monitoring",
+            equipment,
+            mode or "Mode unavailable",
+            not modes_enabled or mode is None,
         )
 
     def perform_session_action(
@@ -537,7 +253,7 @@ def create_app(
                     True,
                 )
             return "Choose a session action.", False
-        except (ValueError, OSError, ProtocolError, RuntimeError) as exc:
+        except (ValueError, OSError, protocols.ProtocolError, RuntimeError) as exc:
             return f"Action failed: {exc}", False
         finally:
             action_lock.release()

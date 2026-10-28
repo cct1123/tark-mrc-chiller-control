@@ -4,7 +4,8 @@ from collections import deque
 from threading import Event
 from time import sleep
 
-from tark_chiller.controller import Cal33xx, TarkChiller
+from tark_chiller.controller import TarkChiller
+from tark_chiller.protocols import Cal33xx
 from tark_chiller.simulator import CalSimulator, _ThermalModel
 
 
@@ -128,8 +129,17 @@ class FakeChiller(TarkChiller):
     def _write_setpoint(self, value):
         self._model._write_setpoint(value)
 
-    def _read_status(self):
-        return self._model._read_status()
+    def _collect_status(self):
+        return {
+            "connected": self._model.is_connected,
+            "backend": "simulator",
+            "detail": "Simulation; no physical safety telemetry",
+        }
 
     def _read_sample(self):
-        return self._read_status(), self._read_temperature(), self._read_setpoint()
+        return self._collect_status(), self._read_temperature(), self._read_setpoint()
+
+    def _call_protocol(self, operation, *args):
+        # Preserve the scheduling/fault seams without depending on production wrappers.
+        method = "_write_setpoint" if operation == "apply_setpoint" else "_" + operation
+        return getattr(self, method)(*args)

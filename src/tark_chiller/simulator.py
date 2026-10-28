@@ -13,17 +13,8 @@ from time import monotonic, sleep
 from types import FrameType
 from typing import Any
 
-from .controller import (
-    T255P,
-    Cal33xx,
-    ProtocolError,
-    TarkChiller,
-    _finite,
-    _rtu,
-    _seconds,
-    _t255p_frame,
-    _t255p_payload,
-)
+from .controller import TarkChiller, _seconds
+from .protocols import T255P, Cal33xx, ProtocolError, _finite, _rtu, _t255p_frame, _t255p_payload
 
 
 class _ThermalModel:
@@ -85,13 +76,6 @@ class _ThermalModel:
     def _write_setpoint(self, value: float) -> None:
         self._advance()
         self._setpoint = value
-
-    def _read_status(self) -> dict[str, Any]:
-        return {
-            "connected": self._connected,
-            "backend": "simulator",
-            "detail": "Simulation; no physical safety telemetry",
-        }
 
 
 class CalSimulator:
@@ -254,6 +238,7 @@ class T255PSimulator:
         self.alarms = "000000"  # float, high, low, sensor, EEPROM, watchdog
         self.dryer_on = False  # Synthetic choice, not an installed-unit assertion.
         self.max_power = 100  # Synthetic read-only field, not a power calibration.
+        self.sensor_mode = "INTERNAL"  # Selection only; no external thermal model.
         self.applied_writes = 0
         self._remote = False
         self._last_valid = self._updated
@@ -382,7 +367,7 @@ class T255PSimulator:
         except ProtocolError:
             return reply(error=b"1")
         command, data = payload[:1], payload[1:]
-        if command not in (b"U", b"G", b"H", b"I", b"J", b"M"):
+        if command not in (b"U", b"G", b"H", b"I", b"J", b"M", b"O"):
             return reply(error=b"2")
         if not self._remote and command != b"U":
             return b""  # U is required to establish/re-establish a serial session.
@@ -413,6 +398,11 @@ class T255PSimulator:
             response = f"{round(self._model._read_temperature() * 100):+05d}".encode("ascii")
         elif command == b"J":
             response = self.alarms.encode("ascii")
+        elif command == b"O":
+            if data not in (b"0", b"1"):
+                return reply(error=b"3")
+            self.sensor_mode = "INTERNAL" if data == b"0" else "EXTERNAL"
+            response = data
         else:
             try:
                 target = T255P._signed(data, 3)

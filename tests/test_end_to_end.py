@@ -26,7 +26,7 @@ def test_simulator_monitor_csv_dash(tmp_path, backend):
         device = FakeChiller(time_constant_s=0.5)
     with device as chiller:
         chiller.start_monitoring(interval_s=0.02, csv_path=path, history_size=25)
-        chiller.set_setpoint(18)
+        chiller.apply_setpoint(18)
         app = create_app(chiller)
         key = next(key for key in app.callback_map if "live-status" in key)
 
@@ -41,6 +41,9 @@ def test_simulator_monitor_csv_dash(tmp_path, backend):
                             {"id": "live-status", "property": "children"},
                             {"id": "temperature-history", "property": "figure"},
                             {"id": "toggle-monitoring", "property": "children"},
+                            {"id": "equipment-panel", "property": "children"},
+                            {"id": "toggle-mode", "property": "children"},
+                            {"id": "toggle-mode", "property": "disabled"},
                         ],
                         "inputs": [{"id": "refresh", "property": "n_intervals", "value": 1}],
                         "state": [],

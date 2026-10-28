@@ -1,6 +1,6 @@
 # CAL and T255P protocols: evidence and implemented subsets
 
-[Hardware tutorial](hardware.md) · [Driver source](../src/tark_chiller/controller.py)
+[Hardware tutorial](hardware.md) · [Protocol source](../src/tark_chiller/protocols.py) · [Serial owner](../src/tark_chiller/controller.py)
 
 The CAL subset below is retained. [T255P](#thermotek-t255p-rev-c) is a separate
 explicitly selected protocol, not an alternate CAL address or serial setting.
@@ -169,10 +169,37 @@ Recording: `outputs/communication_fixed_20261021T200211Z.csv`.
 
 The operator reported successfully running standalone mode notebook 05 on
 21 October 2026. This is a separate report from the retained read-only traces;
-the new `TarkChiller.run()`/`standby()` and dashboard mode callbacks have software
+the new `TarkChiller.set_mode()` and dashboard mode callbacks have software
 validation only. CAL hardware, target writes, thermal accuracy/settling, physical
 flow, fault response and long-duration watchdog/recovery timing remain unverified
 by these records. No hardware was contacted during this documentation review.
+
+### Notebook 05 repeated-RUN incident
+
+Notebook 05 incident, 28 October 2026: the operator reported that the chiller was
+already running. The saved cell output inspected during the incident contained this exchange,
+recorded here as evidence:
+
+```text
+TX .U83<CR>     RX #U0001069<CR>  (AUTO START, no summary alarm, chiller on, dryer off)
+TX .J78<CR>     RX #J0000000BD<CR> (all six alarms inactive)
+TX .G1A6<CR>    RX #G31CE<CR>     (communication error 3: qualifier out of bounds)
+```
+
+These frames have valid checksums. G1 is the documented RUN request; the trace
+does not establish why this unit rejected it. In particular, its initial U reply
+retained AUTO START despite the manual's stated transition to RUN. Unit firmware
+and the response to a genuine stopped-to-running transition were not established
+by this trace. It is evidence for this setup, not a general rule that duplicate G
+commands fail on every T255P.
+
+Example 05 and `set_mode()` now avoid a redundant G when the reported state
+already satisfies the requested operation. AUTO START with chiller-on=True
+satisfies RUN without changing the reported mode label. STANDBY requires the
+STANDBY mode and chiller-on=False. Otherwise the existing G/U verification still
+applies. The state-aware `set_mode()` owns this handling; there is no separate
+mode-change wrapper. Error 3 is never ignored or retried. This correction has software regression coverage using the retained
+frames; it has not been rerun on hardware by the assistant.
 
 ### Implemented wire contract
 
@@ -198,6 +225,18 @@ by these records. No hardware was contacted during this documentation review.
 | Alarm flags | J | Six binary ASCII flags | Float switch, high temp, low temp, sensor, EEPROM, watchdog |
 | Set target | M, sign/three digits | Echoed sign/three digits | 0.1 °C; driver allows water targets 5-45 °C only |
 | Set mode | G, qualifier 0 or 1 | Echoed qualifier | 0 STANDBY; 1 RUN; subsequent U reports mode 1 or 2 respectively |
+| Select sensor | O, qualifier 0 or 1 | Echoed qualifier | 0 INTERNAL; 1 EXTERNAL; no independent sensor-mode query is documented |
+
+T255P getters and target/sensor setters send one command: I for
+`get_temperature()`, H0 for `get_memory()`, J for `get_alarms()`,
+U for `get_status()`, M for `set_setpoint()`,
+O for `set_sensor_mode()`. These methods never implicitly handshake,
+retry, reconnect or query independent readback. `set_mode()` owns the RUN/STANDBY
+state request: U check, conditional G and U verification. No command is retried.
+`get_memory()` retains the raw
+maximum-power setting. U fields and J flags are structured dictionaries.
+`collect_status()`, `read_temperature()`, `read_setpoint()` and `apply_setpoint()`
+are the other explicit workflows; see the [API](api.md).
 
 Published startup vector (printed p27):
 
@@ -214,31 +253,49 @@ Signed reads are implemented; sub-zero writes are deliberately not enabled.
 ### Session ownership and write behavior
 
 `T255P()` is read-only; `T255P(allow_writes=True)` explicitly enables target
-and mode requests. It does not claim remote model identification. The lab script selects
+mode and sensor-selection requests. It does not claim remote model identification. The lab script selects
 the actual model and supplies a source-backed 5-45 °C water profile. CAL uses its
 separate, unchanged protocol and application policy.
 
-Connection sends U. Each standalone read/control operation or monitor poll starts with U, so idle
-expiry and read reconnection re-establish the documented session. AUTO START
-changes to RUN on the first watchdog exchange. Explicit `run()`/`standby()` calls
-send G after U/J preflight, then validate its qualifier echo and U mode/chiller-on
-readback. RUN requires no summary or J alarms and refuses SAFETY DEFAULT; STANDBY
-permits reported alarms. Both require write opt-in. A failed/interrupted G latches
+Connection sends U. Checked read/write workflows and monitor polls start with U,
+so idle expiry and read reconnection re-establish the documented session.
+Single-command methods require an established session; after idle expiry the
+caller must explicitly issue U (for example `get_status()`) or choose a workflow.
+The manual describes AUTO START changing to RUN on the first watchdog exchange;
+the October 28 trace above reports AUTO START with the chiller on instead.
+`set_mode()` checks U and skips G if the desired operation is already
+satisfied; otherwise it sends G, then validates its qualifier echo and U
+mode/chiller-on readback. Alarm flags do not veto either request; the device must
+report the requested mode/on state for success. Both require write opt-in. A failed/interrupted G latches
 the controller closed across reconnect; requests are never replayed. The driver
 never sends G during connection, monitoring, disconnect or GUI shutdown. It sends
-no O (sensor selection), startup target or automatic rollback.
-The target-write path requires RUN, no aggregate alarm and six clear J flags; it then
-sends one M, checks the echoed value, and checks a subsequent H readback.
-Any failure/interrupt after starting M latches the port closed, including
-across reconnect. No write is retried. Sensor alarm makes temperature unavailable;
+no O (sensor selection), startup target or automatic rollback during those operations.
+Only an explicit `set_sensor_mode()` sends O, with write opt-in and qualifier-echo
+validation. O has no documented independent readback. A failed/interrupted O
+latches the controller closed across reconnect and is never replayed.
+The `apply_setpoint()` workflow sends U, one M, checks the echoed value, and checks a
+subsequent H readback. It permits target changes in any reported mode and with
+reported alarms, without sending a mode change. Neither write path queries J.
+Any failure/interrupt after starting M in this workflow latches the port closed,
+including across reconnect. The M/O command setters retain the latch through
+their acknowledgement echo only; `set_mode()` retains it through U readback
+after G. No write is retried. A standalone `get_temperature()`
+only decodes I; sensor alarm makes the checked temperature workflow unavailable;
 other alarm flags remain reported diagnostics, not proof of safe conditions.
+
+There is no alarm-clear command in the documented serial interface. J only reads
+flags; changing a target or requesting RUN does not promise to clear them. For
+the startup low-coolant alarm, the manual's section 5 instructs the operator to
+add coolant as needed and press the front-panel Run/Standby key. Other alarms
+require addressing their reported cause (section 6).
 
 The manual calls for a valid command every five seconds, and returns local control
 after more than ten seconds without valid traffic while preserving run/standby.
 Normal one-second monitoring supplies this traffic through the existing explicit
 worker. **There is no independent keepalive worker or guaranteed remote lease.**
 Stopping monitoring, an idle synchronous application, a process stall or a fault
-may allow local-control return. The next operation sends U again. `is_connected`
+may allow local-control return. The next workflow sends U again; single-command
+callers must explicitly renew with a U getter. `is_connected`
 means an open usable software transport, not continuing remote ownership.
 
 A valid delayed reply to the same command cannot always be distinguished from
@@ -249,7 +306,7 @@ inspection regardless of the apparent reply. A new process cannot retain a
 previous process's in-memory quarantine; human recovery must allow at least the
 manual's response interval before a new connection.
 
-When bounded read recovery is enabled, a checksum-valid reply with communication
+For checked read/monitor workflows, when bounded read recovery is enabled, a checksum-valid reply with communication
 error 1/2 (checksum/bad command), or error zero but echoing a different command,
 is discarded and triggers close/quarantine/reopen plus a new U handshake.
 Nonzero device errors take precedence over echo checking.
@@ -274,7 +331,8 @@ U establishment, valid-traffic watchdog reset, local return after >10 s, repeate
 startup/expired-session XON, XON/XOFF filtering and paused-output write timeout.
 It retains targets over a synthetic power cycle and continues modeled control
 when the serial endpoint closes. G models explicit production RUN/STANDBY calls
-and the standalone serial example.
+and the standalone serial example. O models sensor selection and echo only;
+it does not model an external sensor or its effect on regulation.
 
 Synthetic choices: initial liquid and retained target 20 °C, 30 s exponential
 response, max-power field 100, dryer off, initially clear alarms, and instantaneous

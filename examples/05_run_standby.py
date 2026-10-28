@@ -1,6 +1,6 @@
 """05 · Request one T255P RUN/STANDBY change using the documented serial command.
 
-Standalone serial example; TarkChiller also provides run() and standby().
+Standalone serial example; set_mode() handles the requested RUN/STANDBY state.
 Run one device owner at a time. See the matching notebook for operating notes.
 """
 
@@ -8,7 +8,7 @@ from time import perf_counter, sleep
 
 import serial
 
-from tark_chiller.controller import T255P, ProtocolError
+from tark_chiller.protocols import T255P, ProtocolError
 
 # 2. Choose the identified port and exactly one requested mode.
 PORT = None  # Set the identified serial port, e.g. "COM9".
@@ -79,33 +79,30 @@ try:
     connection.rts = False
     connection.dtr = False
     connection.open()
-    protocol = T255P()
+    protocol = T255P(allow_writes=True)
 
     def io(command, data):
+        global mode_write_started
+        if command == b"G":
+            mode_write_started = True  # Track actual write attempts, including partial writes.
         return exchange(connection, command, data)
 
-    before = protocol.verify(io)
-    alarms = exchange(connection, b"J")
-    if len(alarms) != 6 or any(flag not in b"01" for flag in alarms):
-        raise ProtocolError("Malformed alarm flags")
-    print(f"Before: watchdog={before}, alarms={alarms.decode('ascii')}")
-    # Standby remains available with alarms; RUN requires clear diagnostics.
-    if MODE == "RUN" and (before[0] == "3" or before[1] != "0" or b"1" in alarms):
-        raise ProtocolError("RUN refused: safety-default mode or active alarms; inspect equipment")
+    before = protocol.get_status(io)
+    alarms = protocol.get_alarms(io)
+    print(f"Before: mode={before['mode']}; chiller on={before['chiller_on']}")
+    print(f"Alarm summary: {before['summary_alarm']}; alarms={alarms}")
+    # Alarm flags are diagnostics; the device determines whether the mode can apply.
 
-    qualifier = b"1" if MODE == "RUN" else b"0"
-    mode_write_started = True  # A failed/partial write may still have changed the unit.
-    if exchange(connection, b"G", qualifier) != qualifier:
-        raise ProtocolError("Mode command echo differs from request")
-    after = protocol.verify(io)
-    expected_mode = "2" if MODE == "RUN" else "1"
-    expected_on = "1" if MODE == "RUN" else "0"
-    print(f"After: watchdog={after}")
-    if after[0] != expected_mode or after[2] != expected_on:
-        raise ProtocolError("Reported mode/chiller-on flag differs from request")
-    if MODE == "RUN" and after[1] != "0":
-        raise ProtocolError("Alarm reported after RUN request")
-    print(f"Reported {MODE} matches. Check the physical pump/flow and panel separately.")
+    # The setter owns the current-state check, conditional G and readback verification.
+    after = protocol.set_mode(MODE, io)
+    print(f"After: mode={after['mode']}; chiller on={after['chiller_on']}")
+    if not after["mode_command_sent"]:
+        print(
+            f"{MODE} request already satisfied; reported mode={after['mode']}, "
+            f"chiller on={after['chiller_on']}. No G command sent."
+        )
+    else:
+        print(f"Reported {MODE} matches. Check the physical pump/flow and panel separately.")
 except BaseException as error:
     if mode_write_started:
         error.add_note(

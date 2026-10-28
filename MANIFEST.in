@@ -4,4 +4,4 @@ include .python-version
 recursive-include examples *.py *.ipynb
 include examples/README.md
 recursive-include tests *.py
-recursive-include docs *.md *.png
+recursive-include docs *.md *.jpg

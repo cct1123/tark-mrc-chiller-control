@@ -1,6 +1,7 @@
 """02 · Set one temperature target. Run one device owner at a time."""
 
-from tark_chiller.controller import T255P, TarkChiller
+from tark_chiller.controller import TarkChiller
+from tark_chiller.protocols import T255P, ProtocolError
 
 # 2. Choose the port and operation options
 PORT = None  # Set the identified serial port, e.g. "COM9".
@@ -32,19 +33,27 @@ chiller = TarkChiller(
 )
 
 with chiller:
-    print(f"Existing setpoint: {chiller.read_setpoint():.2f} C")
-    input(f"Press Enter to apply {TARGET_C:g} C; Ctrl+C to cancel. ")
+    before = chiller.get_memory()  # H0 only; context entry established the session with U.
+    print(f"Existing setpoint: {before['setpoint_c']:.2f} C")
+    print(f"Applying {TARGET_C:g} C")
 
-    # 2. Send one request. Values are checked; uncertain writes are never retried.
-    # T255P requires RUN with no alarms and suitable coolant/setup.
+    # M only: validate this one acknowledgement; never retry an uncertain write.
     chiller.set_setpoint(TARGET_C)
+    print("Target acknowledgement received.")
 
     # 3. Read the target again. This is a target check, not a settling test.
-    reported_c = chiller.read_setpoint()
+    # H0 is a separate command. A failure here does not authorize resending M.
+    try:
+        reported_c = chiller.get_memory()["setpoint_c"]
+    except BaseException as error:
+        error.add_note("Target acknowledged; readback failed. Inspect the panel; do not replay M.")
+        raise
     print(f"Reported setpoint: {reported_c:.2f} C")
     if reported_c != TARGET_C:
-        raise RuntimeError("Target differs from the request. Inspect the equipment; do not retry.")
-    print("Readback matches. Observe the actual liquid temperature separately.")
+        raise ProtocolError(
+            "Target readback differs from request; inspect the panel, do not replay"
+        )
+    print("Target readback verified. Observe the actual liquid temperature separately.")
 
 # 4. The connection is closed; the equipment keeps its current target/state.
 # No automatic restoration, pump control or equipment stop is sent.

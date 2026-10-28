@@ -12,7 +12,8 @@ from time import monotonic, sleep
 
 import pytest
 
-from tark_chiller.controller import T255P, ProtocolError, TarkChiller, _t255p_frame
+from tark_chiller.controller import TarkChiller
+from tark_chiller.protocols import T255P, ProtocolError, _t255p_frame
 from tark_chiller.simulator import T255PSimulator
 
 
@@ -68,10 +69,10 @@ def test_connect_read_and_write_command_order_and_no_mode_command():
         assert endpoint.mode == "2" and endpoint.remote_active
         assert c.read_temperature() == 20
         assert c.read_setpoint() == 20
-        assert "human-selected; identity not queried" in c.read_status()["detail"]
+        assert "human-selected; identity not queried" in c.collect_status()["detail"]
         requests.clear()
-        c.set_setpoint(29.5)
-        assert requests == [b".U83\r", b".J78\r", b".M+29546\r", b".H0A6\r"]
+        c.apply_setpoint(29.5)
+        assert requests == [b".U83\r", b".M+29546\r", b".H0A6\r"]
         assert c.read_setpoint() == 29.5
     assert not endpoint.is_open and endpoint.applied_writes == 1
     assert not any(r[1:2] in (b"G", b"O") for r in requests)
@@ -81,7 +82,7 @@ def test_connect_read_and_write_command_order_and_no_mode_command():
 def test_water_boundaries(target):
     c, endpoint, _ = setup()
     with c:
-        c.set_setpoint(target)
+        c.apply_setpoint(target)
         assert c.read_setpoint() == target
     assert endpoint.applied_writes == 1
 
@@ -92,7 +93,7 @@ def test_public_water_policy_rejects_without_io(value):
     with c:
         before = len(requests)
         with pytest.raises(ValueError):
-            c.set_setpoint(value)
+            c.apply_setpoint(value)
         assert len(requests) == before
         assert endpoint.applied_writes == 0
 
@@ -111,7 +112,7 @@ def test_backend_guard_precedes_all_io_even_with_broader_host_policy(target):
     with c:
         before = len(requests)
         with pytest.raises(ProtocolError):
-            c.set_setpoint(target)
+            c.apply_setpoint(target)
         assert len(requests) == before and not endpoint.applied_writes
 
 
@@ -120,22 +121,26 @@ def test_write_opt_in_guard_precedes_all_io():
     with c:
         before = len(requests)
         with pytest.raises(ProtocolError, match="writes disabled"):
-            c.set_setpoint(20)
+            c.apply_setpoint(20)
         assert len(requests) == before and not endpoint.applied_writes
     with pytest.raises(ValueError):
         T255P(allow_writes=1)
 
 
-@pytest.mark.parametrize("operation, mode, qualifier", [
-    ("run", "2", b".G1A6\r"), ("standby", "1", b".G0A5\r"),
-])
+@pytest.mark.parametrize(
+    "operation, mode, qualifier",
+    [
+        ("run", "2", b".G1A6\r"),
+        ("standby", "1", b".G0A5\r"),
+    ],
+)
 def test_mode_api_checks_echo_and_state_without_changing_target(operation, mode, qualifier):
     c, endpoint, requests = setup()
     with c:
         endpoint.mode = "1" if operation == "run" else "2"
         requests.clear()
-        getattr(c, operation)()
-        assert requests == [b".U83\r", b".J78\r", qualifier, b".U83\r"]
+        c.set_mode(operation.upper())
+        assert requests == [b".U83\r", qualifier, b".U83\r"]
         assert endpoint.mode == mode and c.supports_mode_control
         assert c.read_setpoint() == 20
     assert endpoint.mode == mode and not endpoint.applied_writes
@@ -145,35 +150,37 @@ def test_mode_api_checks_echo_and_state_without_changing_target(operation, mode,
 def test_mode_api_requires_connection_and_write_opt_in(operation):
     c, endpoint, requests = setup(writable=False)
     with pytest.raises(ConnectionError):
-        getattr(c, operation)()
+        c.set_mode(operation.upper())
     assert not requests
     with c:
         requests.clear()
         with pytest.raises(ProtocolError, match="writes disabled"):
-            getattr(c, operation)()
+            c.set_mode(operation.upper())
         assert not requests
     assert not endpoint.is_open
 
 
-@pytest.mark.parametrize("mode,alarms", [("1", "010000"), ("3", "000000")])
-def test_run_refuses_alarms_and_safety_default_but_standby_is_allowed(mode, alarms):
+@pytest.mark.parametrize("mode,alarms", [("1", "010000"), ("3", "000000"), ("1", "000001")])
+def test_mode_requests_are_not_vetoed_by_diagnostic_state(mode, alarms):
     c, endpoint, requests = setup()
     with c:
         endpoint.mode, endpoint.alarms = mode, alarms
         requests.clear()
-        with pytest.raises(ProtocolError, match="RUN refused"):
-            c.run()
-        assert not any(r[1:2] == b"G" for r in requests)
-    with c:
-        c.standby()
+        c.set_mode("RUN")
+        assert endpoint.mode == "2" and c.is_connected
+        assert "summary_alarm=" in c.collect_status()["detail"]
+        c.set_mode("STANDBY")
         assert endpoint.mode == "1"
+        assert sum(r[1:2] == b"G" for r in requests) == 2
 
 
-@pytest.mark.parametrize("fault", ["lost_ack", "partial", "wrong_echo", "wrong_mode",
-                                 "wrong_on", "alarm_after_run", "interrupt"])
+@pytest.mark.parametrize(
+    "fault", ["lost_ack", "partial", "wrong_echo", "wrong_mode", "wrong_on", "interrupt"]
+)
 def test_mode_failure_latches_across_reconnect_and_never_replays(fault):
     c, endpoint, requests = setup(reconnect_attempts=2)
     with c:
+        endpoint.mode = "1"  # Exercise a real transition, not an already-running no-op.
         original = endpoint._respond
         write = endpoint.write
 
@@ -188,9 +195,11 @@ def test_mode_failure_latches_across_reconnect_and_never_replays(fault):
                     return response(b"G", b"0")
                 if fault == "wrong_mode":
                     endpoint.mode = "1"
-                if fault == "alarm_after_run":
-                    endpoint.alarms = "010000"
-            if request[1:2] == b"U" and fault == "wrong_on" and any(r[1:2] == b"G" for r in requests):
+            if (
+                request[1:2] == b"U"
+                and fault == "wrong_on"
+                and any(r[1:2] == b"G" for r in requests)
+            ):
                 return response(b"U", b"2000")
             return result
 
@@ -203,7 +212,7 @@ def test_mode_failure_latches_across_reconnect_and_never_replays(fault):
             endpoint.write = partial_write
         requests.clear()
         with pytest.raises(KeyboardInterrupt if fault == "interrupt" else ProtocolError):
-            c.run()
+            c.set_mode("RUN")
         assert sum(r[1:2] == b"G" for r in requests) == 1
         assert not endpoint.is_open
         with pytest.raises(ProtocolError, match="uncertain"):
@@ -217,13 +226,13 @@ def test_standby_keeps_monitoring_active_and_serializes_with_reads():
         c.start_monitoring(interval_s=0.01)
         wait_for(lambda: c.snapshot()["sample_count"] > 0)
         with ThreadPoolExecutor(max_workers=2) as pool:
-            changing = pool.submit(c.standby)
+            changing = pool.submit(c.set_mode, "STANDBY")
             reading = pool.submit(c.read_temperature)
             changing.result(timeout=2)
             assert math.isfinite(reading.result(timeout=2))
         assert c.running and endpoint.mode == "1"
         wait_for(lambda: "mode=STANDBY" in c.snapshot()["history"][-1]["status"]["detail"])
-        c.run()
+        c.set_mode("RUN")
         assert c.running and endpoint.mode == "2"
 
 
@@ -358,16 +367,21 @@ def test_framing_faults_are_not_accepted(fault):
 
 
 @pytest.mark.parametrize("index", range(6))
-def test_alarm_status_is_diagnostic_and_all_alarm_flags_inhibit_writes(index):
+def test_alarm_status_is_diagnostic_and_does_not_inhibit_target_writes(index):
     c, endpoint, requests = setup()
     with c:
         endpoint.alarms = "0" * index + "1" + "0" * (5 - index)
-        detail = c.read_status()["detail"]
+        detail = c.collect_status()["detail"]
         name = ("float_switch", "high_temp", "low_temp", "sensor", "eeprom", "watchdog")[index]
         assert f"{name}=1" in detail and "flow/leak unknown" in detail
-        with pytest.raises(ProtocolError, match="no active alarms"):
-            c.set_setpoint(18)
-        assert not endpoint.applied_writes and not any(r[1:2] == b"M" for r in requests)
+        mode = endpoint.mode
+        requests.clear()
+        c.apply_setpoint(18)
+        assert c.is_connected and endpoint.mode == mode
+        assert endpoint.alarms == "0" * index + "1" + "0" * (5 - index)
+        assert endpoint.applied_writes == 1
+        assert requests == [b".U83\r", b".M+1803F\r", b".H0A6\r"]
+        assert c.read_setpoint() == 18
 
 
 def test_sensor_alarm_invalidates_measurement():
@@ -380,14 +394,36 @@ def test_sensor_alarm_invalidates_measurement():
 
 
 @pytest.mark.parametrize("mode", ["1", "3"])
-def test_no_write_or_automatic_run_in_standby_or_safety_default(mode):
+def test_target_write_preserves_standby_or_safety_default(mode):
     c, endpoint, requests = setup()
     endpoint.mode = mode
     with c:
-        with pytest.raises(ProtocolError, match="must report RUN"):
-            c.set_setpoint(18)
-    assert endpoint.mode == mode and not endpoint.applied_writes
+        c.apply_setpoint(18)
+        assert c.read_setpoint() == 18
+    assert endpoint.mode == mode and endpoint.applied_writes == 1
     assert all(r[1:2] not in (b"G", b"O") for r in requests)
+
+
+def test_summary_alarm_alone_does_not_veto_target_or_run():
+    c, endpoint, requests = setup()
+    with c:
+        original = endpoint._respond
+
+        def respond(request):
+            result = original(request)
+            if request[1:2] == b"U":
+                on = b"1" if endpoint.mode == "2" else b"0"
+                return response(b"U", endpoint.mode.encode() + b"1" + on + b"0")
+            return result
+
+        endpoint._respond = respond
+        c.set_mode("STANDBY")
+        requests.clear()
+        c.apply_setpoint(18)
+        c.set_mode("RUN")
+        assert c.is_connected and c.read_setpoint() == 18 and endpoint.mode == "2"
+        assert not any(r[1:2] == b"J" for r in requests)
+        assert "summary_alarm=1" in c.collect_status()["detail"]
 
 
 @pytest.mark.parametrize(
@@ -421,7 +457,7 @@ def test_uncertain_write_latches_without_replay_or_cleanup_commands(fault):
 
     endpoint._respond, endpoint.write = respond, write
     with pytest.raises(KeyboardInterrupt if fault == "interrupt" else ProtocolError):
-        c.set_setpoint(18)
+        c.apply_setpoint(18)
     before = len(requests)
     assert endpoint.applied_writes == 1 and not endpoint.is_open
     with pytest.raises(ProtocolError, match="uncertain"):
@@ -497,7 +533,7 @@ def test_simulator_watchdog_idle_reacquisition_retention_and_continued_control()
     now = [0.0]
     c, endpoint, requests = setup(clock=lambda: now[0])
     with c:
-        c.set_setpoint(18)
+        c.apply_setpoint(18)
         now[0] = 10
         assert endpoint.remote_active  # Strictly greater than ten seconds.
         now[0] = 11
@@ -561,7 +597,7 @@ def test_standby_pauses_synthetic_thermal_response():
     now = [0.0]
     c, endpoint, _ = setup(clock=lambda: now[0])
     with c:
-        c.set_setpoint(18)
+        c.apply_setpoint(18)
         endpoint.mode = "1"
         now[0] = 30
         assert c.read_temperature() == 20

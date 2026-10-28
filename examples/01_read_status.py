@@ -1,6 +1,7 @@
 """01 · Read temperature and status. Run one device owner at a time."""
 
-from tark_chiller.controller import T255P, TarkChiller
+from tark_chiller.controller import TarkChiller
+from tark_chiller.protocols import T255P, ProtocolError
 
 # 2. Choose the port and operation options
 PORT = None  # Set the identified serial port, e.g. "COM9".
@@ -31,16 +32,27 @@ chiller = TarkChiller(
 
 # T255P connect sends U: it takes serial control and can start AUTO START.
 with chiller:
-    # 2. Query the measured temperature and target separately, in Celsius.
-    # Compare these values with the front panel and your temperature reference.
-    print(f"Temperature:       {chiller.read_temperature():.2f} C")
-    print(f"Reported setpoint: {chiller.read_setpoint():.2f} C")
-
-    # 3. Inspect mode and alarm diagnostics; these do not identify the unit.
-    status = chiller.read_status()
+    # Each get_ call sends exactly one command. U refreshes the session;
+    # J reads alarms, I reads temperature, and H0 reads target/max-power memory.
+    status = chiller.get_status()  # U
+    alarms = chiller.get_alarms()  # J
     print(f"Connected: {status['connected']}")
     print(f"Backend:   {status['backend']}")
+    print(f"Mode:      {status['mode']} (code {status['mode_code']})")
+    print(f"Chiller on: {status['chiller_on']}; dryer on: {status['dryer_on']}")
+    print(f"Alarm summary: {status['summary_alarm']}")
+    for name, active in alarms.items():
+        print(f"  {name}: {'ACTIVE' if active else 'inactive'}")
     print(f"Details:   {status['detail']}")
+    # A direct I query does not check J; make that decision explicitly here.
+    if alarms["sensor"]:
+        raise ProtocolError("T255P sensor alarm; temperature unavailable")
+    temperature_c = chiller.get_temperature()  # I
+    memory = chiller.get_memory()  # H0
+    print(f"Temperature:       {temperature_c:.2f} C")
+    print(f"Reported setpoint: {memory['setpoint_c']:.2f} C")
+    print(f"Maximum-power setting (raw): {memory['max_power']}")
+    # Compare Celsius readings with the front panel and your reference.
 
 # 4. Context exit releases the port, including after a failed read. If cleanup
 # also fails, the original error is preserved with a cleanup note. Retry cleanup

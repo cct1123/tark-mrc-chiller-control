@@ -26,52 +26,60 @@ for dependency and environment management, with Python **3.12** selected by
 then run from the repository root:
 
 ```sh
-uv sync --locked
-uv run --locked python -m tark_chiller.simulator --headless --duration 5
+uv sync
+uv run tark-chiller --headless --duration 5
 ```
 
 uv creates `.venv`, installs the package in editable mode and includes development
-tools by default. No environment activation is needed with `uv run`.
+tools by default. `uv run` also syncs automatically, so the separate `uv sync`
+step is optional. No environment activation is needed.
 
 Choose the environment you need:
 
 | Use | Install or update environment |
 | --- | --- |
-| Core driver only | `uv sync --locked --no-dev` |
-| Development and tests | `uv sync --locked` |
-| Development with dashboard | `uv sync --locked --extra gui` |
-| Development with dashboard and notebooks | `uv sync --locked --extra gui --group notebooks` |
+| Core driver only | `uv sync --no-dev` |
+| Development and tests | `uv sync` |
+| Development with dashboard | `uv sync --extra gui` |
+| Development with dashboard and notebooks | `uv sync --extra gui --group notebooks` |
 
 Use the same `--no-dev`, `--extra gui` and `--group notebooks` options with
-`uv run` for that workflow. `--locked` refuses dependency changes that require a
-lockfile update. See [examples](examples/README.md#environment) for notebook kernel
-setup and hardware scripts.
+`uv run` for that workflow. uv uses the committed lockfile and updates it when
+dependency declarations change; add `--locked` in CI or when you need to refuse
+lockfile changes. See [examples](examples/README.md#environment) for notebook
+kernel setup and hardware scripts.
 
 ### Install into another application
 
-For installation into another application's Python environment:
+From another uv project's root, add this checkout by path:
 
 ```sh
-python -m pip install .
+uv add /path/to/tark-mrc-chiller-control
 ```
 
 Or install directly from the repository (requires Git and repository access):
 
 ```sh
-python -m pip install "git+https://github.com/cct1123/tark-mrc-chiller-control.git"
+uv add git+https://github.com/cct1123/tark-mrc-chiller-control.git
 ```
 
-Serial support is included. For the optional dashboard, install `".[gui]"` from
-this checkout, or `"tark-mrc-chiller[gui] @ git+https://github.com/cct1123/tark-mrc-chiller-control.git"`.
-You can also install a built wheel with `python -m pip install path/to/package.whl`.
+Serial support is included. Add `--extra gui` to either command for the optional
+dashboard. You can also add a built wheel with `uv add /path/to/package.whl`.
 Use the Python API directly from your own application.
 
-Version 0.7 uses explicit module imports and has no compatibility aliases.
+Version 0.7 uses explicit module imports: `TarkChiller` comes from
+`tark_chiller.controller`; `T255P`, `Cal33xx` and `ProtocolError` come from
+`tark_chiller.protocols`.
 `TarkChiller(settings, protocol=...)` owns pyserial, monitoring and recording.
 Settings, status, samples and snapshots are plain dictionaries; returned settings
 and snapshots are detached copies. Simulators provide `.chiller()` to construct
 the same controller with a memory endpoint. Reinstall after upgrading and use the
-API shown below.
+API shown below. When updating existing callers, replace `read_status()` with
+`collect_status()`, `run()` / `standby()` with `set_mode("RUN")` /
+`set_mode("STANDBY")`, and verified `set_setpoint()` calls with
+`apply_setpoint()`. The T255P-only `set_setpoint()` now checks one M
+acknowledgement; it does not read the target back. See the
+[migration notes](docs/api.md#updating-existing-callers).
 
 <a id="hardware-quick-start"></a>
 
@@ -82,7 +90,8 @@ example values below. T255P requires 9600 baud, 8N1 and XON/XOFF. Connect only t
 prepared, filled system: the startup U exchange can start an AUTO START unit.
 
 ```python
-from tark_chiller.controller import TarkChiller, T255P
+from tark_chiller.controller import TarkChiller
+from tark_chiller.protocols import T255P
 
 settings = {
     "port": "COM5",
@@ -104,22 +113,39 @@ with TarkChiller(
 ) as chiller:
     print(chiller.read_temperature())  # Celsius
     print(chiller.read_setpoint())
-    print(chiller.read_status())
+    print(chiller.collect_status())
 ```
 
-`T255P()` disables target and mode writes. After checking the setup and operating limits,
-use `T255P(allow_writes=True)` and call `chiller.set_setpoint(target_c)` inside the
-context. `chiller.run()` starts circulation and temperature regulation together
-at the existing target; `chiller.standby()` stops both. Both verify the G echo
-and U mode/chiller-on readback, and require `allow_writes=True`. RUN requires
-clear reported alarms; STANDBY permits alarms. Monitoring can continue in either mode.
+`T255P()` disables target, mode and sensor-selection writes. After checking the setup and operating limits,
+use `T255P(allow_writes=True)` and call `chiller.apply_setpoint(target_c)` inside the
+context. `chiller.set_mode("RUN")` starts circulation and temperature regulation together
+at the existing target; `chiller.set_mode("STANDBY")` stops both. Both check U
+first and skip G if the requested operation is already satisfied; otherwise they
+verify the G echo and U readback. The returned status includes `mode_command_sent`.
+Both require `allow_writes=True`. Alarm flags remain
+visible diagnostics and do not veto target or mode requests. Targets can be changed
+in standby. Monitoring can continue in either mode.
 Water targets are limited to **5–45 °C in 0.1 °C steps**.
-Sensor selection and sub-zero writes are not exposed. A successful target readback
+`set_sensor_mode("INTERNAL")` / `set_sensor_mode("EXTERNAL")` selects the sensor;
+only the acknowledgement echo can be checked because no sensor-mode query is documented.
+Sub-zero target writes remain unsupported. A successful target readback
 does not mean the liquid has reached that temperature.
+
+The T255P API uses `get_` / `set_` names. Getters and target/sensor setters send
+one command, without handshake, retry or independent readback. For example,
+`get_temperature()` sends I, `get_alarms()` sends J, `get_memory()` sends H0,
+`get_status()` sends U and `set_setpoint()` sends M. `set_mode()` owns the full
+RUN/STANDBY request: U check, conditional G, then U readback after a change.
+`get_status()` returns structured mode/on/summary fields; `get_alarms()` returns
+six named boolean flags. Explicit `collect_status()` combines U/J, while
+`read_temperature()`, `apply_setpoint()` and `set_mode()` perform the checked
+workflows used above. CAL uses those workflows. See the
+[command API and workflow contracts](docs/api.md#t255p-command-api).
 
 Normal one-second monitoring supplies watchdog traffic. There is no hidden
 keepalive worker. After more than ten seconds without valid traffic, the unit can
-return to local control; the next API operation sends U again to reacquire it.
+return to local control. Checked workflows send U again; single-command callers
+must explicitly renew the session with `get_status()`.
 
 ## CAL 3300/9300
 
@@ -128,7 +154,8 @@ The following values illustrate a 9600/8N1 unit at address 1; they are not disco
 results. The driver verifies supported identity codes, RTD input and Celsius.
 
 ```python
-from tark_chiller.controller import TarkChiller, Cal33xx
+from tark_chiller.controller import TarkChiller
+from tark_chiller.protocols import Cal33xx
 
 settings = {
     "port": "COM5",
@@ -145,7 +172,7 @@ settings = {
 with TarkChiller(settings, protocol=Cal33xx(address=1)) as chiller:
     print(chiller.read_temperature())
     print(chiller.read_setpoint())
-    print(chiller.read_status())  # Includes model/firmware codes
+    print(chiller.collect_status())  # Includes model/firmware codes
 ```
 
 For writes, construct `Cal33xx(address=1, allow_writes=True,
@@ -166,7 +193,7 @@ temperature from its final attempt as historical data.
 See the [API reference](docs/api.md#monitoring) for a complete recording example.
 
 `chiller.running` reports whether the **monitoring thread** is alive, including
-pending shutdown or cleanup. `chiller.run()` requests **equipment RUN**. These
+pending shutdown or cleanup. `chiller.set_mode("RUN")` requests **equipment RUN**. These
 are separate states: monitoring can continue in STANDBY, and equipment can remain
 in RUN after monitoring stops or the software disconnects.
 
@@ -177,8 +204,17 @@ With the GUI extra installed, pass a configured controller to
 <http://127.0.0.1:8056>, press **Connect**, then **Start monitoring**.
 The same button switches to **Stop monitoring**, which closes recording while
 keeping the connection open.
-For a write-enabled T255P, the **RUN** and **STANDBY** buttons control the pump
-and temperature regulation together. These are independent of monitoring.
+The display shows the poll's UTC timestamp, elapsed monitoring time, structured
+equipment state and six alarm flags with an active count. Expand **Controller
+diagnostics (last poll)** for details; the panel stays open during refreshes.
+Connect and Shutdown GUI are at the top right. Monitoring start/stop, poll interval
+and CSV path sit inside the full-width history figure panel. Mode and temperature
+controls sit below the figure, stacking vertically on smaller screens.
+Equipment status appears beneath the controls. Alarm states are **Clear** when
+no alarm is reported and **Active** when triggered; missing readings are **Unavailable**.
+For a write-enabled T255P, one mode button shows **STANDBY** when the chiller is
+on and **RUN** when it is off. Fresh monitoring data is required to enable it.
+This controls the pump and temperature regulation together, independently of monitoring.
 Mode changes follow `allow_setpoints` unless `allow_mode_changes` is supplied
 explicitly; the protocol must also have `allow_writes=True`.
 **Shutdown GUI** stops acquisition, releases the port and closes the server;
@@ -186,25 +222,24 @@ Ctrl+C also cleans up. These actions do not command the chiller/pump into standb
 Browser refresh or closure leaves acquisition running. Embedded hosts can use
 `create_app(chiller)` and provide an `on_shutdown` hook to enable GUI shutdown.
 
-![Dashboard using T255P simulator data](docs/assets/dashboard.png)
+![Dashboard using T255P simulator data](docs/assets/dashboard.jpg)
 
-*Simulator screenshot of the earlier layout; no physical measurement. The current
-dashboard also includes session and RUN/STANDBY controls described above.*
+*Current dashboard with poll timing, structured equipment status and six alarm flags.
+Simulator data only; no physical measurement.*
 
 ## Simulation
 
 These commands use memory-only protocol endpoints and never open a hardware port:
 
 ```sh
-uv run --locked python -m tark_chiller.simulator --t255p --headless --duration 5 --csv demo.csv
-uv run --locked python -m tark_chiller.simulator --cal --headless --duration 5
+uv run tark-chiller --headless --duration 5 --csv demo.csv
+uv run tark-chiller --cal --headless --duration 5
 ```
 
-For the optional dashboard, add `--extra gui` after `--locked` and omit `--headless`.
-For example:
+For the optional dashboard:
 
 ```sh
-uv run --locked --extra gui tark-chiller --t255p
+uv run --extra gui tark-chiller
 ```
 
 Omitting both protocol flags selects the T255P simulator.
@@ -221,7 +256,7 @@ from tark_chiller.simulator import T255PSimulator
 
 with T255PSimulator().chiller(allow_writes=False) as chiller:
     print(chiller.read_temperature())  # 20.0
-    print(chiller.read_status()["backend"])  # simulator
+    print(chiller.collect_status()["backend"])  # simulator
 ```
 
 An injected simulator clock changes modeled temperature/watchdog time; serial
@@ -258,10 +293,10 @@ exhausted retry budget as a failed poll and tries again next interval; fatal
 protocol faults stop monitoring. The dashboard example enables two retries.
 See [recovery details](docs/api.md#targets-and-recovery) before enabling it.
 
-The [seven hardware examples](examples/README.md), available as scripts with
-six standalone notebooks, teach discovering ports,
+The [eight hardware examples](examples/README.md), available as scripts with
+seven standalone notebooks, teach discovering ports,
 connecting, reading status, setting one target, recording CSV, measuring connection
-timing, requesting RUN/STANDBY and opening a dashboard. Each script and notebook contains
+timing, requesting RUN/STANDBY, live console monitoring and opening a dashboard. Each script and notebook contains
 its own explicit T255P connection code; review its `PORT` and operation options
 before running. The mode example uses pyserial directly. The dashboard
 runs only as a script. Direct API use remains independent.
@@ -270,8 +305,8 @@ After configuring the port and preparing the hardware, run a script from the
 repository root, for example:
 
 ```sh
-uv run --locked python examples/01_read_status.py
-uv run --locked --extra gui python examples/06_dashboard.py
+uv run examples/01_read_status.py
+uv run --extra gui examples/07_dashboard.py
 ```
 
 ## Development
@@ -279,12 +314,14 @@ uv run --locked --extra gui python examples/06_dashboard.py
 New maintainers: start with the [development guide](docs/development.md) for the
 simulator exercise, a read-path walkthrough, concurrency rules and test choices.
 
-The source has three Python modules:
+The source separates device ownership, wire protocols and presentation:
 
 | Module | Responsibility |
 | --- | --- |
-| `tark_chiller.controller` | Explicit CAL/T255P operations, serial ownership, read recovery, monitoring and CSV |
-| `tark_chiller.gui` | Snapshot rendering, controls layout and explicit session actions |
+| `tark_chiller.controller` | `TarkChiller`, serial ownership, read recovery, monitoring and CSV |
+| `tark_chiller.protocols` | `T255P`, `Cal33xx`, `ProtocolError`, frame codecs and command workflows |
+| `tark_chiller.gui` | Dashboard lifecycle, callbacks and explicit session actions |
+| `tark_chiller._views` | Private snapshot rendering and controls layout |
 | `tark_chiller.simulator` | Thermal model, memory protocol endpoints and simulator launcher |
 
 Private `TypedDict` definitions describe status, samples, snapshots and readings
@@ -296,11 +333,11 @@ retries discard the previous attempt's fields. See the
 Full development checks:
 
 ```sh
-uv sync --locked --extra gui
-uv run --locked --extra gui pytest -q -p no:cacheprovider
-uv run --locked --extra gui ruff check src examples tests
-uv run --locked --extra gui ruff format --check src examples tests
-uv run --locked --extra gui mypy
+uv sync --extra gui
+uv run --extra gui pytest -q -p no:cacheprovider
+uv run ruff check src examples tests
+uv run ruff format --check src examples tests
+uv run mypy
 uv pip check
 uv build
 ```
@@ -325,15 +362,15 @@ the checkout's interpreter; the package still supports Python 3.12+.
 | Task | Command |
 | --- | --- |
 | Add a runtime dependency | `uv add PACKAGE` |
-| Add a development tool | `uv add --group dev PACKAGE` |
+| Add a development tool | `uv add --dev PACKAGE` |
 | Add a notebook tool | `uv add --group notebooks PACKAGE` |
 | Add a dashboard dependency | `uv add --optional gui PACKAGE` |
-| Remove a development tool | `uv remove --group dev PACKAGE` |
+| Remove a development tool | `uv remove --dev PACKAGE` |
 | Upgrade one locked package | `uv lock --upgrade-package PACKAGE` |
 | Check lockfile consistency | `uv lock --check` |
 
 For other removals, use `uv remove` with the same group or extra options used to
-add the dependency. After changing dependencies, run `uv sync --locked --extra gui`
+add the dependency. After changing dependencies, run `uv sync --extra gui`
 and the development checks above. Add `--group notebooks` when checking notebook
 tools. Let uv generate `uv.lock`.
 

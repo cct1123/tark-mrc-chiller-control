@@ -21,7 +21,7 @@ def test_serial_settings_are_never_changed_while_open(factory):
     with endpoint.chiller() as chiller:
         for _ in range(3):
             assert not chiller._poll(monotonic())["error"]
-        chiller.set_setpoint(18)
+        chiller.apply_setpoint(18)
         assert chiller.read_setpoint() == 18
 
 
@@ -104,7 +104,7 @@ def test_buffered_reply_uses_one_read_instead_of_one_per_byte(monkeypatch):
         assert all(size > 1 for size in sizes)
 
 
-@pytest.mark.parametrize("factory,count", [(CalSimulator, 30), (T255PSimulator, 4)])
+@pytest.mark.parametrize("factory,count", [(CalSimulator, 30), (T255PSimulator, 3)])
 def test_write_after_poll_runs_fresh_preflight_and_readback(factory, count, monkeypatch):
     endpoint = factory()
     requests = []
@@ -118,7 +118,7 @@ def test_write_after_poll_runs_fresh_preflight_and_readback(factory, count, monk
     with endpoint.chiller() as chiller:
         assert not chiller._poll(monotonic())["error"]
         requests.clear()
-        chiller.set_setpoint(18)
+        chiller.apply_setpoint(18)
         assert len(requests) == count
         assert endpoint.applied_writes == 1
         assert chiller.read_setpoint() == 18

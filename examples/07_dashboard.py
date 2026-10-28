@@ -1,9 +1,10 @@
-"""06 · Monitor temperature and apply explicit targets. One owner per serial port."""
+"""07 · Monitor structured status and request targets/modes. One owner per port."""
 
 import logging
 
-from tark_chiller.controller import T255P, TarkChiller
+from tark_chiller.controller import TarkChiller
 from tark_chiller.gui import run_dashboard
+from tark_chiller.protocols import T255P
 
 # 2. Choose the port and operation options
 PORT = "COM9"  # Set the identified serial port, e.g. "COM9".
@@ -11,8 +12,10 @@ PORT = "COM9"  # Set the identified serial port, e.g. "COM9".
 INTERVAL_S = 1.0
 CSV_PATH = None  # Optional NEW path, e.g. "outputs/dashboard_session.csv".
 HOST = "127.0.0.1"
-PORT_HTTP = 8056
+PORT_HTTP = 8006
 SERIAL_TRACE = True  # Enable exact TX/RX logging when investigating device errors.
+ALLOW_SETPOINTS = True
+ALLOW_MODE_CHANGES = True
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
 logging.getLogger("werkzeug").setLevel(logging.WARNING)  # Keep successful HTTP refreshes quiet.
@@ -38,7 +41,7 @@ chiller = TarkChiller(
         "rts": False,
         "dtr": False,
     },
-    protocol=T255P(allow_writes=True),
+    protocol=T255P(allow_writes=ALLOW_SETPOINTS or ALLOW_MODE_CHANGES),
     setpoint_range=(5.0, 45.0),
     coolant_source="ThermoTek T255P Rev C pp9/20; verify installed distilled water",
     # Recover failed reads, including bad-command replies, with a fresh handshake.
@@ -48,9 +51,18 @@ chiller = TarkChiller(
 )
 
 print(f"Open http://{HOST}:{PORT_HTTP}. Use Connect, then Start monitoring.")
+print("Equipment mode, on/off states and six alarm flags come from monitoring snapshots.")
 print("Use Shutdown GUI or press Ctrl+C in this terminal to stop.")
 try:
-    run_dashboard(chiller, host=HOST, port=PORT_HTTP, interval_s=INTERVAL_S, csv_path=CSV_PATH)
+    run_dashboard(
+        chiller,
+        host=HOST,
+        port=PORT_HTTP,
+        interval_s=INTERVAL_S,
+        csv_path=CSV_PATH,
+        allow_setpoints=ALLOW_SETPOINTS,
+        allow_mode_changes=ALLOW_MODE_CHANGES,
+    )
 except KeyboardInterrupt:
     print("Stopped dashboard and acquisition.")
 
